@@ -16,8 +16,8 @@
     "icon": "node scripts/run-electron.cjs scripts/make-icon.cjs",
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder --win --x64 --dir && node scripts/build-installer.cjs",
-    "dist:mac": "npm run build && electron-builder --mac",
-    "dist:linux": "npm run build && electron-builder --linux",
+    "dist:mac": "npm run build && electron-builder --mac --publish never",
+    "dist:linux": "npm run build && electron-builder --linux --publish never",
     "installer": "node scripts/build-installer.cjs"
   },
   "build": {
