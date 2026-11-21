@@ -15,14 +15,15 @@ export interface Palette {
 }
 
 export const THEMES: Record<ThemeId, Palette> = {
-  ink: { label: t('墨 · 深色'), bg: '#0E0E10', panel: '#18181B', line: '#26262B', sel: '#1C1C20', text: '#E7E5E0', muted: '#8E8D93', str: '#C9C2B4', light: false, swatch: '#2A2A2E' },
-  paper: { label: t('纸 · 浅色'), bg: '#F7F5F0', panel: '#EDEAE3', line: '#E0DCD3', sel: '#EAE6DD', text: '#1D1C1A', muted: '#6B6760', str: '#5E5546', light: true, swatch: '#E9E4D9' },
-  dusk: { label: t('暮 · 夜紫'), bg: '#16151B', panel: '#201E27', line: '#2C2A35', sel: '#221F2A', text: '#ECE7F2', muted: '#9A95A6', str: '#CBBFD9', light: false, swatch: '#3A3546' }
+  dusk: { label: t('深邃'), bg: '#16151B', panel: '#201E27', line: '#2C2A35', sel: '#221F2A', text: '#ECE7F2', muted: '#9A95A6', str: '#CBBFD9', light: false, swatch: '#3A3546' },
+  graphite: { label: t('石墨'), bg: '#1E1F22', panel: '#2A2B2F', line: '#37383D', sel: '#2E2F34', text: '#E3E4E6', muted: '#94969C', str: '#BEC3CA', light: false, swatch: '#55575D' },
+  ink: { label: t('深色'), bg: '#0E0E10', panel: '#18181B', line: '#26262B', sel: '#1C1C20', text: '#E7E5E0', muted: '#8E8D93', str: '#C9C2B4', light: false, swatch: '#2A2A2E' },
+  paper: { label: t('浅色'), bg: '#F7F5F0', panel: '#EDEAE3', line: '#E0DCD3', sel: '#EAE6DD', text: '#1D1C1A', muted: '#6B6760', str: '#5E5546', light: true, swatch: '#E9E4D9' }
 }
 
 export const ACCENTS: { hex: string; name: string }[] = [
-  { hex: '#E8784A', name: t('橙') },
   { hex: '#6E9BFF', name: t('蓝') },
+  { hex: '#E8784A', name: t('橙') },
   { hex: '#7FBF7A', name: t('绿') },
   { hex: '#C99BFF', name: t('紫') },
   { hex: '#E5C15C', name: t('金') },

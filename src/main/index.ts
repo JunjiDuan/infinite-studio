@@ -16,7 +16,7 @@ import { getSavedLocale, setMainLocale, tm } from './i18n'
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json')
 
 function themeBg(theme: string | undefined): string {
-  return theme === 'paper' ? '#F7F5F0' : theme === 'dusk' ? '#16151B' : '#0E0E10'
+  return theme === 'paper' ? '#F7F5F0' : theme === 'ink' ? '#0E0E10' : theme === 'graphite' ? '#1E1F22' : '#16151B'
 }
 
 async function readSettings(): Promise<Settings | null> {

@@ -4,12 +4,12 @@ import { t } from './i18n'
 import { EN } from './i18n-en'
 
 export const PRESETS: Space[] = [
-  { name: t('深夜编码'), theme: 'ink', accent: '#E8784A', font: 'jet', size: 14 },
+  { name: t('深夜编码'), theme: 'dusk', accent: '#6E9BFF', font: 'jet', size: 14 },
   { name: t('白天文档'), theme: 'paper', accent: '#6E9BFF', font: 'plex', size: 15 },
   { name: t('演示模式'), theme: 'dusk', accent: '#E5C15C', font: 'space', size: 18 }
 ]
 
-const THEME_IDS: ThemeId[] = ['ink', 'paper', 'dusk']
+const THEME_IDS: ThemeId[] = ['dusk', 'ink', 'graphite', 'paper']
 const FONT_IDS: FontId[] = ['jet', 'plex', 'space']
 export const MIN_SIZE = 11
 export const MAX_SIZE = 24
