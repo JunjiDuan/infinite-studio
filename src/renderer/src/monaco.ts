@@ -29,18 +29,20 @@ import type { ResolvedTheme } from './theme'
   }
 }
 
-// 打开的是单个文件而不是完整工程，关掉语义检查，避免满屏“找不到模块”的误报
+// TS/JS 的补全、跳转、诊断等全部交给随应用打包的 TypeScript 7 语言服务（见 lsp.ts）。
+// 内置 TS worker 只在第一次打开 TS 文件时按配置注册一次，之后改配置不生效，所以必须在这里、任何模型创建之前关掉，
+// 否则会和语言服务的结果重复。语法着色走 Monarch，不受影响。
 try {
   const anyMonaco = monaco as unknown as Record<string, any>
   const tsApi = anyMonaco.typescript ?? (monaco.languages as unknown as Record<string, any>).typescript
-  if (tsApi) {
-    for (const d of [tsApi.typescriptDefaults, tsApi.javascriptDefaults]) {
-      d?.setDiagnosticsOptions({ noSemanticValidation: true, noSyntaxValidation: false })
-      d?.setCompilerOptions({ target: 99, module: 99, allowJs: true, allowNonTsExtensions: true, jsx: 1 })
-    }
+  const off = {
+    completionItems: false, hovers: false, documentSymbols: false, definitions: false, references: false, documentHighlights: false, rename: false,
+    diagnostics: false, documentRangeFormattingEdits: false, signatureHelp: false, onTypeFormattingEdits: false, codeActions: false, inlayHints: false
   }
+  tsApi?.typescriptDefaults?.setModeConfiguration(off)
+  tsApi?.javascriptDefaults?.setModeConfiguration(off)
 } catch (e) {
-  console.warn('TypeScript 语言服务配置失败', e)
+  console.warn('关闭内置 TypeScript 服务失败', e)
 }
 
 /** 单强调色语法高亮：关键字用强调色，字符串/类型用暖灰，其余全部是正文色 */
@@ -111,6 +113,18 @@ export function defineTheme(t: ResolvedTheme): void {
       'scrollbarSlider.hoverBackground': t.muted + '50',
       'scrollbarSlider.activeBackground': t.muted + '70',
       'focusBorder': t.accent + '88',
+      'textLink.foreground': t.accent,
+      'textLink.activeForeground': t.accent,
+      'peekViewTitle.background': t.panel,
+      'peekViewTitleLabel.foreground': t.text,
+      'peekViewTitleDescription.foreground': t.muted,
+      'peekViewEditor.background': t.bg,
+      'peekViewEditorGutter.background': t.bg,
+      'peekViewResult.background': t.panel,
+      'peekViewResult.selectionBackground': t.sel,
+      'peekViewResult.matchHighlightBackground': t.accent + '33',
+      'peekViewEditor.matchHighlightBackground': t.accent + '33',
+      'peekView.border': t.line,
       'input.background': t.bg,
       'input.border': t.line,
       'list.hoverBackground': t.sel,

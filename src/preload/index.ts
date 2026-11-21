@@ -39,6 +39,14 @@ const api: Api = {
     onData: (cb) => subscribe('term:data', cb),
     onExit: (cb) => subscribe('term:exit', cb)
   },
+  lsp: {
+    servers: () => ipcRenderer.invoke('lsp:servers'),
+    start: (serverId, root) => ipcRenderer.invoke('lsp:start', serverId, root),
+    send: (session, msg) => ipcRenderer.send('lsp:send', session, msg),
+    stop: (session) => ipcRenderer.send('lsp:stop', session),
+    onMessage: (cb) => subscribe('lsp:message', cb),
+    onExit: (cb) => subscribe('lsp:exit', cb)
+  },
   search: {
     run: (id, root, query, opts) => ipcRenderer.invoke('search:run', id, root, query, opts),
     replace: (query, opts, replacement, files) => ipcRenderer.invoke('search:replace', query, opts, replacement, files)

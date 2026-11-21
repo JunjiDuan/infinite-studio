@@ -4,6 +4,7 @@ import path from 'node:path'
 import type { Settings, Space } from '../shared/types'
 import { registerFsIpc } from './fsService'
 import { registerSearchIpc } from './search'
+import { registerLspIpc } from './lsp'
 import { registerTerminalIpc } from './terminal'
 
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json')
@@ -56,7 +57,8 @@ async function createWindow(): Promise<void> {
   // 没有菜单栏，自己接管开发者工具和刷新快捷键
   win.webContents.on('before-input-event', (_e, input) => {
     if (input.type !== 'keyDown') return
-    const devtools = input.key === 'F12' || (input.control && input.shift && input.key.toLowerCase() === 'i')
+    // F12 留给“转到定义”
+    const devtools = input.control && input.shift && input.key.toLowerCase() === 'i'
     if (devtools) win.webContents.toggleDevTools()
     if (!app.isPackaged && input.control && input.shift && input.key.toLowerCase() === 'r') win.webContents.reload()
   })
@@ -123,6 +125,7 @@ function registerIpc(): void {
   registerFsIpc()
   registerSearchIpc()
   registerTerminalIpc()
+  registerLspIpc()
 }
 
 Menu.setApplicationMenu(null)

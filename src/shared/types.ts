@@ -61,6 +61,13 @@ export interface SearchResult {
   error?: string
 }
 
+export interface LspServerInfo {
+  id: string
+  name: string
+  /** 对应的 Monaco 语言 id */
+  languages: string[]
+}
+
 export interface Api {
   platform: string
   win: {
@@ -94,6 +101,15 @@ export interface Api {
     kill(id: number): void
     onData(cb: (id: number, data: string) => void): () => void
     onExit(cb: (id: number, code: number) => void): () => void
+  }
+  lsp: {
+    /** 本机可用的语言服务 */
+    servers(): Promise<LspServerInfo[]>
+    start(serverId: string, root: string): Promise<number>
+    send(session: number, msg: unknown): void
+    stop(session: number): void
+    onMessage(cb: (session: number, msg: unknown) => void): () => void
+    onExit(cb: (session: number, code: number, stderr: string) => void): () => void
   }
   search: {
     /** 返回 null 表示已被更新的搜索取代 */

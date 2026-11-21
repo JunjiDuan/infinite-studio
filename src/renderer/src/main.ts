@@ -36,6 +36,7 @@ import { closePalette, invalidateFiles, isPaletteOpen, openPalette } from './pal
 import { closeSettings, initSettings, isSettingsOpen, openSettings } from './settingsView'
 import { PRESETS, emit, isFocus, isRailVisible, isSidebarVisible, loadSettings, on, persist, setSpace, state } from './store'
 import { THEMES, applyCssVars } from './theme'
+import { initLsp, lspStatus, restartLsp, setLspRoot } from './lsp'
 import { createPanel, newTerminal, togglePanel } from './panel'
 import { createSearchView, focusSearch, resetSearch } from './search'
 import { addTreeMenuItems, beginCreate, createTree, invalidatePaths, render as renderTree, setTreeRoot } from './tree'
@@ -91,6 +92,7 @@ const stProblems = h('span', { class: 'st-item' })
 const stCursor = h('span', { class: 'st-item' })
 const stEol = h('span', { class: 'st-item' })
 const stLang = h('span', { class: 'st-item' })
+const stLsp = h('button', { class: 'st-item st-lsp', title: '点击重启语言服务', onClick: () => void restartLsp() })
 const stSpace = h('button', { class: 'st-item st-space', onClick: () => toggleSettings() })
 const statusbar = h(
   'footer',
@@ -102,6 +104,7 @@ const statusbar = h(
   h('span', { class: 'st-item' }, 'UTF-8'),
   stEol,
   stLang,
+  stLsp,
   h('button', { class: 'st-item st-link', onClick: () => togglePanel() }, '终端 Ctrl `'),
   h('button', { class: 'st-item st-link', onClick: () => toggleFocus() }, '专注 Ctrl .'),
   stSpace
@@ -250,6 +253,14 @@ function renderStatus(): void {
   stEol.hidden = !t
   stLang.textContent = t ? languageName(t.model.getLanguageId()) : ''
   stLang.hidden = !t
+  const ls = t ? lspStatus(t.model.getLanguageId()) : null
+  stLsp.hidden = !ls || ls.status === 'stopped'
+  if (ls) {
+    const label = { starting: '语言服务启动中', ready: '语言服务', failed: '语言服务未运行', stopped: '' }[ls.status]
+    stLsp.dataset.status = ls.status
+    stLsp.title = `${ls.name} 语言服务 · 点击重启`
+    stLsp.replaceChildren(h('span', { class: 'dot' }), label)
+  }
   stSpace.replaceChildren(h('span', { class: 'dot' }), `空间 · ${state.settings.space.name}`)
 }
 
@@ -287,6 +298,7 @@ async function openFolder(path: string): Promise<void> {
     return
   }
   if (state.root !== path && !closeAll()) return
+  await setLspRoot(path)
   state.root = path
   state.sidebarOverride = null
   state.settings.recentFolders = [path, ...state.settings.recentFolders.filter((p) => p !== path)].slice(0, 8)
@@ -305,7 +317,14 @@ async function openFolder(path: string): Promise<void> {
 window.api.fs.onChanged((paths) => {
   void invalidatePaths(paths)
   invalidateFiles()
-  for (const p of paths) if (findTab(p)) void reloadFromDisk(p)
+  for (const p of paths) {
+    if (findTab(p)) void reloadFromDisk(p)
+    else {
+      // 为“查看定义”临时建的模型，文件变了就丢掉，下次重新读
+      const shadow = monaco.editor.getModel(monaco.Uri.file(p))
+      if (shadow && !tabs.some((t) => t.model === shadow)) shadow.dispose()
+    }
+  }
   if (state.root && paths.some((p) => /[\\/]\.git[\\/]HEAD$/.test(p))) {
     void window.api.fs.gitBranch(state.root).then((b) => {
       state.branch = b
@@ -323,6 +342,7 @@ function closeFolder(): void {
   if (!closeAll()) return
   state.root = null
   state.branch = null
+  void setLspRoot(null)
   void setTreeRoot(null)
   void window.api.fs.watch(null)
   emit('root')
@@ -424,8 +444,22 @@ registerCommands(() => [
     hint: state.settings.space.name === s.name ? '当前' : '',
     run: () => setSpace({ ...s })
   })),
-  { id: 'window.devtools', title: '开发者工具', key: 'F12', run: () => toast('按 F12 打开开发者工具') }
+  { id: 'editor.format', title: '格式化文档', key: 'Shift Alt F', run: () => runEditorAction('editor.action.formatDocument') },
+  { id: 'editor.definition', title: '转到定义', key: 'F12', run: () => runEditorAction('editor.action.revealDefinition') },
+  { id: 'editor.references', title: '查找所有引用', key: 'Shift F12', run: () => runEditorAction('editor.action.referenceSearch.trigger') },
+  { id: 'editor.rename', title: '重命名符号', key: 'F2', run: () => runEditorAction('editor.action.rename') },
+  { id: 'editor.outline', title: '转到文件中的符号', key: 'Ctrl Shift O', run: () => runEditorAction('editor.action.quickOutline') },
+  { id: 'lsp.restart', title: '重启语言服务', run: restartLsp },
+  { id: 'window.devtools', title: '开发者工具', key: 'Ctrl Shift I', run: () => toast('按 Ctrl Shift I 打开开发者工具') }
 ])
+
+function runEditorAction(id: string): void {
+  const ed = getEditor()
+  if (!ed?.getModel()) return
+  ed.focus()
+  // 用 trigger 而不是 getAction：后者会按上下文过滤，语言服务注册的功能可能被误判为不可用
+  ed.trigger('palette', id, null)
+}
 
 function toggleWrap(): void {
   state.settings.wordWrap = !state.settings.wordWrap
@@ -494,6 +528,7 @@ on('tabs', () => {
   applyLayout()
 })
 on('cursor', renderStatus)
+on('lsp', renderStatus)
 on('markers', renderStatus)
 on('saved', renderStatus)
 on('root', () => {
@@ -509,6 +544,7 @@ on('root', () => {
 async function boot(): Promise<void> {
   await loadSettings()
   initEditor(editorHost)
+  initLsp()
   initSettings(body, () => getEditor()?.focus())
   applySpace()
   renderTabs()
@@ -522,3 +558,14 @@ async function boot(): Promise<void> {
 }
 
 void boot()
+
+// 调试入口：开发模式或 localStorage.debug = '1' 时，在控制台可用 window.__infinite
+if (import.meta.env.DEV || localStorage.getItem('debug') === '1') {
+  ;(window as unknown as Record<string, unknown>).__infinite = {
+    monaco,
+    getEditor,
+    state,
+    openFile: (p: string) => import('./editor').then((m) => m.openFile(p)),
+    lsp: (server: string, method: string, params: unknown) => import('./lsp').then((m) => m.debugRequest(server, method, params))
+  }
+}

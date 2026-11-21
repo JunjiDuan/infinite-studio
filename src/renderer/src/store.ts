@@ -29,7 +29,7 @@ export function sameLook(a: Space, b: Space): boolean {
   return a.theme === b.theme && a.accent === b.accent && a.font === b.font && a.size === b.size && a.layout === b.layout
 }
 
-type Topic = 'space' | 'layout' | 'root' | 'tabs' | 'cursor' | 'markers' | 'saved'
+type Topic = 'space' | 'layout' | 'root' | 'tabs' | 'cursor' | 'markers' | 'saved' | 'lsp'
 
 const subs = new Map<Topic, Set<() => void>>()
 

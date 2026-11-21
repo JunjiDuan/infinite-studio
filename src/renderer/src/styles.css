@@ -795,6 +795,18 @@ button.st-item:hover {
 .st-space {
   color: var(--text);
 }
+.st-lsp[data-status='starting'] .dot,
+.st-lsp[data-status='failed'] .dot {
+  background: var(--muted);
+}
+.st-lsp[data-status='starting'] .dot {
+  animation: pulse 1s ease-in-out infinite alternate;
+}
+@keyframes pulse {
+  to {
+    opacity: 0.3;
+  }
+}
 
 /* 欢迎页 */
 .welcome {

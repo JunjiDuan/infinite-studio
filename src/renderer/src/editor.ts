@@ -8,6 +8,23 @@ export interface Tab {
   model: monaco.editor.ITextModel
   savedVersion: number
   view: monaco.editor.ICodeEditorViewState | null
+  /** 监听模型内容变化（后台标签被重命名等操作修改时，也要刷新未保存标记） */
+  sub?: monaco.IDisposable
+}
+
+let tabsEmitQueued = false
+function queueTabsEmit(): void {
+  if (tabsEmitQueued) return
+  tabsEmitQueued = true
+  queueMicrotask(() => {
+    tabsEmitQueued = false
+    emit('tabs')
+  })
+}
+
+function track(t: Tab): void {
+  t.sub?.dispose()
+  t.sub = t.model.onDidChangeContent(queueTabsEmit)
 }
 
 export interface OpenOptions {
@@ -89,7 +106,6 @@ export function initEditor(container: HTMLElement): void {
     unicodeHighlight: { ambiguousCharacters: false }
   })
   editor.onDidChangeCursorPosition(() => emit('cursor'))
-  editor.onDidChangeModelContent(() => emit('tabs'))
   monaco.editor.onDidChangeMarkers(() => emit('markers'))
 
   // 跳转到定义等操作要打开别的文件时，由我们接管成“打开标签”
@@ -171,6 +187,7 @@ export async function openFile(rawPath: string, o: OpenOptions = {}): Promise<Ta
     model = monaco.editor.getModel(uri) ?? monaco.editor.createModel(r.content, languageFor(path), uri)
   }
   const tab: Tab = { path, model, savedVersion: model.getAlternativeVersionId(), view: null }
+  track(tab)
   const idx = active ? tabs.indexOf(active) + 1 : tabs.length
   tabs.splice(idx, 0, tab)
   fire('opened', tab)
@@ -192,6 +209,7 @@ function removeTab(t: Tab): void {
   const i = tabs.indexOf(t)
   if (i < 0) return
   tabs.splice(i, 1)
+  t.sub?.dispose()
   fire('closed', t)
   if (active === t) {
     active = null
@@ -270,6 +288,7 @@ export function renamePath(from: string, to: string): void {
     t.model = model
     t.savedVersion = dirty ? -1 : model.getAlternativeVersionId()
     t.view = view
+    track(t)
     fire('opened', t)
     if (wasActive) {
       active = null
