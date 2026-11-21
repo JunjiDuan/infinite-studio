@@ -1,7 +1,7 @@
 // Infinite Studio 安装 / 卸载程序
 //
 // 用 Windows 自带的 .NET Framework 4.8 编译（C# 5），不依赖任何运行库，界面是自绘的 WPF：
-//   - 定义 SETUP 时编译成安装程序：内嵌 payload.zip（应用文件）和 uninstall.exe；
+//   - 定义 SETUP 时编译成安装程序：内嵌 payload.lzma（应用文件，LZMA 压缩，解码器见 Lzma.cs）和 uninstall.exe；
 //   - 不定义时编译成卸载程序，安装时放进安装目录。
 // 按用户安装到 %LOCALAPPDATA%\Programs\Infinite Studio，不需要管理员权限。
 // 覆盖安装：检测到已安装的版本时装回原目录，个人设置（%APPDATA%\Infinite Studio）始终保留。
@@ -14,7 +14,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
-using System.IO.Compression;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.ComTypes;
@@ -235,26 +234,67 @@ namespace InfiniteSetup
                 }
             }
 
-            using (Stream s = asm.GetManifestResourceStream("payload.zip"))
-            using (ZipArchive zip = new ZipArchive(s, ZipArchiveMode.Read))
+            // payload.lzma：LZMA 压缩的归档（格式见 scripts/build-installer.cjs），边解压边写文件
+            using (Stream res = asm.GetManifestResourceStream("payload.lzma"))
+            using (LzmaStream s = new LzmaStream(res))
             {
-                long total = 0;
-                foreach (ZipArchiveEntry e in zip.Entries) total += e.Length;
-                long done = 0;
                 byte[] buf = new byte[1 << 16];
+                ReadExact(s, buf, 13);
+                if (buf[0] != 'I' || buf[1] != 'S' || buf[2] != 'P' || buf[3] != 'K' || buf[4] != 1)
+                    throw new InvalidDataException("安装数据无效");
+                long total = BitConverter.ToInt64(buf, 5);
+                long done = 0;
                 string root = Normalize(dir);
-                foreach (ZipArchiveEntry e in zip.Entries)
+                for (;;)
                 {
-                    string name = e.FullName.Replace('/', '\\');
-                    while (name.StartsWith(".\\")) name = name.Substring(2);
-                    name = name.TrimStart('\\');
-                    if (name.Length == 0) continue;
-                    string target = System.IO.Path.GetFullPath(System.IO.Path.Combine(dir, name));
-                    if (!target.StartsWith(root, StringComparison.OrdinalIgnoreCase)) continue;
-                    if (name.EndsWith("\\")) { Directory.CreateDirectory(target); continue; }
+                    ReadExact(s, buf, 1);
+                    byte type = buf[0];
+                    if (type == 0) break;
+                    ReadExact(s, buf, 2);
+                    int nameLen = BitConverter.ToUInt16(buf, 0);
+                    ReadExact(s, buf, nameLen);
+                    string name = Encoding.UTF8.GetString(buf, 0, nameLen).Replace('/', '\\').TrimStart('\\');
+                    long size = 0;
+                    if (type == 1)
+                    {
+                        ReadExact(s, buf, 8);
+                        size = BitConverter.ToInt64(buf, 0);
+                    }
+                    else if (type != 2) throw new InvalidDataException("安装数据无效");
+
+                    string target = name.Length == 0 ? null : System.IO.Path.GetFullPath(System.IO.Path.Combine(dir, name));
+                    bool inside = target != null && target.StartsWith(root, StringComparison.OrdinalIgnoreCase);
+                    if (type == 2)
+                    {
+                        if (inside) Directory.CreateDirectory(target);
+                        continue;
+                    }
+                    if (!inside)
+                    {
+                        Skip(s, buf, size);
+                        done += size;
+                        continue;
+                    }
                     Directory.CreateDirectory(System.IO.Path.GetDirectoryName(target));
                     progress(total > 0 ? (double)done / total * 0.96 : 0, name);
-                    WriteWithRetry(target, e, buf, ref done, total, progress, name);
+                    using (FileStream dst = OpenWithRetry(target))
+                    {
+                        long left = size, sinceReport = 0;
+                        while (left > 0)
+                        {
+                            int n = (int)Math.Min(buf.Length, left);
+                            ReadExact(s, buf, n);
+                            dst.Write(buf, 0, n);
+                            left -= n;
+                            done += n;
+                            sinceReport += n;
+                            if (sinceReport > (4 << 20))
+                            {
+                                sinceReport = 0;
+                                progress(total > 0 ? (double)done / total * 0.96 : 0, name);
+                            }
+                        }
+                    }
                 }
             }
 
@@ -293,36 +333,38 @@ namespace InfiniteSetup
             progress(1, "");
         }
 
-        static void WriteWithRetry(string target, ZipArchiveEntry e, byte[] buf, ref long done, long total, Progress progress, string name)
+        static void ReadExact(Stream s, byte[] buf, int count)
+        {
+            int got = 0;
+            while (got < count)
+            {
+                int n = s.Read(buf, got, count - got);
+                if (n <= 0) throw new InvalidDataException("安装数据不完整");
+                got += n;
+            }
+        }
+
+        static void Skip(Stream s, byte[] buf, long count)
+        {
+            while (count > 0)
+            {
+                int n = (int)Math.Min(buf.Length, count);
+                ReadExact(s, buf, n);
+                count -= n;
+            }
+        }
+
+        // 文件被占用（杀毒软件扫描等）时稍等重试
+        static FileStream OpenWithRetry(string target)
         {
             for (int attempt = 0; ; attempt++)
             {
-                long before = done;
                 try
                 {
-                    using (Stream src = e.Open())
-                    using (FileStream dst = new FileStream(target, FileMode.Create, FileAccess.Write, FileShare.None))
-                    {
-                        int n;
-                        long sinceReport = 0;
-                        while ((n = src.Read(buf, 0, buf.Length)) > 0)
-                        {
-                            dst.Write(buf, 0, n);
-                            done += n;
-                            sinceReport += n;
-                            if (sinceReport > (4 << 20))
-                            {
-                                sinceReport = 0;
-                                progress(total > 0 ? (double)done / total * 0.96 : 0, name);
-                            }
-                        }
-                    }
-                    return;
+                    return new FileStream(target, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 16);
                 }
                 catch (IOException)
                 {
-                    // 文件被占用（杀毒软件扫描等），稍等重试
-                    done = before;
                     if (attempt >= 8) throw;
                     Thread.Sleep(400);
                 }
