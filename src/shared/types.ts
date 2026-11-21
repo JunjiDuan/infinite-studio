@@ -169,6 +169,8 @@ export interface Api {
     close(): void
     /** 重新创建窗口（切换界面语言后） */
     reload(): void
+    /** 新开一个空白 IDE 窗口 */
+    newWindow(): void
   }
   fs: {
     openFolderDialog(): Promise<string | null>

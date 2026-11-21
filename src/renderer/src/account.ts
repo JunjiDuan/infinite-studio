@@ -110,31 +110,40 @@ export async function openLoginDialog(): Promise<void> {
 
   const codeBox = h('div', { class: 'login-code', hidden: true })
 
+  // 浏览器登录：配置了 OAuth Client ID 走 Device Flow；没配置时打开 GitHub 预填好的令牌创建页，
+  // 用户在网页里点“Generate token”，复制回来粘贴即可
+  const TOKEN_URL = 'https://github.com/settings/tokens/new?description=Infinite%20Studio&scopes=read:user'
+  const browserLogin = (): void => {
+    if (!hasDevice) {
+      window.open(TOKEN_URL)
+      codeBox.hidden = false
+      codeBox.replaceChildren(h('span', { class: 'muted' }, t('已在浏览器中打开 GitHub，点击页面底部的 “Generate token”，复制令牌后粘贴到下方')))
+      setBusy('')
+      tokenInput.focus()
+      return
+    }
+    void attempt(async () => {
+      const c = await window.api.account.deviceStart()
+      codeBox.hidden = false
+      codeBox.replaceChildren(
+        h('span', { class: 'muted' }, t('在打开的网页中输入验证码')),
+        h('button', {
+          class: 'code',
+          title: t('点击复制'),
+          onClick: () => {
+            void navigator.clipboard.writeText(c.userCode)
+            toast(t('验证码已复制'))
+          }
+        }, c.userCode)
+      )
+      setBusy(t('等待浏览器中授权…'))
+      return window.api.account.devicePoll()
+    }, t('正在连接 GitHub…'))
+  }
+
   const deviceBtn = h(
     'button',
-    {
-      class: 'btn primary login-main',
-      disabled: !hasDevice,
-      title: hasDevice ? '' : t('需要在 src/main/account.ts 配置 GitHub OAuth Client ID'),
-      onClick: () =>
-        void attempt(async () => {
-          const c = await window.api.account.deviceStart()
-          codeBox.hidden = false
-          codeBox.replaceChildren(
-            h('span', { class: 'muted' }, t('在打开的网页中输入验证码')),
-            h('button', {
-              class: 'code',
-              title: t('点击复制'),
-              onClick: () => {
-                void navigator.clipboard.writeText(c.userCode)
-                toast(t('验证码已复制'))
-              }
-            }, c.userCode)
-          )
-          setBusy(t('等待浏览器中授权…'))
-          return window.api.account.devicePoll()
-        }, t('正在连接 GitHub…'))
-    },
+    { class: 'btn primary login-main', onClick: browserLogin },
     h('span', { class: 'ic', html: icons.github }),
     t('在浏览器中登录')
   )
@@ -174,5 +183,5 @@ export async function openLoginDialog(): Promise<void> {
     card
   )
   document.body.append(dialogEl)
-  ;(hasDevice ? deviceBtn : tokenInput).focus()
+  deviceBtn.focus()
 }

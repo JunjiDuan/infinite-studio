@@ -16,7 +16,8 @@ const api: Api = {
     minimize: () => ipcRenderer.send('win:minimize'),
     toggleMaximize: () => ipcRenderer.send('win:toggleMaximize'),
     close: () => ipcRenderer.send('win:close'),
-    reload: () => ipcRenderer.send('win:reload')
+    reload: () => ipcRenderer.send('win:reload'),
+    newWindow: () => ipcRenderer.send('win:new')
   },
   fs: {
     openFolderDialog: () => ipcRenderer.invoke('fs:openFolderDialog'),

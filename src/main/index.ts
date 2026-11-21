@@ -28,8 +28,8 @@ async function readSettings(): Promise<Settings | null> {
   }
 }
 
-/** prev：重新创建窗口时沿用旧窗口的位置和最大化状态 */
-async function createWindow(prev?: { bounds: Electron.Rectangle; maximized: boolean }): Promise<BrowserWindow> {
+/** prev：重新创建窗口时沿用旧窗口的位置和最大化状态；blank：新窗口不自动打开上次的文件夹 */
+async function createWindow(prev?: { bounds: Electron.Rectangle; maximized: boolean }, blank = false): Promise<BrowserWindow> {
   const settings = await readSettings()
   setMainLocale(settings?.locale, app.getLocale())
   // 开发时用仓库里的图标；打包后图标已嵌进 exe
@@ -78,9 +78,9 @@ async function createWindow(prev?: { bounds: Electron.Rectangle; maximized: bool
   })
 
   if (!app.isPackaged && process.env['ELECTRON_RENDERER_URL']) {
-    await win.loadURL(process.env['ELECTRON_RENDERER_URL'])
+    await win.loadURL(process.env['ELECTRON_RENDERER_URL'] + (blank ? '?blank=1' : ''))
   } else {
-    await win.loadFile(path.join(__dirname, '../renderer/index.html'))
+    await win.loadFile(path.join(__dirname, '../renderer/index.html'), blank ? { query: { blank: '1' } } : undefined)
   }
   return win
 }
@@ -104,6 +104,13 @@ function registerIpc(): void {
     if (!old) return
     const prev = { bounds: old.getNormalBounds(), maximized: old.isMaximized() }
     void createWindow(prev).then((win) => (win.isVisible() ? old.destroy() : win.once('show', () => old.destroy())))
+  })
+
+  // 新开一个空白 IDE 窗口，位置相对当前窗口错开一点
+  ipcMain.on('win:new', (e) => {
+    const cur = senderWindow(e)
+    const b = cur?.getNormalBounds()
+    void createWindow(b ? { bounds: { ...b, x: b.x + 28, y: b.y + 28 }, maximized: false } : undefined, true)
   })
 
   ipcMain.handle('settings:load', () => readSettings())

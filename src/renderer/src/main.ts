@@ -75,6 +75,7 @@ const MENUS: MenuDef[] = [
     items: () => [
       { label: t('新建文件'), disabled: !state.root, run: () => showFilesThen(() => void beginCreate('file')) },
       { label: t('新建文件夹'), disabled: !state.root, run: () => showFilesThen(() => void beginCreate('dir')) },
+      { label: t('打开新窗口'), key: 'Ctrl Shift N', run: () => window.api.win.newWindow() },
       'sep',
       { label: t('打开文件夹…'), key: 'Ctrl O', run: () => void pickFolder() },
       { label: t('关闭文件夹'), disabled: !state.root, run: closeFolder },
@@ -681,6 +682,7 @@ window.addEventListener('beforeunload', (e) => {
 
 registerCommands(() => [
   { id: 'folder.open', title: t('打开文件夹…'), key: 'Ctrl O', run: pickFolder },
+  { id: 'window.new', title: t('打开新窗口'), key: 'Ctrl Shift N', run: () => window.api.win.newWindow() },
   ...(state.root ? [{ id: 'folder.close', title: t('关闭文件夹'), run: closeFolder }] : []),
   ...(state.root
     ? [
@@ -788,6 +790,7 @@ window.addEventListener(
     else if (k === 'f10' && !ctrl && debugActive()) debugStep('next')
     else if (k === 'f11' && !ctrl && debugActive()) debugStep(e.shiftKey ? 'stepOut' : 'stepIn')
     else if (k === 'f6' && !ctrl && debugActive()) debugStep('pause')
+    else if (ctrl && e.shiftKey && k === 'n') window.api.win.newWindow()
     else if (ctrl && k === 's') void saveActive()
     else if (ctrl && k === 'o') void pickFolder()
     else if (ctrl && k === 'w') closeTab()
@@ -887,7 +890,7 @@ async function boot(): Promise<void> {
   applyLayout()
   shown.booted = true
   const last = state.settings.recentFolders[0]
-  if (last) await openFolder(last)
+  if (last && !new URLSearchParams(location.search).has('blank')) await openFolder(last)
   document.fonts.ready.then(() => monaco.editor.remeasureFonts())
 }
 

@@ -287,6 +287,8 @@ kbd {
 .login-code .muted {
   color: var(--muted);
   font-size: 12px;
+  text-align: center;
+  line-height: 1.5;
 }
 .login-code .code {
   font-family: 'JetBrains Mono', monospace;
