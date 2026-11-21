@@ -525,6 +525,91 @@ kbd {
   color: var(--text);
 }
 
+/* 终端面板 */
+.panel {
+  display: none;
+  position: relative;
+  flex-shrink: 0;
+  flex-direction: column;
+  min-height: 120px;
+  border-top: 1px solid var(--line);
+}
+#app.panel-open .panel {
+  display: flex;
+}
+#app.focus .panel {
+  display: none;
+}
+.panel-resizer {
+  position: absolute;
+  top: -3px;
+  left: 0;
+  right: 0;
+  height: 6px;
+  cursor: ns-resize;
+  z-index: 2;
+}
+.panel-resizer:hover {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+body.resizing-v,
+body.resizing-v * {
+  cursor: ns-resize !important;
+}
+.panel-head {
+  height: 34px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px 0 16px;
+}
+.panel-title {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin-right: 10px;
+}
+.panel-tabs {
+  display: flex;
+  gap: 2px;
+  min-width: 0;
+  overflow-x: auto;
+}
+.panel-tabs::-webkit-scrollbar {
+  height: 0;
+}
+.panel-tab {
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 6px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.panel-tab:hover {
+  color: var(--text);
+}
+.panel-tab.on {
+  color: var(--text);
+  background: var(--sel);
+}
+.panel-body {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  padding: 0 0 4px 16px;
+}
+.term-host {
+  position: absolute;
+  inset: 0 4px 4px 16px;
+}
+.term-host .xterm {
+  height: 100%;
+}
+.term-host .xterm-viewport {
+  background: transparent !important;
+}
+
 /* 右键菜单 */
 .ctx-menu {
   position: fixed;

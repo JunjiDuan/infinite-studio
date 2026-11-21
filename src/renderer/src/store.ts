@@ -57,7 +57,9 @@ export const state = {
   /** Ctrl B 临时切换文件栏；null 表示跟随布局 */
   sidebarOverride: null as boolean | null,
   /** 侧栏当前显示的视图 */
-  sideView: 'files' as 'files' | 'search'
+  sideView: 'files' as 'files' | 'search',
+  /** 底部终端面板是否展开 */
+  panelOpen: false
 }
 
 export async function loadSettings(): Promise<void> {
@@ -68,7 +70,8 @@ export async function loadSettings(): Promise<void> {
     savedSpaces: Array.isArray(s.savedSpaces) ? s.savedSpaces.map((x) => sanitizeSpace(x)) : [],
     bindings: Object.fromEntries(Object.entries(s.bindings ?? {}).map(([k, v]) => [k, sanitizeSpace(v)])),
     recentFolders: Array.isArray(s.recentFolders) ? s.recentFolders.filter((x) => typeof x === 'string').slice(0, 8) : [],
-    wordWrap: !!s.wordWrap
+    wordWrap: !!s.wordWrap,
+    panelHeight: typeof s.panelHeight === 'number' ? Math.max(120, Math.min(2000, s.panelHeight)) : undefined
   }
 }
 

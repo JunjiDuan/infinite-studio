@@ -31,6 +31,14 @@ const api: Api = {
     watch: (root) => ipcRenderer.invoke('fs:watch', root),
     onChanged: (cb) => subscribe('fs:changed', cb)
   },
+  term: {
+    create: (opts) => ipcRenderer.invoke('term:create', opts),
+    write: (id, data) => ipcRenderer.send('term:write', id, data),
+    resize: (id, cols, rows) => ipcRenderer.send('term:resize', id, cols, rows),
+    kill: (id) => ipcRenderer.send('term:kill', id),
+    onData: (cb) => subscribe('term:data', cb),
+    onExit: (cb) => subscribe('term:exit', cb)
+  },
   search: {
     run: (id, root, query, opts) => ipcRenderer.invoke('search:run', id, root, query, opts),
     replace: (query, opts, replacement, files) => ipcRenderer.invoke('search:replace', query, opts, replacement, files)

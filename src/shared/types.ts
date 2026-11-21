@@ -19,6 +19,8 @@ export interface Settings {
   bindings: Record<string, Space>
   recentFolders: string[]
   wordWrap: boolean
+  /** 终端面板高度（px） */
+  panelHeight?: number
 }
 
 export interface DirEntry {
@@ -84,6 +86,14 @@ export interface Api {
     /** 递归监听；传 null 停止 */
     watch(root: string | null): Promise<void>
     onChanged(cb: (paths: string[]) => void): () => void
+  }
+  term: {
+    create(opts: { cwd?: string; cols: number; rows: number }): Promise<{ id: number; shell: string }>
+    write(id: number, data: string): void
+    resize(id: number, cols: number, rows: number): void
+    kill(id: number): void
+    onData(cb: (id: number, data: string) => void): () => void
+    onExit(cb: (id: number, code: number) => void): () => void
   }
   search: {
     /** 返回 null 表示已被更新的搜索取代 */

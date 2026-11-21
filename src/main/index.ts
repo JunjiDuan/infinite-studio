@@ -4,6 +4,7 @@ import path from 'node:path'
 import type { Settings, Space } from '../shared/types'
 import { registerFsIpc } from './fsService'
 import { registerSearchIpc } from './search'
+import { registerTerminalIpc } from './terminal'
 
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json')
 
@@ -121,6 +122,7 @@ function registerIpc(): void {
 
   registerFsIpc()
   registerSearchIpc()
+  registerTerminalIpc()
 }
 
 Menu.setApplicationMenu(null)

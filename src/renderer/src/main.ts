@@ -36,8 +36,9 @@ import { closePalette, invalidateFiles, isPaletteOpen, openPalette } from './pal
 import { closeSettings, initSettings, isSettingsOpen, openSettings } from './settingsView'
 import { PRESETS, emit, isFocus, isRailVisible, isSidebarVisible, loadSettings, on, persist, setSpace, state } from './store'
 import { THEMES, applyCssVars } from './theme'
+import { createPanel, newTerminal, togglePanel } from './panel'
 import { createSearchView, focusSearch, resetSearch } from './search'
-import { beginCreate, createTree, invalidatePaths, render as renderTree, setTreeRoot } from './tree'
+import { addTreeMenuItems, beginCreate, createTree, invalidatePaths, render as renderTree, setTreeRoot } from './tree'
 
 /* ---------------- 界面骨架 ---------------- */
 
@@ -72,6 +73,7 @@ const rail = h(
   { class: 'rail', 'aria-label': '活动栏' },
   railFiles,
   railSearch,
+  h('button', { class: 'rail-btn', 'aria-label': '终端 (Ctrl `)', title: '终端 Ctrl `', html: icons.terminal, onClick: () => togglePanel() }),
   h('button', { class: 'rail-btn', 'aria-label': '专注模式 (Ctrl .)', title: '专注模式 Ctrl .', html: icons.focus, onClick: () => toggleFocus() }),
   h('span', { class: 'grow' }),
   h('button', { class: 'rail-btn', 'aria-label': '个性化设置 (Ctrl ,)', title: '个性化 Ctrl ,', html: icons.sliders, onClick: () => toggleSettings() })
@@ -82,7 +84,7 @@ const tabBar = h('div', { class: 'tabs', role: 'tablist', 'aria-label': '打开�
 const editorHost = h('div', { class: 'editor-host' })
 const emptyHint = h('div', { class: 'empty-hint' })
 const welcome = h('div', { class: 'welcome' })
-const editorArea = h('main', { class: 'editor-area' }, tabBar, h('div', { class: 'editor-wrap' }, editorHost, emptyHint))
+const editorArea = h('main', { class: 'editor-area' }, tabBar, h('div', { class: 'editor-wrap' }, editorHost, emptyHint), createPanel())
 
 const stBranch = h('span', { class: 'st-item' })
 const stProblems = h('span', { class: 'st-item' })
@@ -100,6 +102,7 @@ const statusbar = h(
   h('span', { class: 'st-item' }, 'UTF-8'),
   stEol,
   stLang,
+  h('button', { class: 'st-item st-link', onClick: () => togglePanel() }, '终端 Ctrl `'),
   h('button', { class: 'st-item st-link', onClick: () => toggleFocus() }, '专注 Ctrl .'),
   stSpace
 )
@@ -256,6 +259,7 @@ function applyLayout(): void {
   app.classList.toggle('no-rail', !isRailVisible() && !welcomeMode)
   app.classList.toggle('no-side', !isSidebarVisible())
   app.classList.toggle('welcome-mode', welcomeMode)
+  app.classList.toggle('panel-open', state.panelOpen)
   sidebar.dataset.view = state.sideView
   railFiles.classList.toggle('on', isSidebarVisible() && state.sideView === 'files')
   railSearch.classList.toggle('on', isSidebarVisible() && state.sideView === 'search')
@@ -402,6 +406,8 @@ registerCommands(() => [
   { id: 'view.sidebar', title: '显示 / 隐藏侧栏', key: 'Ctrl B', run: toggleSidebar },
   { id: 'view.search', title: '在文件中搜索', key: 'Ctrl Shift F', run: () => showSideView('search') },
   { id: 'view.focus', title: '专注模式', key: 'Ctrl .', run: toggleFocus },
+  { id: 'term.toggle', title: '显示 / 隐藏终端', key: 'Ctrl `', run: togglePanel },
+  { id: 'term.new', title: '新建终端', key: 'Ctrl Shift `', run: () => newTerminal() },
   { id: 'view.settings', title: '打开个性化设置', key: 'Ctrl ,', run: openSettings },
   { id: 'view.wrap', title: '切换自动换行', key: 'Alt Z', run: toggleWrap },
   { id: 'font.bigger', title: '增大字号', key: 'Ctrl =', run: () => changeSize(1) },
@@ -428,6 +434,8 @@ function toggleWrap(): void {
   toast(state.settings.wordWrap ? '自动换行：开' : '自动换行：关')
 }
 
+addTreeMenuItems(({ dir }) => [{ label: '在终端中打开', run: () => void newTerminal(dir) }, 'sep'])
+
 /* ---------------- 快捷键 ---------------- */
 
 // 捕获阶段处理全局快捷键，优先于 Monaco
@@ -436,8 +444,15 @@ window.addEventListener(
   (e) => {
     const ctrl = e.ctrlKey || e.metaKey
     const k = e.key.toLowerCase()
+    const backquote = e.code === 'Backquote'
+    // 终端里只拦截少数全局快捷键，其余（Ctrl B / W / S 等）留给 shell
+    const inTerm = !!(e.target as Element | null)?.closest?.('.xterm')
+    if (inTerm && !(ctrl && (backquote || k === 'k' || k === 'p' || k === ',' || k === '.' || (e.shiftKey && k === 'f')))) return
     let handled = true
-    if (ctrl && !e.shiftKey && k === 'k') openPalette()
+    if (ctrl && backquote) {
+      if (e.shiftKey) void newTerminal()
+      else togglePanel()
+    } else if (ctrl && !e.shiftKey && k === 'k') openPalette()
     else if (ctrl && !e.shiftKey && k === 'p') openPalette()
     else if (ctrl && e.shiftKey && k === 'p') openPalette('>')
     else if (ctrl && e.shiftKey && k === 'f') showSideView('search')
