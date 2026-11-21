@@ -724,8 +724,8 @@ namespace InfiniteSetup
                 F<Border>("UpgradeNote").Visibility = Visibility.Visible;
                 string from = string.IsNullOrEmpty(previous.Version) ? "" : " " + previous.Version;
                 F<TextBlock>("UpgradeText").Text = L.T(
-                    "检测到已安装的版本" + from + "，将覆盖安装到原位置。你的设置、空间、登录账户和插件配置都会保留。",
-                    "Version" + from + " is already installed and will be updated in place. Your settings, spaces, accounts and plugins are kept.");
+                    "检测到已安装的版本" + from + "，将覆盖安装到原位置。",
+                    "Version" + from + " is already installed and will be updated in place.");
             }
             F<TextBlock>("LocationLabel").Text = L.T("安装位置", "INSTALL LOCATION");
             F<Button>("BrowseBtn").Content = L.T("更改…", "Change…");
@@ -767,7 +767,7 @@ namespace InfiniteSetup
             if (running.Count > 0)
             {
                 Confirm(L.T("Infinite Studio 正在运行", "Infinite Studio is running"),
-                    L.T("需要先关闭它才能继续。未保存的修改会丢失。", "It must be closed to continue. Unsaved changes will be lost."),
+                    L.T("关闭它以继续。", "Close it to continue."),
                     L.T("关闭并继续", "Close and continue"), L.T("取消", "Cancel"),
                     delegate { Engine.Kill(running); StartInstall(); });
                 return;
@@ -787,7 +787,7 @@ namespace InfiniteSetup
             string target = dir;
             ShowPage("PageProgress");
             F<TextBlock>("ProgressTitle").Text = L.T("正在安装", "Installing");
-            F<TextBlock>("ProgressText").Text = L.T("正在把 Infinite Studio 放到你的电脑上，稍等片刻。", "Putting Infinite Studio on your computer. This takes a moment.");
+            F<TextBlock>("ProgressText").Text = L.T("正在把 Infinite Studio 安装到你的电脑上。", "Installing Infinite Studio on your computer.");
             SetButtons(null, null, null, null);
             working = true;
             Action<Exception> after = delegate (Exception err)
@@ -917,7 +917,7 @@ namespace InfiniteSetup
             if (running.Count > 0)
             {
                 Confirm(L.T("Infinite Studio 正在运行", "Infinite Studio is running"),
-                    L.T("需要先关闭它才能卸载。未保存的修改会丢失。", "It must be closed before uninstalling. Unsaved changes will be lost."),
+                    L.T("关闭它以卸载。", "Close it to uninstall."),
                     L.T("关闭并卸载", "Close and uninstall"), L.T("取消", "Cancel"),
                     delegate { Engine.Kill(running); StartUninstall(); });
                 return;
@@ -940,7 +940,7 @@ namespace InfiniteSetup
                 finished = true;
                 ShowDone(L.T("已卸载", "Uninstalled"), removeData
                     ? L.T("Infinite Studio 及其数据已从这台电脑上移除。", "Infinite Studio and its data have been removed.")
-                    : L.T("Infinite Studio 已移除。你的设置仍然保留，重新安装后会自动恢复。", "Infinite Studio has been removed. Your settings were kept and will return if you reinstall."));
+                    : L.T("Infinite Studio 已移除。", "Infinite Studio has been removed."));
                 SetButtons(L.T("完成", "Done"), TryClose, null, null);
             };
             Product.Machine = Product.IsMachineDir(target);

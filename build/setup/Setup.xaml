@@ -1,6 +1,6 @@
 <!--
   Infinite Studio 安装 / 卸载界面（运行时用 XamlReader 加载，事件和文字在 Setup.cs 里设置）
-  配色：暮 · 夜紫 + 蓝色强调色
+  配色：与 IDE 默认空间一致 —— 深邃 + 蓝色强调色（#6E9BFF）
 -->
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -18,11 +18,11 @@
     <SolidColorBrush x:Key="Panel" Color="#201E27"/>
     <SolidColorBrush x:Key="Accent" Color="#6E9BFF"/>
     <LinearGradientBrush x:Key="AccentGradient" StartPoint="0,0" EndPoint="1,1">
-      <GradientStop Color="#8C7BFF" Offset="0"/>
+      <GradientStop Color="#8DB0FF" Offset="0"/>
       <GradientStop Color="#6E9BFF" Offset="1"/>
     </LinearGradientBrush>
 
-    <!-- 主按钮：蓝紫渐变 -->
+    <!-- 主按钮：蓝色渐变 -->
     <Style x:Key="Primary" TargetType="Button">
       <Setter Property="Foreground" Value="White"/>
       <Setter Property="FontSize" Value="13.5"/>
@@ -268,9 +268,9 @@
     <Border x:Name="Frame" CornerRadius="18" BorderBrush="#33FFFFFF" BorderThickness="1">
       <Border.Background>
         <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-          <GradientStop Color="#1D1A28" Offset="0"/>
+          <GradientStop Color="#1A1920" Offset="0"/>
           <GradientStop Color="#16151B" Offset="0.55"/>
-          <GradientStop Color="#13121A" Offset="1"/>
+          <GradientStop Color="#141319" Offset="1"/>
         </LinearGradientBrush>
       </Border.Background>
       <Border.Effect>
@@ -283,8 +283,8 @@
       <Ellipse x:Name="GlowA" Width="520" Height="520" Canvas.Left="-200" Canvas.Top="-240">
         <Ellipse.Fill>
           <RadialGradientBrush>
-            <GradientStop Color="#665B3FC8" Offset="0"/>
-            <GradientStop Color="#005B3FC8" Offset="1"/>
+            <GradientStop Color="#553A3546" Offset="0"/>
+            <GradientStop Color="#003A3546" Offset="1"/>
           </RadialGradientBrush>
         </Ellipse.Fill>
       </Ellipse>
@@ -314,12 +314,12 @@
                     Data="M6.5 8.5c-1.9 0-3 1.4-3 3.5s1.1 3.5 3 3.5c3.5 0 7.5-7 11-7 1.9 0 3 1.4 3 3.5s-1.1 3.5-3 3.5c-3.5 0-7.5-7-11-7z">
                 <Path.Stroke>
                   <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
-                    <GradientStop Color="#A58BFF" Offset="0"/>
+                    <GradientStop Color="#9DBBFF" Offset="0"/>
                     <GradientStop Color="#6E9BFF" Offset="1"/>
                   </LinearGradientBrush>
                 </Path.Stroke>
                 <Path.Effect>
-                  <DropShadowEffect Color="#7F8CFF" BlurRadius="22" ShadowDepth="0" Opacity="0.7"/>
+                  <DropShadowEffect Color="#6E9BFF" BlurRadius="22" ShadowDepth="0" Opacity="0.7"/>
                 </Path.Effect>
               </Path>
               <Path x:Name="InfShine" Stretch="Uniform" StrokeThickness="5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Stroke="#F2F0FF" Opacity="0.9"
