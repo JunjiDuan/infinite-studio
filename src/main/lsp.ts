@@ -3,6 +3,7 @@ import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import type { LspServerInfo } from '../shared/types'
+import { tm } from './i18n'
 
 interface Launch {
   cmd: string
@@ -124,7 +125,7 @@ export function registerLspIpc(): void {
 
   ipcMain.handle('lsp:start', (e, serverId: string, root: string) => {
     const launch = resolveAll().get(serverId)
-    if (!launch) throw new Error('没有可用的语言服务：' + serverId)
+    if (!launch) throw new Error(tm('没有可用的语言服务：{0}', serverId))
     const env: Record<string, string> = {}
     for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v
     delete env.ELECTRON_RUN_AS_NODE

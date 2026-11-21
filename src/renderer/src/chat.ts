@@ -1,4 +1,4 @@
-import { AGENT_MODES, type SessionInfo } from '../../shared/agents'
+import { AGENT_MODES, type DailyUsage, type RateLimits, type SessionInfo } from '../../shared/agents'
 import { PLUGINS, type PluginDef } from '../../shared/plugins'
 import { initBus } from './agent/bus'
 import { ClaudeDriver } from './agent/claude'
@@ -25,8 +25,10 @@ import { basenameOf, clip, errText, rel } from './agent/util'
 import { h, relative, toast } from './dom'
 import { fileSelection, onSelection, openFile, openView, recentFile, recentFiles, revealView, tabs, updateView } from './editor'
 import { icons } from './icons'
+import { showMenu } from './menu'
 import { glyph, launchInTerminal, onPluginsChange, usable } from './plugins'
 import { persist, state } from './store'
+import { t } from './i18n'
 
 /**
  * AI 对话视图：照着官方 VS Code 扩展（Claude Code / Codex）的交互来做。
@@ -70,9 +72,9 @@ interface CompletionItem {
 const views = new Set<ChatView>()
 let lastActive: ChatView | null = null
 
-export const agentIcons = h('div', { class: 'agent-icons', role: 'toolbar', 'aria-label': 'AI 助手' })
+export const agentIcons = h('div', { class: 'agent-icons', role: 'toolbar', 'aria-label': t('AI 助手') })
 
-const VERBS = ['思考中', '琢磨中', '推敲中', '酝酿中', '构思中', '梳理中', '斟酌中', '打磨中', '编织中', '演算中', '整理中', '探索中']
+const VERBS = [t('思考中'), t('琢磨中'), t('推敲中'), t('酝酿中'), t('构思中'), t('梳理中'), t('斟酌中'), t('打磨中'), t('编织中'), t('演算中'), t('整理中'), t('探索中')]
 
 /* ---------------- 文件列表（@ 引用用） ---------------- */
 
@@ -113,11 +115,11 @@ function readImage(file: File): Promise<ImageAttachment | null> {
   return new Promise((resolve) => {
     if (!/^image\/(png|jpeg|gif|webp)$/.test(file.type)) return resolve(null)
     if (file.size > 20 * 1024 * 1024) {
-      toast('图片超过 20 MB')
+      toast(t('图片超过 20 MB'))
       return resolve(null)
     }
     const r = new FileReader()
-    r.onload = () => resolve({ name: file.name || '图片', mime: file.type, dataUrl: String(r.result) })
+    r.onload = () => resolve({ name: file.name || t('图片'), mime: file.type, dataUrl: String(r.result) })
     r.onerror = () => resolve(null)
     r.readAsDataURL(file)
   })
@@ -125,22 +127,68 @@ function readImage(file: File): Promise<ImageAttachment | null> {
 
 function relTime(ms: number): string {
   const d = (Date.now() - ms) / 1000
-  if (d < 60) return '刚刚'
-  if (d < 3600) return `${Math.floor(d / 60)} 分钟前`
-  if (d < 86400) return `${Math.floor(d / 3600)} 小时前`
-  if (d < 86400 * 30) return `${Math.floor(d / 86400)} 天前`
+  if (d < 60) return t('刚刚')
+  if (d < 3600) return t('{0} 分钟前', Math.floor(d / 60))
+  if (d < 86400) return t('{0} 小时前', Math.floor(d / 3600))
+  if (d < 86400 * 30) return t('{0} 天前', Math.floor(d / 86400))
   return new Date(ms).toLocaleDateString()
 }
+
+/* ---------------- 用量 ---------------- */
+
+/** 每个插件最近一次拿到的订阅额度（多个对话窗口共用，存本地以便重开后还能看到） */
+const rateCache = new Map<string, RateLimits>()
+
+function loadRate(plugin: string): RateLimits | null {
+  if (!rateCache.has(plugin)) {
+    try {
+      const r = JSON.parse(localStorage.getItem('rateLimits:' + plugin) ?? 'null')
+      if (r && Array.isArray(r.windows)) rateCache.set(plugin, r)
+    } catch {
+      /* ignore */
+    }
+  }
+  return rateCache.get(plugin) ?? null
+}
+
+function saveRate(plugin: string, r: RateLimits): void {
+  rateCache.set(plugin, r)
+  try {
+    localStorage.setItem('rateLimits:' + plugin, JSON.stringify(r))
+  } catch {
+    /* ignore */
+  }
+}
+
+/** 1234 → 1.2K，1234567 → 1.23M */
+function fmtTokens(n: number): string {
+  if (n >= 1e9) return (n / 1e9).toFixed(n >= 1e10 ? 1 : 2) + 'B'
+  if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 1 : 2) + 'M'
+  if (n >= 1e3) return (n / 1e3).toFixed(n >= 1e4 ? 0 : 1) + 'K'
+  return String(Math.round(n))
+}
+
+function untilText(ms: number): string {
+  const d = ms - Date.now()
+  if (d <= 0) return t('已重置')
+  const m = Math.ceil(d / 60_000)
+  if (m < 60) return t('{0} 分钟后重置', m)
+  const hrs = Math.floor(m / 60)
+  if (hrs < 24) return t('{0} 小时 {1} 分后重置', hrs, m % 60)
+  return t('{0} 天 {1} 小时后重置', Math.floor(hrs / 24), hrs % 24)
+}
+
+const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 
 function dayGroup(ms: number): string {
   const start = new Date()
   start.setHours(0, 0, 0, 0)
-  const t = start.getTime()
-  if (ms >= t) return '今天'
-  if (ms >= t - 86400_000) return '昨天'
-  if (ms >= t - 7 * 86400_000) return '最近 7 天'
-  if (ms >= t - 30 * 86400_000) return '最近 30 天'
-  return '更早'
+  const t0 = start.getTime()
+  if (ms >= t0) return t('今天')
+  if (ms >= t0 - 86400_000) return t('昨天')
+  if (ms >= t0 - 7 * 86400_000) return t('最近 7 天')
+  if (ms >= t0 - 30 * 86400_000) return t('最近 30 天')
+  return t('更早')
 }
 
 /* ---------------- 弹出菜单（模式、模型） ---------------- */
@@ -226,6 +274,16 @@ class ChatView implements ChatHost {
   private modeBtn: HTMLButtonElement
   private modelBtn: HTMLButtonElement
   private usageEl: HTMLElement
+  /** 最近一次可见时的滚动位置，以及当时是否停在底部（视图被移走 / 隐藏后浏览器会把 scrollTop 清零） */
+  private savedScroll = 0
+  private pinned = true
+  private sizeObserver: ResizeObserver
+  private limitsBtn: HTMLElement
+  private usagePanel: HTMLElement
+  private usageMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1)
+  /** 热力图里选中的日期 YYYY-MM-DD */
+  private usageDay = ymd(new Date())
+  private daily: DailyUsage | null = null
   private sendBtn: HTMLButtonElement
   private fileInput: HTMLInputElement
 
@@ -265,22 +323,28 @@ class ChatView implements ChatHost {
     this.driver = def.id === 'codex' ? new CodexDriver(this, opts) : new ClaudeDriver(this, opts)
 
     /* ----- 头部 ----- */
-    this.titleEl = h('button', { class: 'chat-title', title: '历史对话', onClick: () => this.toggleHistory() }, '新对话')
+    this.titleEl = h('button', { class: 'chat-title', title: t('历史对话'), onClick: () => this.toggleHistory() }, t('新对话'))
+    this.limitsBtn = h('button', { class: 'chat-limits', 'aria-label': t('用量'), title: t('用量与 token 统计'), onClick: () => this.toggleUsage() })
     const head = h(
       'div',
       { class: 'chat-head' },
       h('span', { class: 'chat-head-icon', html: glyph(def.id, 14) }),
       this.titleEl,
       h('span', { class: 'grow' }),
-      h('button', { class: 'icon-btn small', 'aria-label': '历史对话', title: '历史对话', html: icons.history, onClick: () => this.toggleHistory() }),
-      h('button', { class: 'icon-btn small', 'aria-label': '新对话', title: '新对话 (Ctrl N)', html: icons.plus, onClick: () => this.reset() }),
-      h('button', { class: 'icon-btn small', 'aria-label': '更多', title: '更多', html: icons.more, onClick: (e: MouseEvent) => this.moreMenu(e.currentTarget as HTMLElement) })
+      this.limitsBtn,
+      h('button', { class: 'icon-btn small', 'aria-label': t('历史对话'), title: t('历史对话'), html: icons.history, onClick: () => this.toggleHistory() }),
+      h('button', { class: 'icon-btn small', 'aria-label': t('新对话'), title: t('新对话 (Ctrl N)'), html: icons.plus, onClick: () => this.reset() }),
+      h('button', { class: 'icon-btn small', 'aria-label': t('更多'), title: t('更多'), html: icons.more, onClick: (e: MouseEvent) => this.moreMenu(e.currentTarget as HTMLElement) })
     )
     this.historyEl = h('div', { class: 'chat-history', hidden: true })
+    this.usagePanel = h('div', { class: 'chat-history chat-usage-panel', hidden: true, onKeydown: (e: KeyboardEvent) => e.key === 'Escape' && (this.usagePanel.hidden = true) })
 
     /* ----- 消息 ----- */
     this.listEl = h('div', { class: 'chat-list' })
-    this.bodyEl = h('div', { class: 'chat-body' }, this.listEl)
+    this.bodyEl = h('div', { class: 'chat-body', onContextmenu: (e: MouseEvent) => this.copyMenu(e), onScroll: () => this.rememberScroll() }, this.listEl)
+    // 关闭其它窗口、切换标签、从设置返回时，视图会被重新挂载或从隐藏变为显示：恢复到之前的位置
+    this.sizeObserver = new ResizeObserver(() => this.restoreScroll())
+    this.sizeObserver.observe(this.bodyEl)
 
     /* ----- 输入区 ----- */
     this.todosEl = h('div', { class: 'chat-todos', hidden: true })
@@ -293,7 +357,7 @@ class ChatView implements ChatHost {
       class: 'chat-input',
       rows: '1',
       spellcheck: 'false',
-      placeholder: def.id === 'codex' ? '让 Codex 做点什么（@ 引用文件，/ 命令）' : '向 Claude 提问或布置任务（@ 引用文件，/ 命令）',
+      placeholder: def.id === 'codex' ? t('让 Codex 做点什么（@ 引用文件，/ 命令）') : t('向 Claude 提问或布置任务（@ 引用文件，/ 命令）'),
       onInput: () => {
         this.autoGrow()
         this.updateCompletion()
@@ -342,9 +406,9 @@ class ChatView implements ChatHost {
         'div',
         { class: 'chat-tools' },
         this.modeBtn,
-        h('button', { class: 'chat-tool', title: '引用文件 (@)', 'aria-label': '引用文件', html: icons.at, onClick: () => this.insertTrigger('@') }),
-        h('button', { class: 'chat-tool', title: '命令 (/)', 'aria-label': '命令', html: icons.slash, onClick: () => this.insertTrigger('/') }),
-        h('button', { class: 'chat-tool', title: '添加图片', 'aria-label': '添加图片', html: icons.image, onClick: () => this.fileInput.click() }),
+        h('button', { class: 'chat-tool', title: t('引用文件 (@)'), 'aria-label': t('引用文件'), html: icons.at, onClick: () => this.insertTrigger('@') }),
+        h('button', { class: 'chat-tool', title: t('命令 (/)'), 'aria-label': t('命令'), html: icons.slash, onClick: () => this.insertTrigger('/') }),
+        h('button', { class: 'chat-tool', title: t('添加图片'), 'aria-label': t('添加图片'), html: icons.image, onClick: () => this.fileInput.click() }),
         h('span', { class: 'grow' }),
         this.usageEl,
         this.modelBtn,
@@ -358,10 +422,12 @@ class ChatView implements ChatHost {
       { class: 'chat', 'data-plugin': def.id, onKeydown: (e: KeyboardEvent) => this.onViewKey(e), onFocusin: () => (lastActive = this) },
       head,
       this.historyEl,
+      this.usagePanel,
       this.bodyEl,
       h('div', { class: 'chat-foot' }, this.todosEl, this.queueEl, this.statusEl, this.promptEl, this.boxEl)
     )
     this.renderEmpty()
+    this.renderLimits()
     this.renderMode()
     this.renderModel()
     this.renderSend()
@@ -397,7 +463,7 @@ class ChatView implements ChatHost {
       'div',
       { class: 'msg user' },
       h('div', { class: 'msg-user-text' }, text),
-      opts.images ? h('div', { class: 'msg-user-imgs' }, h('span', { html: icons.image }), `${opts.images} 张图片`) : null
+      opts.images ? h('div', { class: 'msg-user-imgs' }, h('span', { html: icons.image }), t('{0} 张图片', opts.images)) : null
     )
     bubble.dataset.text = text
     if (opts.id) bubble.dataset.id = opts.id
@@ -407,16 +473,16 @@ class ChatView implements ChatHost {
       { class: 'msg-actions' },
       h('button', {
         class: 'icon-btn tiny',
-        title: '复制',
-        'aria-label': '复制',
+        title: t('复制'),
+        'aria-label': t('复制'),
         html: icons.copy,
         onClick: () => {
           void navigator.clipboard.writeText(text)
-          toast('已复制')
+          toast(t('已复制'))
         }
       }),
       this.driver.canRewind
-        ? h('button', { class: 'icon-btn tiny rewind', title: '回退到这里', 'aria-label': '回退到这里', html: icons.rewind, onClick: (e: MouseEvent) => this.rewindMenu(bubble, e.currentTarget as HTMLElement) })
+        ? h('button', { class: 'icon-btn tiny rewind', title: t('回退到这里'), 'aria-label': t('回退到这里'), html: icons.rewind, onClick: (e: MouseEvent) => this.rewindMenu(bubble, e.currentTarget as HTMLElement) })
         : null
     )
     const wrap = h('div', { class: 'msg-user-wrap' }, bubble, actions)
@@ -486,8 +552,8 @@ class ChatView implements ChatHost {
     this.clearEmpty()
     const el = h('div', { class: 'msg-note' + (kind !== 'info' ? ' err' : '') }, h('span', { class: 'msg-note-text' }, text))
     if (kind === 'action') {
-      if (AUTH_ERROR.test(text)) el.append(h('button', { class: 'btn small primary', onClick: () => this.showLogin() }, '登录'))
-      el.append(h('button', { class: 'btn small', onClick: () => void launchInTerminal(this.def) }, '在终端中打开'))
+      if (AUTH_ERROR.test(text)) el.append(h('button', { class: 'btn small primary', onClick: () => this.showLogin() }, t('登录')))
+      el.append(h('button', { class: 'btn small', onClick: () => void launchInTerminal(this.def) }, t('在终端中打开')))
     }
     const stick = this.nearBottom()
     ;(this.turnEl ?? this.listEl).append(el)
@@ -504,7 +570,7 @@ class ChatView implements ChatHost {
     this.loginCard?.cancel?.()
     this.loginCard?.el.remove()
     const body = h('div', { class: 'login-body' })
-    const el = h('div', { class: 'login-card' }, h('div', { class: 'login-title' }, `登录 ${this.def.name}`), body)
+    const el = h('div', { class: 'login-card' }, h('div', { class: 'login-title' }, t('登录 {0}', this.def.name)), body)
     const card: { el: HTMLElement; cancel?: () => void } = { el }
     this.loginCard = card
     const close = () => {
@@ -524,7 +590,7 @@ class ChatView implements ChatHost {
             h('span', { class: 'login-method-hint' }, m.hint)
           )
         ),
-        h('div', { class: 'login-actions' }, h('button', { class: 'btn small', onClick: close }, '取消'))
+        h('div', { class: 'login-actions' }, h('button', { class: 'btn small', onClick: close }, t('取消')))
       )
     }
 
@@ -540,13 +606,13 @@ class ChatView implements ChatHost {
       body.replaceChildren(
         h('label', { class: 'login-label' }, spec.label),
         inp,
-        h('div', { class: 'login-actions' }, h('button', { class: 'btn small primary', onClick: go }, '登录'), h('button', { class: 'btn small', onClick: choose }, '返回'))
+        h('div', { class: 'login-actions' }, h('button', { class: 'btn small primary', onClick: go }, t('登录')), h('button', { class: 'btn small', onClick: choose }, t('返回')))
       )
       inp.focus()
     }
 
     const start = async (m: LoginMethod, input?: string) => {
-      const status = h('div', { class: 'login-status' }, '正在开始登录…')
+      const status = h('div', { class: 'login-status' }, t('正在开始登录…'))
       const extra = h('div', { class: 'login-extra' })
       let cancelFn: (() => void) | null = null
       let cancelled = false
@@ -570,7 +636,7 @@ class ChatView implements ChatHost {
                 choose()
               }
             },
-            '取消'
+            t('取消')
           )
         )
       )
@@ -578,42 +644,42 @@ class ChatView implements ChatHost {
         input,
         url: (url, open) => {
           if (open) window.open(url)
-          status.textContent = '已在浏览器中打开登录页，请在网页上完成登录，完成后这里会自动继续。'
+          status.textContent = t('已在浏览器中打开登录页，请在网页上完成登录，完成后这里会自动继续。')
           extra.append(
             h(
               'div',
               { class: 'login-row' },
-              h('button', { class: 'btn small', onClick: () => window.open(url) }, '重新打开登录页'),
+              h('button', { class: 'btn small', onClick: () => window.open(url) }, t('重新打开登录页')),
               h(
                 'button',
                 {
                   class: 'btn small',
                   onClick: () => {
                     void navigator.clipboard.writeText(url)
-                    toast('已复制登录链接')
+                    toast(t('已复制登录链接'))
                   }
                 },
-                '复制链接'
+                t('复制链接')
               )
             )
           )
         },
         code: (code) => {
-          extra.prepend(h('div', { class: 'login-row' }, h('span', { class: 'login-label' }, '在网页上输入这个代码：'), h('code', { class: 'login-code' }, code)))
+          extra.prepend(h('div', { class: 'login-row' }, h('span', { class: 'login-label' }, t('在网页上输入这个代码：')), h('code', { class: 'login-code' }, code)))
         },
         askCode: (submit) => {
-          const inp = h('input', { class: 'text-input', placeholder: '如果网页上显示了授权码，粘贴到这里', spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement
+          const inp = h('input', { class: 'text-input', placeholder: t('如果网页上显示了授权码，粘贴到这里'), spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement
           const go = () => {
             const v = inp.value.trim()
             if (!v) return
             submit(v)
             inp.value = ''
-            status.textContent = '正在验证授权码…'
+            status.textContent = t('正在验证授权码…')
           }
           inp.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') go()
           })
-          extra.append(h('div', { class: 'login-row login-paste' }, inp, h('button', { class: 'btn small', onClick: go }, '提交')))
+          extra.append(h('div', { class: 'login-row login-paste' }, inp, h('button', { class: 'btn small', onClick: go }, t('提交'))))
         },
         onCancel: (fn) => {
           cancelFn = fn
@@ -625,7 +691,7 @@ class ChatView implements ChatHost {
         if (cancelled) return
         el.remove()
         if (this.loginCard === card) this.loginCard = null
-        this.note(this.driver.account ? `已登录：${this.driver.account}` : '登录成功')
+        this.note(this.driver.account ? t('已登录：{0}', this.driver.account) : t('登录成功'))
         this.capabilities()
       } catch (e) {
         if (cancelled) return
@@ -635,9 +701,9 @@ class ChatView implements ChatHost {
           h(
             'div',
             { class: 'login-actions' },
-            h('button', { class: 'btn small primary', onClick: () => void start(m, input) }, '重试'),
-            h('button', { class: 'btn small', onClick: choose }, '换一种方式'),
-            h('button', { class: 'btn small', onClick: () => void launchInTerminal(this.def) }, '在终端中登录')
+            h('button', { class: 'btn small primary', onClick: () => void start(m, input) }, t('重试')),
+            h('button', { class: 'btn small', onClick: choose }, t('换一种方式')),
+            h('button', { class: 'btn small', onClick: () => void launchInTerminal(this.def) }, t('在终端中登录'))
           )
         )
       }
@@ -649,12 +715,12 @@ class ChatView implements ChatHost {
   }
 
   private async logout(): Promise<void> {
-    if (!confirm(`退出 ${this.def.name} 的登录？`)) return
+    if (!confirm(t('退出 {0} 的登录？', this.def.name))) return
     try {
       await this.driver.logout()
-      this.note('已退出登录')
+      this.note(t('已退出登录'))
     } catch (e) {
-      this.note('退出登录失败：' + errText(e), 'error')
+      this.note(t('退出登录失败：') + errText(e), 'error')
     }
   }
 
@@ -678,7 +744,7 @@ class ChatView implements ChatHost {
     const i = this.prompts.findIndex((p) => p.key === key)
     if (i < 0) return
     const [p] = this.prompts.splice(i, 1)
-    p.reject(new Error('已撤回'))
+    p.reject(new Error(t('已撤回')))
     this.renderPrompt()
   }
 
@@ -699,9 +765,9 @@ class ChatView implements ChatHost {
     clearInterval(this.ticker)
     this.statusOverride = null
     this.finishRunning(info.ok ? 'done' : 'error')
-    for (const p of this.prompts.splice(0)) p.reject(new Error('已结束'))
+    for (const p of this.prompts.splice(0)) p.reject(new Error(t('已结束')))
     this.renderPrompt()
-    if (info.interrupted) this.note('已中断')
+    if (info.interrupted) this.note(t('已中断'))
     else if (info.error) this.note(info.error, AUTH_ERROR.test(info.error) || /credit|subscription/i.test(info.error) ? 'action' : 'error')
     this.turnEl = null
     this.renderStatus()
@@ -729,7 +795,267 @@ class ChatView implements ChatHost {
     this.usageEl.className = 'chat-usage' + (pct >= 80 ? ' warn' : '')
     this.usageEl.style.setProperty('--pct', String(pct))
     this.usageEl.replaceChildren(h('span', { class: 'chat-usage-ring' }), `${pct}%`)
-    this.usageEl.title = `上下文已使用 ${used.toLocaleString()} / ${window.toLocaleString()} tokens${costUsd != null ? ` · 本次 $${costUsd.toFixed(4)}` : ''}${pct >= 70 ? '\n快满时可以用 /compact 压缩对话' : ''}`
+    this.usageEl.title = t('上下文已使用 {0} / {1} tokens{2}{3}', used.toLocaleString(), window.toLocaleString(), costUsd != null ? t(' · 本次 ${0}', costUsd.toFixed(4)) : '', pct >= 70 ? t('\n快满时可以用 /compact 压缩对话') : '')
+  }
+
+  rateLimits(r: RateLimits): void {
+    saveRate(this.def.id, r)
+    for (const v of views) {
+      if (v.def.id !== this.def.id) continue
+      v.renderLimits()
+      if (!v.usagePanel.hidden) v.renderUsage()
+    }
+  }
+
+  /** 标题栏上的用量按钮：有额度数据时显示最紧张的那个窗口 */
+  private renderLimits(): void {
+    const r = loadRate(this.def.id)
+    const live = r?.windows.filter((w) => !w.resetsAt || w.resetsAt > Date.now()) ?? []
+    const top = live.reduce<(typeof live)[number] | null>((a, w) => (!a || w.usedPercent > a.usedPercent ? w : a), null)
+    this.limitsBtn.className = 'chat-limits' + (top && top.usedPercent >= 80 ? ' warn' : '')
+    if (!top) {
+      this.limitsBtn.replaceChildren(h('span', { class: 'chat-limits-icon', html: icons.gauge }))
+      this.limitsBtn.title = t('用量与 token 统计')
+      return
+    }
+    const pct = Math.round(top.usedPercent)
+    this.limitsBtn.style.setProperty('--pct', String(pct))
+    this.limitsBtn.replaceChildren(h('span', { class: 'chat-limits-bar' }), `${top.label} ${pct}%`)
+    this.limitsBtn.title = live.map((w) => t('{0}：已用 {1}%{2}', w.label, Math.round(w.usedPercent), w.resetsAt ? ' · ' + untilText(w.resetsAt) : '')).join('\n') + t('\n点击查看 token 统计')
+  }
+
+  private toggleUsage(): void {
+    if (!this.usagePanel.hidden) {
+      this.usagePanel.hidden = true
+      return
+    }
+    this.historyEl.hidden = true
+    this.usagePanel.hidden = false
+    this.usageMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1)
+    this.usageDay = ymd(new Date())
+    this.renderUsage()
+    void this.driver.readRateLimits?.()
+    void window.api.agent.dailyUsage(this.def.id).then(
+      (d) => {
+        this.daily = d
+        if (!this.usagePanel.hidden) this.renderUsage()
+      },
+      () => {
+        this.daily = {}
+        if (!this.usagePanel.hidden) this.renderUsage()
+      }
+    )
+  }
+
+  private renderUsage(): void {
+    const close = h('button', { class: 'icon-btn small', 'aria-label': t('关闭'), html: icons.close, onClick: () => (this.usagePanel.hidden = true) })
+
+    /* ----- 订阅额度 ----- */
+    const r = loadRate(this.def.id)
+    const limits = h('div', { class: 'usage-limits' })
+    if (r?.windows.length) {
+      for (const w of r.windows) {
+        const reset = !!w.resetsAt && w.resetsAt <= Date.now()
+        const used = reset ? 0 : Math.round(w.usedPercent)
+        limits.append(
+          h(
+            'div',
+            { class: 'usage-limit' + (used >= 80 ? ' warn' : '') },
+            h('div', { class: 'usage-limit-row' }, h('span', { class: 'usage-limit-label' }, w.label), h('span', { class: 'usage-limit-pct' }, t('已用 {0}% · 剩余 {1}%', used, 100 - used))),
+            h('div', { class: 'usage-bar' }, h('span', { style: `width:${used}%` })),
+            w.resetsAt ? h('div', { class: 'usage-limit-reset', title: new Date(w.resetsAt).toLocaleString() }, reset ? t('已重置，等待下次更新') : untilText(w.resetsAt)) : null
+          )
+        )
+      }
+      limits.append(h('div', { class: 'usage-note' }, t('更新于 {0}', relTime(r.updatedAt))))
+    } else {
+      limits.append(
+        h(
+          'div',
+          { class: 'usage-note' },
+          this.def.id === 'claude'
+            ? t('Claude Code 每轮对话结束后会返回订阅额度，发一条消息后这里就会显示。使用 API Key（Console）登录时按量计费，没有额度。')
+            : t('暂时没有额度信息。使用 API Key 登录时按量计费，没有额度。')
+        )
+      )
+    }
+
+    /* ----- 月度热力图 ----- */
+    const m = this.usageMonth
+    const year = m.getFullYear()
+    const month = m.getMonth()
+    const now = new Date()
+    const isThisMonth = year === now.getFullYear() && month === now.getMonth()
+    const shift = (n: number) => {
+      this.usageMonth = new Date(year, month + n, 1)
+      this.usageDay = ''
+      this.renderUsage()
+    }
+    const nav = h(
+      'div',
+      { class: 'usage-month' },
+      h('button', { class: 'icon-btn small', 'aria-label': t('上个月'), title: t('上个月'), html: icons.chevronLeft, onClick: () => shift(-1) }),
+      h('span', { class: 'usage-month-title' }, t('{0} 年 {1} 月', year, month + 1)),
+      h('button', { class: 'icon-btn small', 'aria-label': t('下个月'), title: t('下个月'), html: icons.chevron, disabled: isThisMonth, onClick: () => shift(1) })
+    )
+
+    let body: HTMLElement
+    if (!this.daily) {
+      body = h('div', { class: 'usage-note' }, h('span', { class: 'spinner' }), t(' 正在统计本地会话记录…'))
+    } else {
+      const days = new Date(year, month + 1, 0).getDate()
+      const vals: number[] = []
+      for (let d = 1; d <= days; d++) vals.push(this.daily[ymd(new Date(year, month, d))]?.total ?? 0)
+      const max = Math.max(0, ...vals)
+      const sum = vals.reduce((a, b) => a + b, 0)
+      const active = vals.filter((v) => v > 0).length
+      const elapsed = isThisMonth ? now.getDate() : days
+      const peak = vals.indexOf(max)
+
+      const inMonth = this.usageDay.startsWith(`${year}-${String(month + 1).padStart(2, '0')}-`)
+      const selKey = inMonth ? this.usageDay : isThisMonth ? ymd(now) : max ? ymd(new Date(year, month, peak + 1)) : ''
+      const grid = h('div', { class: 'usage-grid' }, ...[t('一'), t('二'), t('三'), t('四'), t('五'), t('六'), t('日')].map((w) => h('span', { class: 'usage-wd' }, w)))
+      const lead = (new Date(year, month, 1).getDay() + 6) % 7
+      for (let i = 0; i < lead; i++) grid.append(h('span', { class: 'usage-cell blank' }))
+      for (let d = 1; d <= days; d++) {
+        const u = this.daily[ymd(new Date(year, month, d))]
+        const v = u?.total ?? 0
+        const lv = v <= 0 ? 0 : Math.min(4, Math.ceil((v / max) * 4))
+        const future = isThisMonth && d > now.getDate()
+        const tip = u
+          ? t('{0} 月 {1} 日：{2} tokens\n输入 {3}\n输出 {4}\n缓存读取 {5}{6}', month + 1, d, v.toLocaleString(), u.input.toLocaleString(), u.output.toLocaleString(), u.cacheRead.toLocaleString(), u.cacheWrite ? t('\n缓存写入 {0}', u.cacheWrite.toLocaleString()) : '')
+          : t('{0} 月 {1} 日：没有使用', month + 1, d)
+        const key = ymd(new Date(year, month, d))
+        grid.append(
+          h(
+            'button',
+            {
+              class: `usage-cell l${lv}` + (isThisMonth && d === now.getDate() ? ' today' : '') + (future ? ' future' : '') + (key === selKey ? ' on' : ''),
+              title: tip,
+              disabled: future,
+              'aria-pressed': String(key === selKey),
+              onClick: () => {
+                this.usageDay = key
+                this.renderUsage()
+              }
+            },
+            String(d)
+          )
+        )
+      }
+      const stat = (k: string, v: string) => h('div', { class: 'usage-stat' }, h('span', { class: 'usage-stat-v' }, v), h('span', { class: 'usage-stat-k' }, k))
+      body = h(
+        'div',
+        {},
+        h(
+          'div',
+          { class: 'usage-stats' },
+          stat(t('本月合计'), fmtTokens(sum)),
+          stat(t('日均'), fmtTokens(elapsed ? sum / elapsed : 0)),
+          stat(max ? t('最高 · {0} 日', peak + 1) : t('最高'), max ? fmtTokens(max) : '—'),
+          stat(t('活跃天数'), t('{0} 天', active))
+        ),
+        grid,
+        this.dayDetail(selKey),
+        h('div', { class: 'usage-legend' }, t('少'), ...[0, 1, 2, 3, 4].map((l) => h('span', { class: `usage-cell l${l}` })), t('多'), h('span', { class: 'grow' }), t('含缓存读写 · 统计自本机会话记录'))
+      )
+    }
+
+    this.usagePanel.replaceChildren(
+      h('div', { class: 'chat-history-head usage-head' }, h('span', { class: 'usage-title' }, t('{0} 用量', this.def.name)), h('span', { class: 'grow' }), close),
+      h('div', { class: 'usage-scroll' }, h('div', { class: 'usage-section' }, t('订阅额度')), limits, h('div', { class: 'usage-section' }, t('Token 消耗')), nav, body)
+    )
+  }
+
+  /** 热力图下方：选中那天的 token 明细 */
+  private dayDetail(key: string): HTMLElement | null {
+    if (!key || !this.daily) return null
+    const [y, mo, d] = key.split('-').map(Number)
+    const date = new Date(y, mo - 1, d)
+    const title = t('{0} 月 {1} 日 · 星期{2}', mo, d, t('日,一,二,三,四,五,六').split(',')[date.getDay()])
+    const u = this.daily[key]
+    if (!u || !u.total) return h('div', { class: 'usage-day' }, h('div', { class: 'usage-day-head' }, h('span', { class: 'usage-day-date' }, title), h('span', { class: 'usage-day-total muted' }, t('没有使用'))))
+    const rows: [string, number, string][] = [
+      [t('输入'), u.input, 'in'],
+      [t('输出'), u.output, 'out'],
+      [t('缓存读取'), u.cacheRead, 'cr'],
+      [t('缓存写入'), u.cacheWrite, 'cw']
+    ]
+    return h(
+      'div',
+      { class: 'usage-day' },
+      h(
+        'div',
+        { class: 'usage-day-head' },
+        h('span', { class: 'usage-day-date' }, title),
+        h('span', { class: 'usage-day-total', title: `${u.total.toLocaleString()} tokens` }, `${fmtTokens(u.total)} tokens`)
+      ),
+      h('div', { class: 'usage-day-bar' }, ...rows.filter((r) => r[1] > 0).map(([k, v, c]) => h('span', { class: c, style: `flex:${v}`, title: `${k} ${v.toLocaleString()}` }))),
+      h(
+        'div',
+        { class: 'usage-day-rows' },
+        ...rows
+          .filter(([k, v]) => v > 0 || k !== t('缓存写入'))
+          .map(([k, v, c]) =>
+            h(
+              'div',
+              { class: 'usage-day-row' },
+              h('span', { class: 'usage-day-dot ' + c }),
+              h('span', { class: 'usage-day-k' }, k),
+              h('span', { class: 'usage-day-v' }, v.toLocaleString()),
+              h('span', { class: 'usage-day-p' }, `${((v / u.total) * 100).toFixed(1)}%`)
+            )
+          )
+      )
+    )
+  }
+
+  /* ----- 复制 ----- */
+
+  /** 消息列表里选中的文字 */
+  private chatSelection(): string {
+    const sel = window.getSelection()
+    if (!sel || sel.isCollapsed || !sel.rangeCount) return ''
+    if (!this.listEl.contains(sel.getRangeAt(0).commonAncestorContainer)) return ''
+    return sel.toString()
+  }
+
+  /** 一条消息的原文：用户消息取输入内容，助手回复取各段 markdown 原文 */
+  private messageText(target: Element | null): string {
+    const user = target?.closest<HTMLElement>('.msg.user')
+    if (user) return user.dataset.text ?? user.innerText
+    const turn = target?.closest<HTMLElement>('.msg.assistant')
+    if (!turn) return ''
+    const parts: string[] = []
+    for (const b of this.blocks.values()) if (b.kind === 'text' && turn.contains(b.el) && b.text.trim()) parts.push(b.text.trim())
+    return parts.join('\n\n') || turn.innerText
+  }
+
+  private selectAllMessages(): void {
+    const sel = window.getSelection()
+    if (!sel) return
+    const range = document.createRange()
+    range.selectNodeContents(this.listEl)
+    sel.removeAllRanges()
+    sel.addRange(range)
+  }
+
+  private copyMenu(e: MouseEvent): void {
+    const target = e.target as Element
+    if (target.closest('input, textarea')) return
+    e.preventDefault()
+    const sel = this.chatSelection()
+    const msg = this.messageText(target)
+    const copy = (text: string) => {
+      void navigator.clipboard.writeText(text)
+      toast(t('已复制'))
+    }
+    showMenu(e.clientX, e.clientY, [
+      { label: t('复制'), key: 'Ctrl C', disabled: !sel, run: () => copy(sel) },
+      { label: t('复制这条消息'), disabled: !msg, run: () => copy(msg) },
+      'sep',
+      { label: t('全选'), key: 'Ctrl A', run: () => this.selectAllMessages() }
+    ])
   }
 
   private titleFromSession = false
@@ -770,16 +1096,17 @@ class ChatView implements ChatHost {
 
   dispose(): void {
     clearInterval(this.ticker)
-    for (const p of this.prompts.splice(0)) p.reject(new Error('视图已关闭'))
+    this.sizeObserver.disconnect()
+    for (const p of this.prompts.splice(0)) p.reject(new Error(t('视图已关闭')))
     this.driver.dispose()
     views.delete(this)
     if (lastActive === this) lastActive = null
   }
 
-  private setTitle(t: string): void {
-    this.title = t.replace(/\s+/g, ' ').trim()
-    this.titleEl.textContent = this.title || '新对话'
-    this.titleEl.title = this.title ? `${this.title}\n点击查看历史对话` : '历史对话'
+  private setTitle(raw: string): void {
+    this.title = raw.replace(/\s+/g, ' ').trim()
+    this.titleEl.textContent = this.title || t('新对话')
+    this.titleEl.title = this.title ? t('{0}\n点击查看历史对话', this.title) : t('历史对话')
     updateView(this.el, { title: this.title ? clip(this.title, 24).replace(/\n…$/, '…') : this.def.name })
   }
 
@@ -796,7 +1123,7 @@ class ChatView implements ChatHost {
   }
 
   private notifyAttention(): void {
-    if (!document.hasFocus()) document.title = `● ${this.def.name} 需要你确认`
+    if (!document.hasFocus()) document.title = t('● {0} 需要你确认', this.def.name)
     const restore = () => {
       document.title = document.title.replace(/^● .*?需要你确认$/, 'Infinite Studio')
       window.removeEventListener('focus', restore)
@@ -805,7 +1132,25 @@ class ChatView implements ChatHost {
   }
 
   private nearBottom(): boolean {
+    // 不可见时量不到尺寸，按最后一次可见时的状态算
+    if (!this.visible()) return this.pinned
     return this.bodyEl.scrollHeight - this.bodyEl.scrollTop - this.bodyEl.clientHeight < 80
+  }
+
+  private visible(): boolean {
+    return this.bodyEl.isConnected && this.bodyEl.clientHeight > 0
+  }
+
+  private rememberScroll(): void {
+    if (!this.visible()) return
+    this.savedScroll = this.bodyEl.scrollTop
+    this.pinned = this.nearBottom()
+  }
+
+  private restoreScroll(): void {
+    if (!this.visible()) return
+    if (this.pinned) this.bodyEl.scrollTop = this.bodyEl.scrollHeight
+    else if (this.bodyEl.scrollTop === 0 && this.savedScroll > 0) this.bodyEl.scrollTop = this.savedScroll
   }
 
   private scrollToEnd(force = false): void {
@@ -821,20 +1166,20 @@ class ChatView implements ChatHost {
     const isCodex = this.def.id === 'codex'
     const tips = isCodex
       ? [
-          ['@', '引用文件；在编辑器里选中代码后提问会自动附带'],
-          ['/review', '审查当前未提交的修改'],
-          ['/compact', '对话太长时压缩上下文'],
-          ['模式', '对话（只读）/ Agent / Agent（完全访问）'],
-          ['图片', '可以直接粘贴或拖入截图']
+          ['@', t('引用文件；在编辑器里选中代码后提问会自动附带')],
+          ['/review', t('审查当前未提交的修改')],
+          ['/compact', t('对话太长时压缩上下文')],
+          [t('模式'), t('对话（只读）/ Agent / Agent（完全访问）')],
+          [t('图片'), t('可以直接粘贴或拖入截图')]
         ]
       : [
-          ['@', '引用文件；在编辑器里选中代码后提问会自动附带'],
-          ['/', '打开命令菜单：/compact、/init、/review…'],
-          ['Shift Tab', '切换模式：编辑前询问 / 自动编辑 / 计划模式'],
-          ['图片', '可以直接粘贴或拖入截图'],
-          ['Esc', '中断；Ctrl N 新对话；Alt K 从编辑器插入引用']
+          ['@', t('引用文件；在编辑器里选中代码后提问会自动附带')],
+          ['/', t('打开命令菜单：/compact、/init、/review…')],
+          ['Shift Tab', t('切换模式：编辑前询问 / 自动编辑 / 计划模式')],
+          [t('图片'), t('可以直接粘贴或拖入截图')],
+          ['Esc', t('中断；Ctrl N 新对话；Alt K 从编辑器插入引用')]
         ]
-    const where = state.root ? `在 ${basenameOf(state.root)} 中工作` : '还没有打开文件夹，将在用户主目录中工作'
+    const where = state.root ? t('在 {0} 中工作', basenameOf(state.root)) : t('还没有打开文件夹，将在用户主目录中工作')
     this.listEl.replaceChildren(
       h(
         'div',
@@ -843,7 +1188,7 @@ class ChatView implements ChatHost {
         h('div', { class: 'chat-empty-title' }, this.def.name),
         h('p', { class: 'chat-empty-sub' }, where + (this.driver.account ? ` · ${this.driver.account}` : '')),
         this.startError
-          ? h('div', { class: 'chat-empty-error' }, h('span', {}, this.startError), h('button', { class: 'btn small', onClick: () => void launchInTerminal(this.def) }, '在终端中打开'))
+          ? h('div', { class: 'chat-empty-error' }, h('span', {}, this.startError), h('button', { class: 'btn small', onClick: () => void launchInTerminal(this.def) }, t('在终端中打开')))
           : null,
         h('div', { class: 'chat-tips' }, ...tips.map(([k, v]) => h('div', { class: 'chat-tip' }, h('kbd', {}, k), h('span', {}, v))))
       )
@@ -875,8 +1220,15 @@ class ChatView implements ChatHost {
     this.frame = requestAnimationFrame(() => {
       this.frame = 0
       const stick = this.nearBottom()
-      for (const x of this.dirty) this.paint(x)
+      const sel = window.getSelection()
+      const held: Block[] = []
+      for (const x of this.dirty) {
+        // 正在选中这一块的文字：先不重绘，否则选区会丢
+        if (sel && !sel.isCollapsed && sel.rangeCount && sel.getRangeAt(0).intersectsNode(x.el)) held.push(x)
+        else this.paint(x)
+      }
       this.dirty.clear()
+      if (held.length) setTimeout(() => held.forEach((x) => this.schedule(x)), 400)
       if (stick) this.scrollToEnd()
     })
   }
@@ -890,12 +1242,12 @@ class ChatView implements ChatHost {
   private paintText(b: Extract<Block, { kind: 'text' }>): void {
     const copy = h('button', {
       class: 'icon-btn tiny msg-copy',
-      title: '复制',
-      'aria-label': '复制',
+      title: t('复制'),
+      'aria-label': t('复制'),
       html: icons.copy,
       onClick: () => {
         void navigator.clipboard.writeText(b.text)
-        toast('已复制')
+        toast(t('已复制'))
       }
     })
     b.el.replaceChildren(renderMarkdown(b.text), copy)
@@ -904,7 +1256,7 @@ class ChatView implements ChatHost {
   private paintThink(b: Extract<Block, { kind: 'think' }>): void {
     const open = b.el.querySelector('details')?.open ?? false
     const secs = Math.max(1, Math.round(((b.end ?? Date.now()) - b.start) / 1000))
-    const label = b.done ? (this.replaying || !b.end ? '思考过程' : `已思考 ${secs} 秒`) : '思考中…'
+    const label = b.done ? (this.replaying || !b.end ? t('思考过程') : t('已思考 {0} 秒', secs)) : t('思考中…')
     b.el.className = 'msg-think' + (b.done ? '' : ' live')
     b.el.replaceChildren(
       h(
@@ -947,7 +1299,7 @@ class ChatView implements ChatHost {
       sum,
       v.diff && (v.diff.added || v.diff.removed) ? diffStat(v.diff) : null,
       v.outputHint ? h('span', { class: 'tool-hint' }, v.outputHint) : null,
-      v.status === 'denied' ? h('span', { class: 'tool-hint' }, '已拒绝') : null,
+      v.status === 'denied' ? h('span', { class: 'tool-hint' }, t('已拒绝')) : null,
       hasBody ? h('span', { class: 'chev', html: icons.chevron }) : null
     )
     const body: HTMLElement[] = []
@@ -966,7 +1318,7 @@ class ChatView implements ChatHost {
       'div',
       { class: 'diff-box' },
       renderDiff(d, 300),
-      d.load ? h('button', { class: 'diff-open', title: '在编辑器里并排对比', onClick: () => void openDiffTab(d, actions) }, h('span', { html: icons.split }), '打开对比') : null
+      d.load ? h('button', { class: 'diff-open', title: t('在编辑器里并排对比'), onClick: () => void openDiffTab(d, actions) }, h('span', { html: icons.split }), t('打开对比')) : null
     )
   }
 
@@ -993,7 +1345,7 @@ class ChatView implements ChatHost {
     const verb = VERBS[Math.floor(secs / 6 + this.started / 1000) % VERBS.length]
     const text = this.statusOverride ?? `${verb}…`
     this.statusEl.replaceChildren(h('span', { class: 'spinner' }), h('span', { class: 'chat-status-text' }, text))
-    if (this.isBusy) this.statusEl.append(h('span', { class: 'chat-status-meta' }, `${secs} 秒 · Esc 中断`))
+    if (this.isBusy) this.statusEl.append(h('span', { class: 'chat-status-meta' }, t('{0} 秒 · Esc 中断', secs)))
   }
 
   private renderTodos(): void {
@@ -1009,7 +1361,7 @@ class ChatView implements ChatHost {
       'button',
       { class: 'chat-todos-head', onClick: () => ((this.todosOpen = !this.todosOpen), this.renderTodos()) },
       h('span', { class: 'ic', html: icons.list }),
-      h('span', { class: 'chat-todos-cur' }, cur ? (cur.activeForm ?? cur.content) : '待办'),
+      h('span', { class: 'chat-todos-cur' }, cur ? (cur.activeForm ?? cur.content) : t('待办')),
       h('span', { class: 'chat-todos-count' }, `${done}/${list.length}`),
       h('span', { class: 'chev' + (this.todosOpen ? ' open' : ''), html: icons.chevron })
     )
@@ -1031,15 +1383,15 @@ class ChatView implements ChatHost {
         h(
           'div',
           { class: 'chat-queued' },
-          h('span', { class: 'chat-queued-k' }, '排队中'),
-          h('span', { class: 'chat-queued-text' }, q.text || `${q.images.length} 张图片`),
+          h('span', { class: 'chat-queued-k' }, t('排队中')),
+          h('span', { class: 'chat-queued-text' }, q.text || t('{0} 张图片', q.images.length)),
           this.def.id === 'codex' && this.isBusy
-            ? h('button', { class: 'btn tiny', title: '立即发给正在运行的任务', onClick: () => void this.steerQueued(i) }, '立即发送')
+            ? h('button', { class: 'btn tiny', title: t('立即发给正在运行的任务'), onClick: () => void this.steerQueued(i) }, t('立即发送'))
             : null,
           h('button', {
             class: 'icon-btn tiny',
-            title: '移除',
-            'aria-label': '移除',
+            title: t('移除'),
+            'aria-label': t('移除'),
             html: icons.close,
             onClick: () => {
               this.queue.splice(i, 1)
@@ -1059,7 +1411,7 @@ class ChatView implements ChatHost {
       this.queue.splice(i, 1)
       this.renderQueue()
       this.userMessage(q.text)
-    } else toast('当前任务不接受补充，已保留在队列中')
+    } else toast(t('当前任务不接受补充，已保留在队列中'))
   }
 
   /* ----- 模式、模型 ----- */
@@ -1067,8 +1419,8 @@ class ChatView implements ChatHost {
   private renderMode(): void {
     const m = AGENT_MODES[this.def.id]?.find((x) => x.id === this.mode)
     this.modeBtn.dataset.mode = this.mode
-    this.modeBtn.replaceChildren(h('span', { class: 'ic', html: modeIcon(this.mode) }), h('span', {}, m?.label ?? this.mode))
-    this.modeBtn.title = `${m?.hint ?? ''}${this.def.id === 'claude' ? '\nShift Tab 切换' : ''}`
+    this.modeBtn.replaceChildren(h('span', { class: 'ic', html: modeIcon(this.mode) }), h('span', {}, m ? t(m.label) : this.mode))
+    this.modeBtn.title = `${m ? t(m.hint) : ''}${this.def.id === 'claude' ? t('\nShift Tab 切换') : ''}`
   }
 
   private chooseMode(id: string): void {
@@ -1082,7 +1434,7 @@ class ChatView implements ChatHost {
   private modeMenu(): void {
     popover(
       this.modeBtn,
-      (AGENT_MODES[this.def.id] ?? []).map((m) => ({ label: m.label, hint: m.hint, checked: m.id === this.mode, run: () => this.chooseMode(m.id) })),
+      (AGENT_MODES[this.def.id] ?? []).map((m) => ({ label: t(m.label), hint: t(m.hint), checked: m.id === this.mode, run: () => this.chooseMode(m.id) })),
       'modes'
     )
   }
@@ -1099,7 +1451,7 @@ class ChatView implements ChatHost {
     const models = this.driver.models
     const want = this.model ?? this.driver.activeModel
     const m = models.find((x) => x.id === want) ?? (want ? undefined : models.find((x) => x.isDefault))
-    return { label: m?.label ?? want ?? '默认模型', efforts: m?.efforts ?? [] }
+    return { label: m?.label ?? want ?? t('默认模型'), efforts: m?.efforts ?? [] }
   }
 
   private renderModel(): void {
@@ -1107,7 +1459,7 @@ class ChatView implements ChatHost {
     this.modelBtn.replaceChildren(h('span', {}, label.replace(/\s*\(recommended\)/i, '')))
     if (this.effort) this.modelBtn.append(h('span', { class: 'chat-model-effort' }, effortLabel(this.effort)))
     this.modelBtn.append(h('span', { class: 'chev', html: icons.chevronDown }))
-    this.modelBtn.title = '切换模型和思考强度'
+    this.modelBtn.title = t('切换模型和思考强度')
   }
 
   private chooseModel(model: string | undefined, effort: string | undefined): void {
@@ -1121,8 +1473,8 @@ class ChatView implements ChatHost {
 
   private modelMenu(): void {
     const models = this.driver.models
-    const items: PopItem[] = [{ label: '模型', header: true }]
-    if (!models.length) items.push({ label: this.ready ? '没有可用的模型列表' : '正在读取模型列表…', hint: '仍会使用命令行配置的默认模型' })
+    const items: PopItem[] = [{ label: t('模型'), header: true }]
+    if (!models.length) items.push({ label: this.ready ? t('没有可用的模型列表') : t('正在读取模型列表…'), hint: t('仍会使用命令行配置的默认模型') })
     const cur = this.model ?? this.driver.activeModel ?? models.find((m) => m.isDefault)?.id
     for (const m of models) {
       items.push({
@@ -1137,8 +1489,8 @@ class ChatView implements ChatHost {
     }
     const { efforts } = this.currentModel()
     if (efforts.length) {
-      items.push({ label: '思考强度', header: true })
-      items.push({ label: '默认', checked: !this.effort, run: () => this.chooseModel(this.model, undefined) })
+      items.push({ label: t('思考强度'), header: true })
+      items.push({ label: t('默认'), checked: !this.effort, run: () => this.chooseModel(this.model, undefined) })
       for (const e of efforts) items.push({ label: effortLabel(e), hint: effortHint(e), checked: this.effort === e, run: () => this.chooseModel(this.model, e) })
     }
     popover(this.modelBtn, items, 'models')
@@ -1152,10 +1504,10 @@ class ChatView implements ChatHost {
       return
     }
     this.historyEl.hidden = false
-    const search = h('input', { class: 'chat-history-search', placeholder: '搜索历史对话', spellcheck: 'false' })
-    const list = h('div', { class: 'chat-history-list' }, h('div', { class: 'chat-history-empty' }, h('span', { class: 'spinner' }), '正在读取…'))
+    const search = h('input', { class: 'chat-history-search', placeholder: t('搜索历史对话'), spellcheck: 'false' })
+    const list = h('div', { class: 'chat-history-list' }, h('div', { class: 'chat-history-empty' }, h('span', { class: 'spinner' }), t('正在读取…')))
     this.historyEl.replaceChildren(
-      h('div', { class: 'chat-history-head' }, search, h('button', { class: 'icon-btn small', 'aria-label': '关闭', html: icons.close, onClick: () => (this.historyEl.hidden = true) })),
+      h('div', { class: 'chat-history-head' }, search, h('button', { class: 'icon-btn small', 'aria-label': t('关闭'), html: icons.close, onClick: () => (this.historyEl.hidden = true) })),
       list
     )
     search.addEventListener('keydown', (e) => {
@@ -1182,7 +1534,7 @@ class ChatView implements ChatHost {
       const q = search.value.trim().toLowerCase()
       const rows = all.filter((s) => !q || s.title.toLowerCase().includes(q))
       if (!rows.length) {
-        list.replaceChildren(h('div', { class: 'chat-history-empty' }, all.length ? '没有匹配的对话' : '这个文件夹里还没有对话'))
+        list.replaceChildren(h('div', { class: 'chat-history-empty' }, all.length ? t('没有匹配的对话') : t('这个文件夹里还没有对话')))
         return
       }
       const out: HTMLElement[] = []
@@ -1208,24 +1560,24 @@ class ChatView implements ChatHost {
         all = s
         render()
       })
-      .catch((e) => list.replaceChildren(h('div', { class: 'chat-history-empty' }, '读取失败：' + errText(e))))
+      .catch((e) => list.replaceChildren(h('div', { class: 'chat-history-empty' }, t('读取失败：') + errText(e))))
   }
 
   private async resumeSession(s: SessionInfo): Promise<void> {
     this.historyEl.hidden = true
     if (s.id === this.driver.sessionId) return
-    if (this.isBusy && !confirm(`${this.def.name} 还在运行，切换对话会中断它。继续吗？`)) return
+    if (this.isBusy && !confirm(t('{0} 还在运行，切换对话会中断它。继续吗？', this.def.name))) return
     if (this.isBusy) this.driver.interrupt()
     this.clearConversation()
     this.setTitle(s.title)
     this.titleFromSession = true
-    const loading = h('div', { class: 'chat-history-empty' }, h('span', { class: 'spinner' }), '正在载入对话…')
+    const loading = h('div', { class: 'chat-history-empty' }, h('span', { class: 'spinner' }), t('正在载入对话…'))
     this.listEl.replaceChildren(loading)
     this.replaying = true
     try {
       await this.driver.resume(s.id)
     } catch (e) {
-      this.note('载入失败：' + errText(e), 'error')
+      this.note(t('载入失败：') + errText(e), 'error')
     } finally {
       this.replaying = false
       loading.remove()
@@ -1238,7 +1590,7 @@ class ChatView implements ChatHost {
   }
 
   private clearConversation(): void {
-    for (const p of this.prompts.splice(0)) p.reject(new Error('已重置'))
+    for (const p of this.prompts.splice(0)) p.reject(new Error(t('已重置')))
     this.renderPrompt()
     this.isBusy = false
     clearInterval(this.ticker)
@@ -1268,13 +1620,13 @@ class ChatView implements ChatHost {
 
   private moreMenu(anchor: HTMLElement): void {
     const items: PopItem[] = [
-      { label: '新对话标签', hint: '在新标签里开始另一个对话', run: () => openChat(this.def.id, { fresh: true }) },
-      { label: this.driver.account ? '切换账号' : '登录', hint: this.driver.account ?? `登录 ${this.def.name}`, run: () => this.showLogin() },
-      ...(this.driver.account ? [{ label: '退出登录', hint: this.driver.account, run: () => void this.logout() }] : []),
-      { label: `在终端中运行 ${this.def.name}`, hint: '原生命令行界面，可使用全部 / 命令', run: () => void launchInTerminal(this.def) },
+      { label: t('新对话标签'), hint: t('在新标签里开始另一个对话'), run: () => openChat(this.def.id, { fresh: true }) },
+      { label: this.driver.account ? t('切换账号') : t('登录'), hint: this.driver.account ?? t('登录 {0}', this.def.name), run: () => this.showLogin() },
+      ...(this.driver.account ? [{ label: t('退出登录'), hint: this.driver.account, run: () => void this.logout() }] : []),
+      { label: t('在终端中运行 {0}', this.def.name), hint: t('原生命令行界面，可使用全部 / 命令'), run: () => void launchInTerminal(this.def) },
       {
-        label: '附带当前文件和选中内容',
-        hint: '发送消息时自动告诉助手你正在看的文件',
+        label: t('附带当前文件和选中内容'),
+        hint: t('发送消息时自动告诉助手你正在看的文件'),
         checked: state.settings.agentContext !== false,
         run: () => {
           state.settings.agentContext = state.settings.agentContext === false
@@ -1286,11 +1638,11 @@ class ChatView implements ChatHost {
     const id = this.driver.sessionId
     if (id)
       items.push({
-        label: '复制会话 ID',
+        label: t('复制会话 ID'),
         hint: id,
         run: () => {
           void navigator.clipboard.writeText(id)
-          toast('已复制')
+          toast(t('已复制'))
         }
       })
     popover(anchor, items)
@@ -1300,14 +1652,14 @@ class ChatView implements ChatHost {
 
   private rewindMenu(bubble: HTMLElement, anchor: HTMLElement): void {
     const id = bubble.dataset.id
-    if (!id) return toast('这条消息还没有确认，稍后再试')
-    if (this.isBusy) return toast('请先停止当前任务')
+    if (!id) return toast(t('这条消息还没有确认，稍后再试'))
+    if (this.isBusy) return toast(t('请先停止当前任务'))
     const prev = bubble.dataset.prev
     popover(anchor, [
-      { label: '回退到这里', header: true },
-      { label: '恢复代码和对话', hint: '撤销这条消息之后的文件修改，并从这里重新开始对话', run: () => void this.rewind(bubble, id, prev, { code: true, conversation: true }) },
-      { label: '只回退对话', hint: '保留文件修改，从这里重新开始对话', run: () => void this.rewind(bubble, id, prev, { code: false, conversation: true }) },
-      { label: '只恢复代码', hint: '撤销这条消息之后的文件修改，对话保持不变', run: () => void this.rewind(bubble, id, prev, { code: true, conversation: false }) }
+      { label: t('回退到这里'), header: true },
+      { label: t('恢复代码和对话'), hint: t('撤销这条消息之后的文件修改，并从这里重新开始对话'), run: () => void this.rewind(bubble, id, prev, { code: true, conversation: true }) },
+      { label: t('只回退对话'), hint: t('保留文件修改，从这里重新开始对话'), run: () => void this.rewind(bubble, id, prev, { code: false, conversation: true }) },
+      { label: t('只恢复代码'), hint: t('撤销这条消息之后的文件修改，对话保持不变'), run: () => void this.rewind(bubble, id, prev, { code: true, conversation: false }) }
     ])
   }
 
@@ -1316,7 +1668,7 @@ class ChatView implements ChatHost {
     try {
       await this.driver.rewind(id, prev, what)
     } catch (e) {
-      this.note('回退失败：' + errText(e), 'error')
+      this.note(t('回退失败：') + errText(e), 'error')
       return
     }
     if (what.conversation) {
@@ -1366,7 +1718,7 @@ class ChatView implements ChatHost {
 
   private renderPerm(p: Extract<PromptItem, { kind: 'perm' }>): void {
     const r = p.req
-    const more = this.prompts.length > 1 ? h('span', { class: 'prompt-more' }, `还有 ${this.prompts.length - 1} 个`) : null
+    const more = this.prompts.length > 1 ? h('span', { class: 'prompt-more' }, t('还有 {0} 个', this.prompts.length - 1)) : null
     const children: (HTMLElement | null)[] = [h('div', { class: 'prompt-title' }, h('span', { class: 'prompt-icon', html: icons.shield }), h('span', {}, r.title), more)]
     if (r.detail) children.push(h('div', { class: 'prompt-detail' }, r.detail))
     if (r.code) children.push(h('pre', { class: 'prompt-code' }, clip(r.code, 3000)))
@@ -1378,7 +1730,7 @@ class ChatView implements ChatHost {
     if (r.markdown) children.push(h('div', { class: 'prompt-md' }, renderMarkdown(r.markdown)))
     if (p.choosing) {
       const opt = r.options.find((o) => o.id === p.choosing)
-      const ta = h('textarea', { class: 'prompt-feedback', rows: '2', placeholder: '告诉它应该怎么做（可留空，Enter 发送）' })
+      const ta = h('textarea', { class: 'prompt-feedback', rows: '2', placeholder: t('告诉它应该怎么做（可留空，Enter 发送）') })
       const go = () => this.resolvePrompt(p, { option: p.choosing!, feedback: ta.value.trim() || undefined })
       ta.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
@@ -1397,8 +1749,8 @@ class ChatView implements ChatHost {
         h(
           'div',
           { class: 'prompt-options row' },
-          h('button', { class: 'btn small', onClick: () => ((p.choosing = undefined), this.renderPrompt()) }, '返回'),
-          h('button', { class: 'btn small primary', onClick: go }, '发送')
+          h('button', { class: 'btn small', onClick: () => ((p.choosing = undefined), this.renderPrompt()) }, t('返回')),
+          h('button', { class: 'btn small primary', onClick: go }, t('发送'))
         )
       )
     } else {
@@ -1423,7 +1775,7 @@ class ChatView implements ChatHost {
             )
           )
         ),
-        h('div', { class: 'prompt-hint' }, '按数字键选择 · Esc 拒绝')
+        h('div', { class: 'prompt-hint' }, t('按数字键选择 · Esc 拒绝'))
       )
     }
     this.promptEl.replaceChildren(h('div', { class: 'prompt-card' }, ...children))
@@ -1442,7 +1794,7 @@ class ChatView implements ChatHost {
               h(
                 'button',
                 { class: 'ask-tab' + (i === p.index ? ' on' : '') + (p.answers[x.id]?.length || p.other[x.id] ? ' done' : ''), onClick: () => ((p.index = i), this.renderPrompt()) },
-                x.header || `问题 ${i + 1}`
+                x.header || t('问题 {0}', i + 1)
               )
             )
           )
@@ -1480,7 +1832,7 @@ class ChatView implements ChatHost {
     const other = q.allowOther
       ? h('input', {
           class: 'ask-other',
-          placeholder: q.options.length ? '其他（自己填写）' : '输入你的回答',
+          placeholder: q.options.length ? t('其他（自己填写）') : t('输入你的回答'),
           value: p.other[q.id] ?? '',
           onInput: (e: Event) => (p.other[q.id] = (e.target as HTMLInputElement).value),
           onKeydown: (e: KeyboardEvent) => {
@@ -1496,10 +1848,10 @@ class ChatView implements ChatHost {
       h(
         'div',
         { class: 'prompt-card ask' },
-        h('div', { class: 'prompt-title' }, h('span', { class: 'prompt-icon', html: icons.question }), h('span', {}, `${this.def.name} 有问题想问你`)),
+        h('div', { class: 'prompt-title' }, h('span', { class: 'prompt-icon', html: icons.question }), h('span', {}, t('{0} 有问题想问你', this.def.name))),
         tabsEl,
         h('div', { class: 'ask-q' }, q.question),
-        q.multiSelect ? h('div', { class: 'prompt-detail' }, '可多选') : null,
+        q.multiSelect ? h('div', { class: 'prompt-detail' }, t('可多选')) : null,
         h(
           'div',
           { class: 'ask-opts' },
@@ -1516,9 +1868,9 @@ class ChatView implements ChatHost {
         h(
           'div',
           { class: 'prompt-options row' },
-          h('button', { class: 'btn small', onClick: () => this.resolvePrompt(p, null) }, '跳过'),
+          h('button', { class: 'btn small', onClick: () => this.resolvePrompt(p, null) }, t('跳过')),
           h('span', { class: 'grow' }),
-          h('button', { class: 'btn small primary', onClick: () => (qs.every(answered) ? finish() : next()) }, qs.every(answered) || qs.length === 1 ? '提交' : '下一题')
+          h('button', { class: 'btn small primary', onClick: () => (qs.every(answered) ? finish() : next()) }, qs.every(answered) || qs.length === 1 ? t('提交') : t('下一题'))
         )
       )
     )
@@ -1535,8 +1887,8 @@ class ChatView implements ChatHost {
     const stop = this.isBusy && !this.input.value.trim()
     this.sendBtn.innerHTML = stop ? icons.stop : icons.send
     this.sendBtn.classList.toggle('stop', stop)
-    this.sendBtn.setAttribute('aria-label', stop ? '停止 (Esc)' : this.isBusy ? '加入队列' : '发送 (Enter)')
-    this.sendBtn.title = stop ? '停止 Esc' : this.isBusy ? '加入队列，当前任务结束后发送' : '发送 Enter'
+    this.sendBtn.setAttribute('aria-label', stop ? t('停止 (Esc)') : this.isBusy ? t('加入队列') : t('发送 (Enter)'))
+    this.sendBtn.title = stop ? t('停止 Esc') : this.isBusy ? t('加入队列，当前任务结束后发送') : t('发送 Enter')
   }
 
   /** 发送时附带的上下文 */
@@ -1563,7 +1915,7 @@ class ChatView implements ChatHost {
           h('img', { src: img.dataUrl, alt: img.name }),
           h('button', {
             class: 'chat-img-x',
-            'aria-label': '移除图片',
+            'aria-label': t('移除图片'),
             html: icons.close,
             onClick: () => {
               this.images.splice(i, 1)
@@ -1579,10 +1931,10 @@ class ChatView implements ChatHost {
       chips.push(
         h(
           'span',
-          { class: 'chat-ctx' + (on ? '' : ' off'), title: on ? `将附带${sel ? `选中的 ${sel.endLine - sel.startLine + 1} 行` : '当前文件'}：${rel(path)}` : '不附带当前文件' },
+          { class: 'chat-ctx' + (on ? '' : ' off'), title: on ? t('将附带{0}：{1}', sel ? t('选中的 {0} 行', sel.endLine - sel.startLine + 1) : t('当前文件'), rel(path)) : t('不附带当前文件') },
           h('button', {
             class: 'chat-ctx-eye',
-            'aria-label': on ? '不附带' : '附带',
+            'aria-label': on ? t('不附带') : t('附带'),
             html: on ? icons.eye : icons.eyeOff,
             onClick: () => {
               state.settings.agentContext = !on
@@ -1591,7 +1943,7 @@ class ChatView implements ChatHost {
             }
           }),
           h('button', { class: 'chat-ctx-name', onClick: () => void openFile(path, sel ? { line: sel.startLine, col: 1 } : {}) }, label),
-          sel ? h('span', { class: 'chat-ctx-sel' }, `${sel.endLine - sel.startLine + 1} 行`) : null
+          sel ? h('span', { class: 'chat-ctx-sel' }, t('{0} 行', sel.endLine - sel.startLine + 1)) : null
         )
       )
     }
@@ -1602,7 +1954,7 @@ class ChatView implements ChatHost {
   private async addImage(f: File): Promise<void> {
     const img = await readImage(f)
     if (!img) return
-    if (this.images.length >= 10) return toast('最多 10 张图片')
+    if (this.images.length >= 10) return toast(t('最多 10 张图片'))
     this.images.push(img)
     this.updateContext()
   }
@@ -1730,9 +2082,9 @@ class ChatView implements ChatHost {
 
   private localCommands(): { name: string; description: string; hint?: string }[] {
     return [
-      { name: 'clear', description: '开始新对话' },
-      { name: 'model', description: '切换模型和思考强度' },
-      { name: 'resume', description: '打开历史对话' }
+      { name: 'clear', description: t('开始新对话') },
+      { name: 'model', description: t('切换模型和思考强度') },
+      { name: 'resume', description: t('打开历史对话') }
     ]
   }
 
@@ -1841,6 +2193,21 @@ class ChatView implements ChatHost {
   /** 视图级快捷键（焦点在对话里的任何地方） */
   private onViewKey(e: KeyboardEvent): void {
     const ctrl = e.ctrlKey || e.metaKey
+    if (ctrl && !e.shiftKey && !e.altKey && !(e.target as HTMLElement).matches('textarea, input')) {
+      const k = e.key.toLowerCase()
+      if (k === 'c') {
+        const sel = this.chatSelection()
+        if (sel) {
+          e.preventDefault()
+          void navigator.clipboard.writeText(sel)
+          return
+        }
+      } else if (k === 'a' && this.bodyEl.contains(e.target as Node)) {
+        e.preventDefault()
+        this.selectAllMessages()
+        return
+      }
+    }
     if (ctrl && !e.shiftKey && e.key.toLowerCase() === 'n') {
       e.preventDefault()
       this.reset()
@@ -1893,7 +2260,7 @@ class ChatView implements ChatHost {
 
   private interrupt(): void {
     if (!this.isBusy) return
-    this.status('正在中断…')
+    this.status(t('正在中断…'))
     this.driver.interrupt()
   }
 
@@ -1977,18 +2344,18 @@ function modeIcon(mode: string): string {
 }
 
 function effortLabel(e: string): string {
-  return { minimal: '最低', low: '低', medium: '中', high: '高', xhigh: '超高', max: '最高', none: '关闭' }[e] ?? e
+  return { minimal: t('最低'), low: t('低'), medium: t('中'), high: t('高'), xhigh: t('超高'), max: t('最高'), none: t('关闭') }[e] ?? e
 }
 
 function effortHint(e: string): string {
   return (
     {
-      minimal: '几乎不思考，最快',
-      low: '更快，适合简单任务',
-      medium: '平衡速度和质量',
-      high: '更深入的思考',
-      xhigh: '复杂问题，花更多时间',
-      max: '最难的问题，最慢'
+      minimal: t('几乎不思考，最快'),
+      low: t('更快，适合简单任务'),
+      medium: t('平衡速度和质量'),
+      high: t('更深入的思考'),
+      xhigh: t('复杂问题，花更多时间'),
+      max: t('最难的问题，最慢')
     }[e] ?? ''
   )
 }
@@ -2017,7 +2384,7 @@ export function openChat(id: string, opts: { fresh?: boolean } = {}): ChatView |
       el: v.el,
       onShow: () => v.focus(),
       onClose: () => {
-        if (v.busy() && !confirm(`${def.name} 还在运行，关闭会中止它。确定关闭吗？`)) return false
+        if (v.busy() && !confirm(t('{0} 还在运行，关闭会中止它。确定关闭吗？', def.name))) return false
         v.dispose()
       }
     },
@@ -2036,10 +2403,10 @@ export function mentionInChat(id: string, path: string): void {
 export function insertAtMention(): void {
   const sel = fileSelection()
   const f = recentFile()
-  if (!sel && !f) return toast('没有打开的文件')
+  if (!sel && !f) return toast(t('没有打开的文件'))
   const target = lastActive && views.has(lastActive) ? lastActive : null
   const id = target?.def.id ?? PLUGINS.find(usable)?.id
-  if (!id) return toast('没有可用的 AI 助手，请先在插件页启用')
+  if (!id) return toast(t('没有可用的 AI 助手，请先在插件页启用'))
   const v = target && revealView(target.el) ? target : openChat(id)
   if (!v) return
   if (sel) v.insertMention(sel.path, { start: sel.startLine, end: sel.endLine })
@@ -2063,13 +2430,18 @@ export function renderAgentIcons(): void {
       h('button', {
         class: 'agent-icon',
         'data-plugin': def.id,
-        'aria-label': `打开 ${def.name} 对话`,
+        'aria-label': t('打开 {0} 对话', def.name),
         title: `${def.name}`,
         html: glyph(def.id, 16),
         onClick: () => openChat(def.id)
       })
     )
   )
+}
+
+/** 系统设置里切换“附带当前文件”后，刷新所有对话输入框上的上下文提示 */
+export function refreshAgentContext(): void {
+  views.forEach((v) => v.updateContext())
 }
 
 export function initChat(): void {

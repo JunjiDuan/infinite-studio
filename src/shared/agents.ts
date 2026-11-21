@@ -66,3 +66,32 @@ export interface SessionInfo {
   /** 毫秒时间戳 */
   updatedAt: number
 }
+
+/** 订阅额度的一个窗口（5 小时 / 每周等） */
+export interface RateWindow {
+  /** 显示名，例如“5 小时”“每周” */
+  label: string
+  /** 已用百分比 0-100 */
+  usedPercent: number
+  /** 重置时间（毫秒时间戳） */
+  resetsAt?: number
+}
+
+export interface RateLimits {
+  windows: RateWindow[]
+  /** 取得这份数据的时间（毫秒） */
+  updatedAt: number
+}
+
+/** 某一天的 token 消耗 */
+export interface DayUsage {
+  /** 不含缓存的输入 */
+  input: number
+  output: number
+  cacheRead: number
+  cacheWrite: number
+  total: number
+}
+
+/** 本地日期 YYYY-MM-DD → 当天消耗 */
+export type DailyUsage = Record<string, DayUsage>

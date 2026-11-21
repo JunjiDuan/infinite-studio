@@ -11,10 +11,12 @@ function subscribe<A extends any[]>(channel: string, cb: (...args: A) => void): 
 
 const api: Api = {
   platform: process.platform,
+  locale: ipcRenderer.sendSync('app:locale') as 'zh' | 'en' | null,
   win: {
     minimize: () => ipcRenderer.send('win:minimize'),
     toggleMaximize: () => ipcRenderer.send('win:toggleMaximize'),
-    close: () => ipcRenderer.send('win:close')
+    close: () => ipcRenderer.send('win:close'),
+    reload: () => ipcRenderer.send('win:reload')
   },
   fs: {
     openFolderDialog: () => ipcRenderer.invoke('fs:openFolderDialog'),
@@ -35,7 +37,18 @@ const api: Api = {
   },
   git: {
     log: (root, limit) => ipcRenderer.invoke('git:log', root, limit),
-    changes: (root, hash) => ipcRenderer.invoke('git:changes', root, hash)
+    changes: (root, hash) => ipcRenderer.invoke('git:changes', root, hash),
+    status: (root) => ipcRenderer.invoke('git:status', root),
+    init: (root) => ipcRenderer.invoke('git:init', root),
+    stage: (root, paths) => ipcRenderer.invoke('git:stage', root, paths),
+    unstage: (root, paths) => ipcRenderer.invoke('git:unstage', root, paths),
+    discard: (root, tracked, untracked) => ipcRenderer.invoke('git:discard', root, tracked, untracked),
+    commit: (root, message, opts) => ipcRenderer.invoke('git:commit', root, message, opts),
+    run: (root, op) => ipcRenderer.invoke('git:run', root, op),
+    show: (root, ref, path) => ipcRenderer.invoke('git:show', root, ref, path),
+    lastMessage: (root) => ipcRenderer.invoke('git:lastMessage', root),
+    branches: (root) => ipcRenderer.invoke('git:branches', root),
+    checkout: (root, name, opts) => ipcRenderer.invoke('git:checkout', root, name, opts)
   },
   term: {
     create: (opts) => ipcRenderer.invoke('term:create', opts),
@@ -81,7 +94,8 @@ const api: Api = {
     loginWrite: (loginId, text) => ipcRenderer.send('agent:loginWrite', loginId, text),
     loginCancel: (loginId) => ipcRenderer.send('agent:loginCancel', loginId),
     onLogin: (cb) => subscribe('agent:login', cb),
-    claudeLogout: () => ipcRenderer.invoke('agent:claudeLogout')
+    claudeLogout: () => ipcRenderer.invoke('agent:claudeLogout'),
+    dailyUsage: (plugin) => ipcRenderer.invoke('agent:dailyUsage', plugin)
   },
   ide: {
     register: () => ipcRenderer.send('ide:register'),

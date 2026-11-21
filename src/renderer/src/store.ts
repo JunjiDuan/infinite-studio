@@ -1,32 +1,38 @@
-import type { FontId, LayoutId, Settings, Space, ThemeId } from '../../shared/types'
+import type { FontId, Settings, Space, ThemeId } from '../../shared/types'
 import { isHex } from './theme'
+import { t } from './i18n'
+import { EN } from './i18n-en'
 
 export const PRESETS: Space[] = [
-  { name: '深夜编码', theme: 'ink', accent: '#E8784A', font: 'jet', size: 14, layout: 'classic' },
-  { name: '白天文档', theme: 'paper', accent: '#6E9BFF', font: 'plex', size: 15, layout: 'minimal' },
-  { name: '演示模式', theme: 'dusk', accent: '#E5C15C', font: 'space', size: 18, layout: 'focus' }
+  { name: t('深夜编码'), theme: 'ink', accent: '#E8784A', font: 'jet', size: 14 },
+  { name: t('白天文档'), theme: 'paper', accent: '#6E9BFF', font: 'plex', size: 15 },
+  { name: t('演示模式'), theme: 'dusk', accent: '#E5C15C', font: 'space', size: 18 }
 ]
 
 const THEME_IDS: ThemeId[] = ['ink', 'paper', 'dusk']
 const FONT_IDS: FontId[] = ['jet', 'plex', 'space']
-const LAYOUT_IDS: LayoutId[] = ['classic', 'minimal', 'focus']
 export const MIN_SIZE = 11
 export const MAX_SIZE = 24
+
+/** 预设空间名在另一种语言下保存的，换成当前语言的名字 */
+function localName(name: string): string {
+  for (const zh of ['深夜编码', '白天文档', '演示模式', '我的空间']) if (name === zh || name === EN[zh]) return t(zh)
+  return name
+}
 
 export function sanitizeSpace(raw: Partial<Space> | null | undefined, fallback: Space = PRESETS[0]): Space {
   const r = raw ?? {}
   return {
-    name: typeof r.name === 'string' && r.name.trim() ? r.name.trim().slice(0, 40) : fallback.name,
+    name: typeof r.name === 'string' && r.name.trim() ? localName(r.name.trim().slice(0, 40)) : fallback.name,
     theme: THEME_IDS.includes(r.theme as ThemeId) ? (r.theme as ThemeId) : fallback.theme,
     accent: isHex(r.accent) ? r.accent.toUpperCase() : fallback.accent,
     font: FONT_IDS.includes(r.font as FontId) ? (r.font as FontId) : fallback.font,
-    size: typeof r.size === 'number' ? Math.min(MAX_SIZE, Math.max(MIN_SIZE, Math.round(r.size))) : fallback.size,
-    layout: LAYOUT_IDS.includes(r.layout as LayoutId) ? (r.layout as LayoutId) : fallback.layout
+    size: typeof r.size === 'number' ? Math.min(MAX_SIZE, Math.max(MIN_SIZE, Math.round(r.size))) : fallback.size
   }
 }
 
 export function sameLook(a: Space, b: Space): boolean {
-  return a.theme === b.theme && a.accent === b.accent && a.font === b.font && a.size === b.size && a.layout === b.layout
+  return a.theme === b.theme && a.accent === b.accent && a.font === b.font && a.size === b.size
 }
 
 type Topic = 'space' | 'layout' | 'root' | 'tabs' | 'cursor' | 'markers' | 'saved' | 'lsp'
@@ -80,6 +86,7 @@ export async function loadSettings(): Promise<void> {
     agentPrefs: s.agentPrefs && typeof s.agentPrefs === 'object' ? { ...s.agentPrefs } : {},
     agentContext: s.agentContext !== false,
     motion: s.motion === 'reduced' || s.motion === 'off' ? s.motion : 'full',
+    locale: s.locale === 'zh' || s.locale === 'en' ? s.locale : undefined,
     plugins:
       s.plugins && typeof s.plugins === 'object'
         ? Object.fromEntries(Object.entries(s.plugins).filter(([, v]) => typeof v === 'boolean'))
@@ -106,11 +113,7 @@ export function setSpace(patch: Partial<Space>): void {
   if (patch.name === undefined) {
     const known = knownSpaces().find((s) => sameLook(s, next))
     if (known) next.name = known.name
-    else if (knownSpaces().some((s) => s.name === prev.name)) next.name = '我的空间'
-  }
-  if (next.layout !== prev.layout) {
-    state.sidebarOverride = null
-    state.focusOverride = null
+    else if (knownSpaces().some((s) => s.name === prev.name)) next.name = t('我的空间')
   }
   state.settings.space = next
   emit('space')
@@ -119,16 +122,16 @@ export function setSpace(patch: Partial<Space>): void {
 }
 
 export function isFocus(): boolean {
-  return state.focusOverride ?? state.settings.space.layout === 'focus'
+  return state.focusOverride ?? false
 }
 
 export function isSidebarVisible(): boolean {
   if (isFocus()) return false
   // 没打开文件夹时，只有插件视图可以单独打开
   if (!state.root) return state.sideView === 'plugins' && state.sidebarOverride === true
-  return state.sidebarOverride ?? state.settings.space.layout === 'classic'
+  return state.sidebarOverride ?? true
 }
 
 export function isRailVisible(): boolean {
-  return !isFocus() && state.settings.space.layout !== 'minimal'
+  return !isFocus()
 }

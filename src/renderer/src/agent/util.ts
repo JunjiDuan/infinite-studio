@@ -1,6 +1,7 @@
 import { relative } from '../dom'
 import { state } from '../store'
 import { resolvePath } from './markdown'
+import { t } from '../i18n'
 
 export function errText(e: unknown): string {
   return String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
@@ -21,7 +22,7 @@ export async function readText(p: string): Promise<string> {
   const r = await window.api.fs.readFile(resolvePath(p))
   if (r.ok) return r.content
   if (r.reason === 'missing') return ''
-  throw new Error(r.reason === 'binary' ? '二进制文件' : r.reason === 'too-large' ? '文件太大' : '无法读取')
+  throw new Error(r.reason === 'binary' ? t('二进制文件') : r.reason === 'too-large' ? t('文件太大') : t('无法读取'))
 }
 
 export function basenameOf(p: string): string {

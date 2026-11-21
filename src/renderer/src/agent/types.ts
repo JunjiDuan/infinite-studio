@@ -1,4 +1,4 @@
-import type { SessionInfo } from '../../../shared/agents'
+import type { RateLimits, SessionInfo } from '../../../shared/agents'
 import type { Hunk } from './diff'
 
 /**
@@ -179,6 +179,8 @@ export interface ChatHost {
   busy(): boolean
   status(text: string | null): void
   usage(used: number, window: number | null, costUsd?: number): void
+  /** 订阅额度（5 小时 / 每周窗口） */
+  rateLimits(r: RateLimits): void
   session(id: string | null, title?: string): void
   setMode(id: string): void
   capabilities(): void
@@ -213,6 +215,8 @@ export interface Driver {
   /** 登录；完成后 resolve，失败或取消时抛错 */
   login(method: string, ui: LoginUi): Promise<void>
   logout(): Promise<void>
+  /** 主动查询订阅额度（结果通过 host.rateLimits 推送）；不支持时没有这个方法 */
+  readRateLimits?(): Promise<void>
   /** 回退：code 恢复文件，conversation 截断对话 */
   rewind?(messageId: string, prev: string | undefined, what: { code: boolean; conversation: boolean }): Promise<void>
   dispose(): void

@@ -464,6 +464,14 @@ body.dragging-tab .tab:hover::before {
   pointer-events: none;
   overflow: hidden;
 }
+/* 组滑入 / 收起：内容固定为完整宽度、贴左对齐，组宽变化时整体平移进出而不是被挤压变形 */
+.group.entering {
+  overflow: hidden;
+}
+.group.entering > *,
+.group.closing > * {
+  min-width: var(--pin-w, 100%);
+}
 
 /* ---------------- 侧栏 ---------------- */
 #app.no-side .sidebar.closing {
@@ -830,6 +838,28 @@ body.dragging-tab .tab:hover::before {
     border-color var(--d-lg) var(--ease-out),
     margin var(--d-lg) var(--ease-out),
     width var(--d-lg) var(--ease-out);
+}
+/* 设置分类导航：底色块在分类之间弹簧滑动；切换分类时内容重新浮入 */
+.set-nav-ink {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  top: 0;
+  border-radius: 8px;
+  background: var(--sel);
+  box-shadow: inset 2px 0 0 var(--accent);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform var(--spring-snappy-dur) var(--spring-snappy),
+    height var(--spring-snappy-dur) var(--spring-snappy),
+    opacity var(--d-sm);
+}
+.set-nav-ink.show {
+  opacity: 1;
+}
+.set-pane:not([hidden]) {
+  animation: m-fade var(--d-sm) var(--ease-out);
 }
 .motion-row {
   display: flex;

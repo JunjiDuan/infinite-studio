@@ -2,6 +2,7 @@ import type { Account } from '../../shared/types'
 import { h, toast } from './dom'
 import { icons } from './icons'
 import { showMenu, type MenuItem } from './menu'
+import { t } from './i18n'
 
 let account: Account | null = null
 
@@ -14,9 +15,9 @@ function render(): void {
   } else {
     accountBtn.innerHTML = icons.user
   }
-  const label = account ? `${account.name} (@${account.login})` : '登录 GitHub'
+  const label = account ? `${account.name} (@${account.login})` : t('登录 GitHub')
   accountBtn.title = label
-  accountBtn.setAttribute('aria-label', '账户：' + label)
+  accountBtn.setAttribute('aria-label', t('账户：') + label)
 }
 
 export async function initAccount(): Promise<void> {
@@ -32,7 +33,7 @@ export async function initAccount(): Promise<void> {
 function signedIn(a: Account): void {
   account = a
   render()
-  toast(`已登录 GitHub：@${a.login}`)
+  toast(t('已登录 GitHub：@{0}', a.login))
 }
 
 function errMsg(e: unknown): string {
@@ -46,20 +47,20 @@ function openAccountMenu(): void {
   const items: MenuItem[] = account
     ? [
         { label: `@${account.login}`, disabled: true, run: () => {} },
-        { label: '在浏览器中查看主页', run: () => window.open(account!.url) },
+        { label: t('在浏览器中查看主页'), run: () => window.open(account!.url) },
         'sep',
         {
-          label: '退出登录',
+          label: t('退出登录'),
           danger: true,
           run: async () => {
             await window.api.account.logout()
             account = null
             render()
-            toast('已退出登录')
+            toast(t('已退出登录'))
           }
         }
       ]
-    : [{ label: '使用 GitHub 登录…', run: () => void openLoginDialog() }]
+    : [{ label: t('使用 GitHub 登录…'), run: () => void openLoginDialog() }]
   showMenu(x, y, items)
 }
 
@@ -98,14 +99,14 @@ export async function openLoginDialog(): Promise<void> {
   const tokenInput = h('input', {
     class: 'login-input',
     type: 'password',
-    placeholder: 'ghp_… 或 github_pat_…',
+    placeholder: t('ghp_… 或 github_pat_…'),
     spellcheck: 'false',
     autocomplete: 'off',
     onKeydown: (e: KeyboardEvent) => {
       if (e.key === 'Enter') submitToken()
     }
   })
-  const submitToken = () => void attempt(() => window.api.account.loginToken(tokenInput.value), '正在验证令牌…')
+  const submitToken = () => void attempt(() => window.api.account.loginToken(tokenInput.value), t('正在验证令牌…'))
 
   const codeBox = h('div', { class: 'login-code', hidden: true })
 
@@ -114,46 +115,46 @@ export async function openLoginDialog(): Promise<void> {
     {
       class: 'btn primary login-main',
       disabled: !hasDevice,
-      title: hasDevice ? '' : '需要在 src/main/account.ts 配置 GitHub OAuth Client ID',
+      title: hasDevice ? '' : t('需要在 src/main/account.ts 配置 GitHub OAuth Client ID'),
       onClick: () =>
         void attempt(async () => {
           const c = await window.api.account.deviceStart()
           codeBox.hidden = false
           codeBox.replaceChildren(
-            h('span', { class: 'muted' }, '在打开的网页中输入验证码'),
+            h('span', { class: 'muted' }, t('在打开的网页中输入验证码')),
             h('button', {
               class: 'code',
-              title: '点击复制',
+              title: t('点击复制'),
               onClick: () => {
                 void navigator.clipboard.writeText(c.userCode)
-                toast('验证码已复制')
+                toast(t('验证码已复制'))
               }
             }, c.userCode)
           )
-          setBusy('等待浏览器中授权…')
+          setBusy(t('等待浏览器中授权…'))
           return window.api.account.devicePoll()
-        }, '正在连接 GitHub…')
+        }, t('正在连接 GitHub…'))
     },
     h('span', { class: 'ic', html: icons.github }),
-    '在浏览器中登录'
+    t('在浏览器中登录')
   )
 
   const card = h(
     'div',
-    { class: 'login-card', role: 'dialog', 'aria-modal': 'true', 'aria-label': '登录 GitHub' },
-    h('div', { class: 'login-head' }, h('span', { class: 'ic', html: icons.githubLarge }), h('h2', {}, '登录 GitHub')),
+    { class: 'login-card', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('登录 GitHub') },
+    h('div', { class: 'login-head' }, h('span', { class: 'ic', html: icons.githubLarge }), h('h2', {}, t('登录 GitHub'))),
     deviceBtn,
     codeBox,
     h(
       'button',
-      { class: 'btn login-main', onClick: () => void attempt(() => window.api.account.loginGh(), '正在读取 GitHub CLI 登录…') },
+      { class: 'btn login-main', onClick: () => void attempt(() => window.api.account.loginGh(), t('正在读取 GitHub CLI 登录…')) },
       h('span', { class: 'ic', html: icons.terminal }),
-      '使用 GitHub CLI (gh) 的登录'
+      t('使用 GitHub CLI (gh) 的登录')
     ),
-    h('div', { class: 'login-or' }, '或使用个人访问令牌'),
-    h('div', { class: 'login-row' }, tokenInput, h('button', { class: 'btn', onClick: submitToken }, '登录')),
+    h('div', { class: 'login-or' }, t('或使用个人访问令牌')),
+    h('div', { class: 'login-row' }, tokenInput, h('button', { class: 'btn', onClick: submitToken }, t('登录'))),
     status,
-    h('p', { class: 'login-note' }, '令牌只用于读取你的公开资料，并以系统密钥加密保存在本机。')
+    h('p', { class: 'login-note' }, t('令牌只用于读取你的公开资料，并以系统密钥加密保存在本机。'))
   )
 
   dialogEl = h(

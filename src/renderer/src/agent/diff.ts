@@ -2,6 +2,7 @@ import { basename, h, toast } from '../dom'
 import { closeView, openFile, openView } from '../editor'
 import { languageFor, monaco } from '../monaco'
 import type { DiffInfo } from './types'
+import { t } from '../i18n'
 
 /** 一段差异：lines 每行以 ' ' / '-' / '+' 开头 */
 export interface Hunk {
@@ -158,7 +159,7 @@ export function renderDiff(d: DiffInfo, maxLines = 400): HTMLElement {
     }
   }
   const total = d.hunks.reduce((s, x) => s + x.lines.length, 0)
-  if (total > maxLines) rows.push(h('div', { class: 'diff-sep' }, `还有 ${total - maxLines} 行未显示`))
+  if (total > maxLines) rows.push(h('div', { class: 'diff-sep' }, t('还有 {0} 行未显示', total - maxLines)))
   return h('div', { class: 'diff' }, ...rows)
 }
 
@@ -180,7 +181,7 @@ export async function openDiffTab(d: DiffInfo, actions: DiffTabActions = {}): Pr
   try {
     sides = await d.load()
   } catch (e) {
-    toast('无法读取文件：' + String((e as Error)?.message ?? e))
+    toast(t('无法读取文件：') + String((e as Error)?.message ?? e))
     return null
   }
   const lang = languageFor(d.path)
@@ -203,14 +204,14 @@ export async function openDiffTab(d: DiffInfo, actions: DiffTabActions = {}): Pr
       h('span', { class: 'diffview-title' }, d.path),
       diffStat(d),
       h('span', { class: 'grow' }),
-      h('button', { class: 'btn small', onClick: () => void openFile(d.path) }, '打开文件'),
-      pending ? h('button', { class: 'btn small', onClick: () => choose(actions.reject) }, '拒绝') : null,
-      pending ? h('button', { class: 'btn small primary', onClick: () => choose(actions.accept) }, '接受') : null
+      h('button', { class: 'btn small', onClick: () => void openFile(d.path) }, t('打开文件')),
+      pending ? h('button', { class: 'btn small', onClick: () => choose(actions.reject) }, t('拒绝')) : null,
+      pending ? h('button', { class: 'btn small primary', onClick: () => choose(actions.accept) }, t('接受')) : null
     ),
     host
   )
   openView({
-    title: `${basename(d.path)}（对比）`,
+    title: t('{0}（对比）', basename(d.path)),
     kind: 'diff',
     el,
     onShow: () => {

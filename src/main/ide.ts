@@ -6,6 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { WebSocket, WebSocketServer } from 'ws'
 import { IDE_TOOLS, type IdeToolResult } from '../shared/ide'
+import { tm } from './i18n'
 
 /**
  * IDE 桥接服务（和官方 VS Code 扩展的做法一致）：
@@ -105,7 +106,7 @@ function notify(method: string, params: Json): void {
 /** 把工具调用交给界面进程执行 */
 function runTool(ws: WebSocket, rpcId: string | number, name: string, args: Json): void {
   if (!ui || ui.isDestroyed()) {
-    send(ws, { id: rpcId, error: { code: -32603, message: `${IDE_NAME} 窗口未就绪` } })
+    send(ws, { id: rpcId, error: { code: -32603, message: tm('{0} 窗口未就绪', IDE_NAME) } })
     return
   }
   const id = nextCall++

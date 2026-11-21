@@ -1,9 +1,10 @@
-import { CODEX_MODES, type CodexMode, type SessionInfo } from '../../../shared/agents'
+import { CODEX_MODES, type CodexMode, type RateWindow, type SessionInfo } from '../../../shared/agents'
 import { listen, unlisten } from './bus'
 import { applyHunks, countChanges, parseUnified, type Hunk } from './diff'
 import type { ChatHost, DiffInfo, Driver, LoginMethod, LoginUi, ModelOption, PermissionOption, Question, SlashCommand, Todo, ToolView, UserInput } from './types'
 import { basenameOf, clip, readText, rel } from './util'
 import { resolvePath } from './markdown'
+import { t } from '../i18n'
 
 /**
  * Codex 驱动：和官方 VS Code 扩展一样，常驻一个 `codex app-server` 进程，
@@ -14,10 +15,10 @@ import { resolvePath } from './markdown'
 type Any = any
 
 const CODEX_COMMANDS: SlashCommand[] = [
-  { name: 'review', description: '审查当前未提交的修改' },
-  { name: 'compact', description: '总结之前的对话，释放上下文' },
-  { name: 'init', description: '生成 AGENTS.md，说明这个项目的约定' },
-  { name: 'status', description: '查看当前模型、模式和用量' }
+  { name: 'review', description: t('审查当前未提交的修改') },
+  { name: 'compact', description: t('总结之前的对话，释放上下文') },
+  { name: 'init', description: t('生成 AGENTS.md，说明这个项目的约定') },
+  { name: 'status', description: t('查看当前模型、模式和用量') }
 ]
 
 const INIT_PROMPT = `Generate a file named AGENTS.md that serves as a contributor guide for this repository.
@@ -102,6 +103,7 @@ export class CodexDriver implements Driver {
       // 模型列表需要联网，不阻塞启动
       this.modelsReady = this.loadModels()
       void this.refreshAccount()
+      void this.readRateLimits()
     })().finally(() => {
       this.starting = null
     })
@@ -119,12 +121,36 @@ export class CodexDriver implements Driver {
     }
   }
 
+  async readRateLimits(): Promise<void> {
+    try {
+      await this.ensure()
+      const r = await this.request('account/rateLimits/read', {}, 15_000)
+      this.onRateLimits(r?.rateLimits)
+    } catch {
+      /* API Key 登录等没有额度信息 */
+    }
+  }
+
+  /** primary / secondary：usedPercent（0-100）、windowDurationMins、resetsAt（秒） */
+  private onRateLimits(rl: Any): void {
+    if (!rl || typeof rl !== 'object') return
+    const windows: RateWindow[] = []
+    for (const w of [rl.primary, rl.secondary]) {
+      if (typeof w?.usedPercent !== 'number') continue
+      const mins = typeof w.windowDurationMins === 'number' ? w.windowDurationMins : null
+      const label = mins == null ? t('额度') : mins === 300 ? t('5 小时') : mins === 10080 ? t('每周') : mins % 1440 === 0 ? t('{0} 天', mins / 1440) : mins % 60 === 0 ? t('{0} 小时', mins / 60) : t('{0} 分钟', mins)
+      const resetAt = typeof w.resetsAt === 'number' ? w.resetsAt : null
+      windows.push({ label, usedPercent: Math.max(0, Math.min(100, w.usedPercent)), resetsAt: resetAt == null ? undefined : resetAt < 1e12 ? resetAt * 1000 : resetAt })
+    }
+    if (windows.length) this.host.rateLimits({ windows, updatedAt: Date.now() })
+  }
+
   /* ---------------- 登录（和 VS Code 扩展一样走 app-server 的 account/login/*） ---------------- */
 
   readonly loginMethods: LoginMethod[] = [
-    { id: 'chatgpt', label: '使用 ChatGPT 登录', hint: 'Plus、Pro、Business 等 ChatGPT 订阅' },
-    { id: 'chatgptDeviceCode', label: '设备码登录', hint: '浏览器无法跳回本机时使用：在网页上输入一次性代码' },
-    { id: 'apiKey', label: '使用 API Key', hint: '按 OpenAI API 用量计费', input: { label: 'OpenAI API Key', placeholder: 'sk-…', secret: true } }
+    { id: 'chatgpt', label: t('使用 ChatGPT 登录'), hint: t('Plus、Pro、Business 等 ChatGPT 订阅') },
+    { id: 'chatgptDeviceCode', label: t('设备码登录'), hint: t('浏览器无法跳回本机时使用：在网页上输入一次性代码') },
+    { id: 'apiKey', label: t('使用 API Key'), hint: t('按 OpenAI API 用量计费'), input: { label: 'OpenAI API Key', placeholder: 'sk-…', secret: true } }
   ]
 
   /** 等待 account/login/completed：loginId → 回调；先到的结果暂存 */
@@ -135,12 +161,12 @@ export class CodexDriver implements Driver {
     await this.ensure()
     if (method === 'apiKey') {
       const key = ui.input?.trim()
-      if (!key) throw new Error('请输入 API Key')
+      if (!key) throw new Error(t('请输入 API Key'))
       await this.request('account/login/start', { type: 'apiKey', apiKey: key }, 60_000)
     } else {
       const r = await this.request('account/login/start', { type: method === 'chatgptDeviceCode' ? 'chatgptDeviceCode' : 'chatgpt' }, 60_000)
       const loginId = String(r?.loginId ?? '')
-      if (!loginId) throw new Error('无法开始登录')
+      if (!loginId) throw new Error(t('无法开始登录'))
       if (r.type === 'chatgptDeviceCode') {
         ui.code(String(r.userCode ?? ''))
         ui.url(String(r.verificationUrl), true)
@@ -157,10 +183,10 @@ export class CodexDriver implements Driver {
         ui.onCancel(() => {
           this.loginWaiters.delete(loginId)
           this.request('account/login/cancel', { loginId }).catch(() => {})
-          reject(new Error('已取消登录'))
+          reject(new Error(t('已取消登录')))
         })
       })
-      if (!done.success) throw new Error(done.error || '登录失败')
+      if (!done.success) throw new Error(done.error || t('登录失败'))
     }
     await this.refreshAccount()
     // 模型列表和账号有关，登录后重新读取
@@ -203,7 +229,7 @@ export class CodexDriver implements Driver {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id)
-        reject(new Error(`${method} 超时`))
+        reject(new Error(t('{0} 超时', method)))
       }, timeout)
       this.pending.set(id, {
         resolve: (v) => {
@@ -233,7 +259,7 @@ export class CodexDriver implements Driver {
     this.runId = null
     unlisten(id)
     window.api.agent.stop(id)
-    for (const p of this.pending.values()) p.reject(new Error('进程已结束'))
+    for (const p of this.pending.values()) p.reject(new Error(t('进程已结束')))
     this.pending.clear()
   }
 
@@ -242,9 +268,9 @@ export class CodexDriver implements Driver {
     this.runId = null
     // 还有请求在等回复（例如启动时的 initialize）：错误随请求失败报告，不再重复提示
     const reported = this.pending.size > 0
-    for (const p of this.pending.values()) p.reject(new Error(stderr.split('\n').slice(-4).join('\n') || '进程已退出'))
+    for (const p of this.pending.values()) p.reject(new Error(stderr.split('\n').slice(-4).join('\n') || t('进程已退出')))
     this.pending.clear()
-    if (this.host.busy() && !reported) this.host.crashed(stderr ? stderr.split('\n').slice(-6).join('\n') : `Codex 进程退出（${code}）`)
+    if (this.host.busy() && !reported) this.host.crashed(stderr ? stderr.split('\n').slice(-6).join('\n') : t('Codex 进程退出（{0}）', code))
   }
 
   /* ---------------- 界面调用 ---------------- */
@@ -270,7 +296,7 @@ export class CodexDriver implements Driver {
       sandbox: this.mode.sandbox
     })
     this.threadId = r?.thread?.id ?? null
-    if (!this.threadId) throw new Error('无法创建会话')
+    if (!this.threadId) throw new Error(t('无法创建会话'))
     if (typeof r.model === 'string') this.resolvedModel = r.model
     this.host.session(this.threadId)
     return this.threadId
@@ -364,20 +390,20 @@ export class CodexDriver implements Driver {
     if (name === 'init') return this.send({ text: INIT_PROMPT, images: [], context: {} })
     if (name === 'status') {
       const lines = [
-        `模型：${this.model || this.activeModel || '默认'}${this.effort ? `（思考强度 ${this.effort}）` : ''}`,
-        `模式：${this.mode.label}（沙箱 ${this.mode.sandbox}，审批 ${this.mode.approval}）`,
-        `工作目录：${this.host.cwd ?? '用户主目录'}`
+        t('模型：{0}{1}', this.model || this.activeModel || t('默认'), this.effort ? t('（思考强度 {0}）', this.effort) : ''),
+        t('模式：{0}（沙箱 {1}，审批 {2}）', this.mode.label, this.mode.sandbox, this.mode.approval),
+        t('工作目录：{0}', this.host.cwd ?? t('用户主目录'))
       ]
-      if (this.account) lines.push(`账号：${this.account}`)
-      if (this.threadId) lines.push(`会话：${this.threadId}`)
-      if (this.tokens) lines.push(`上下文：${this.tokens.total.toLocaleString()} tokens${this.tokens.window ? ` / ${this.tokens.window.toLocaleString()}` : ''}`)
+      if (this.account) lines.push(t('账号：{0}', this.account))
+      if (this.threadId) lines.push(t('会话：{0}', this.threadId))
+      if (this.tokens) lines.push(t('上下文：{0} tokens{1}', this.tokens.total.toLocaleString(), this.tokens.window ? ` / ${this.tokens.window.toLocaleString()}` : ''))
       try {
         await this.ensure()
         const rl = await this.request('account/rateLimits/read', {}, 15_000)
         const p = rl?.rateLimits?.primary
-        if (p?.usedPercent != null) lines.push(`5 小时用量：${Math.round(p.usedPercent)}%`)
+        if (p?.usedPercent != null) lines.push(t('5 小时用量：{0}%', Math.round(p.usedPercent)))
         const s = rl?.rateLimits?.secondary
-        if (s?.usedPercent != null) lines.push(`每周用量：${Math.round(s.usedPercent)}%`)
+        if (s?.usedPercent != null) lines.push(t('每周用量：{0}%', Math.round(s.usedPercent)))
       } catch {
         /* 没有用量信息 */
       }
@@ -423,7 +449,7 @@ export class CodexDriver implements Driver {
     await this.ensure()
     const r = await this.request('thread/list', { limit: 100, sortKey: 'updated_at', cwd: this.host.cwd ?? undefined }, 30_000)
     const data: Any[] = Array.isArray(r?.data) ? r.data : []
-    return data.map((t) => ({ id: String(t.id), title: String(t.name || t.preview || '（无标题）').replace(/\s+/g, ' ').slice(0, 120), updatedAt: (t.updatedAt ?? t.createdAt ?? 0) * 1000 }))
+    return data.map((t) => ({ id: String(t.id), title: String(t.name || t.preview || t('（无标题）')).replace(/\s+/g, ' ').slice(0, 120), updatedAt: (t.updatedAt ?? t.createdAt ?? 0) * 1000 }))
   }
 
   async resume(id: string): Promise<void> {
@@ -463,7 +489,7 @@ export class CodexDriver implements Driver {
       const p = this.pending.get(m.id)
       if (!p) return
       this.pending.delete(m.id)
-      if (m.error) p.reject(new Error(String(m.error.message ?? '请求失败')))
+      if (m.error) p.reject(new Error(String(m.error.message ?? t('请求失败'))))
       else p.resolve(m.result)
       return
     }
@@ -491,6 +517,11 @@ export class CodexDriver implements Driver {
     }
     if (method === 'account/updated') {
       void this.refreshAccount()
+      void this.readRateLimits()
+      return
+    }
+    if (method === 'account/rateLimits/updated') {
+      this.onRateLimits(p.rateLimits)
       return
     }
     if (!this.mine(p)) return
@@ -505,7 +536,7 @@ export class CodexDriver implements Driver {
         this.turnId = null
         if (!this.host.busy()) return
         if (t.status === 'interrupted') this.host.turnEnded({ ok: false, interrupted: true, durationMs: t.durationMs ?? undefined })
-        else if (t.status === 'failed') this.host.turnEnded({ ok: false, error: t.error?.message ?? '出错了', durationMs: t.durationMs ?? undefined })
+        else if (t.status === 'failed') this.host.turnEnded({ ok: false, error: t.error?.message ?? t('出错了'), durationMs: t.durationMs ?? undefined })
         else this.host.turnEnded({ ok: true, durationMs: t.durationMs ?? undefined })
         return
       }
@@ -545,10 +576,10 @@ export class CodexDriver implements Driver {
         if (p.threadName) this.host.session(this.threadId, p.threadName)
         return
       case 'thread/compacted':
-        return this.host.note('对话已压缩，之前的内容已总结')
+        return this.host.note(t('对话已压缩，之前的内容已总结'))
       case 'error': {
-        const msg = p.error?.message ?? '出错了'
-        if (p.willRetry) this.host.status(`出错了，正在重试…（${msg}）`)
+        const msg = p.error?.message ?? t('出错了')
+        if (p.willRetry) this.host.status(t('出错了，正在重试…（{0}）', msg))
         // 轮次中的错误会随 turn/completed 一起显示
         else if (!this.host.busy()) this.host.note(msg, 'error')
         return
@@ -561,7 +592,7 @@ export class CodexDriver implements Driver {
         if (p.requestId !== undefined) this.host.cancelPermission(String(p.requestId))
         return
       case 'model/rerouted':
-        if (p.toModel) this.host.note(`已切换到模型 ${p.toModel}`)
+        if (p.toModel) this.host.note(t('已切换到模型 {0}', p.toModel))
         return
     }
   }
@@ -591,7 +622,7 @@ export class CodexDriver implements Driver {
         return
       }
       case 'plan':
-        this.host.tool(id, { icon: 'plan', verb: '计划', summary: '', markdown: String(it.text ?? ''), status: completed ? 'done' : 'running', expanded: true })
+        this.host.tool(id, { icon: 'plan', verb: t('计划'), summary: '', markdown: String(it.text ?? ''), status: completed ? 'done' : 'running', expanded: true })
         return
       case 'commandExecution':
         this.host.tool(id, { ...describeCommand(it), status: statusOf(it.status, completed, it.exitCode) })
@@ -604,7 +635,7 @@ export class CodexDriver implements Driver {
           const kind = c.kind?.type
           this.host.tool(changes.length > 1 ? `${id}:${k}` : id, {
             icon: kind === 'add' ? 'write' : 'edit',
-            verb: kind === 'add' ? '新建' : kind === 'delete' ? '删除' : '编辑',
+            verb: kind === 'add' ? t('新建') : kind === 'delete' ? t('删除') : t('编辑'),
             summary: rel(c.path) + (c.kind?.move_path ? ` → ${rel(c.kind.move_path)}` : ''),
             path: kind === 'delete' ? undefined : (c.kind?.move_path ?? c.path),
             diff: changeDiff(c.kind?.move_path ?? c.path, hunks, applied),
@@ -625,29 +656,29 @@ export class CodexDriver implements Driver {
         })
         return
       case 'dynamicToolCall':
-        this.host.tool(id, { icon: 'other', verb: String(it.tool ?? '工具'), summary: '', input: it.arguments ? clip(JSON.stringify(it.arguments, null, 2), 2000) : undefined, status: statusOf(it.status, completed, it.success === false ? 1 : 0) })
+        this.host.tool(id, { icon: 'other', verb: String(it.tool ?? t('工具')), summary: '', input: it.arguments ? clip(JSON.stringify(it.arguments, null, 2), 2000) : undefined, status: statusOf(it.status, completed, it.success === false ? 1 : 0) })
         return
       case 'webSearch': {
         const a = it.action
-        const summary = it.query || a?.query || a?.url || (Array.isArray(a?.queries) ? a.queries.join('，') : '') || ''
-        this.host.tool(id, { icon: 'web', verb: a?.type === 'openPage' ? '打开网页' : '搜索网络', summary: String(summary), status: completed ? 'done' : 'running' })
+        const summary = it.query || a?.query || a?.url || (Array.isArray(a?.queries) ? a.queries.join(t('，')) : '') || ''
+        this.host.tool(id, { icon: 'web', verb: a?.type === 'openPage' ? t('打开网页') : t('搜索网络'), summary: String(summary), status: completed ? 'done' : 'running' })
         return
       }
       case 'imageView':
-        this.host.tool(id, { icon: 'read', verb: '查看图片', summary: rel(it.path), path: it.path, status: 'done' })
+        this.host.tool(id, { icon: 'read', verb: t('查看图片'), summary: rel(it.path), path: it.path, status: 'done' })
         return
       case 'collabAgentToolCall':
       case 'subAgentActivity':
-        this.host.tool(id, { icon: 'task', verb: '子任务', summary: String(it.prompt ?? it.tool ?? it.description ?? ''), status: completed ? 'done' : 'running' })
+        this.host.tool(id, { icon: 'task', verb: t('子任务'), summary: String(it.prompt ?? it.tool ?? it.description ?? ''), status: completed ? 'done' : 'running' })
         return
       case 'enteredReviewMode':
-        if (!completed) this.host.note('正在审查代码…')
+        if (!completed) this.host.note(t('正在审查代码…'))
         return
       case 'exitedReviewMode':
         if (completed && it.review) this.host.text(id, String(it.review))
         return
       case 'contextCompaction':
-        if (completed) this.host.note('对话已压缩，之前的内容已总结')
+        if (completed) this.host.note(t('对话已压缩，之前的内容已总结'))
         return
     }
   }
@@ -660,13 +691,13 @@ export class CodexDriver implements Driver {
       switch (method) {
         case 'item/commandExecution/requestApproval': {
           const options: PermissionOption[] = [
-            { id: 'accept', label: '是' },
-            { id: 'session', label: '是，本次会话中不再询问' }
+            { id: 'accept', label: t('是') },
+            { id: 'session', label: t('是，本次会话中不再询问') }
           ]
           const amend = p.proposedExecpolicyAmendment
-          if (amend && Array.isArray(amend.command ?? amend)) options.push({ id: 'amend', label: `是，以后允许以“${(amend.command ?? amend).join(' ')}”开头的命令` })
-          options.push({ id: 'decline', label: '否，告诉 Codex 该怎么做', feedback: true })
-          const a = await this.host.permission({ title: 'Codex 想要运行这条命令', detail: p.reason ?? undefined, code: unwrapShell(String(p.command ?? '')), options }, key)
+          if (amend && Array.isArray(amend.command ?? amend)) options.push({ id: 'amend', label: t('是，以后允许以“{0}”开头的命令', (amend.command ?? amend).join(' ')) })
+          options.push({ id: 'decline', label: t('否，告诉 Codex 该怎么做'), feedback: true })
+          const a = await this.host.permission({ title: t('Codex 想要运行这条命令'), detail: p.reason ?? undefined, code: unwrapShell(String(p.command ?? '')), options }, key)
           const decision = a.option === 'accept' ? 'accept' : a.option === 'session' ? 'acceptForSession' : a.option === 'amend' ? { acceptWithExecpolicyAmendment: { execpolicy_amendment: amend } } : 'decline'
           this.reply(id, { decision })
           if (a.option === 'decline' && a.feedback) void this.steer(a.feedback)
@@ -677,16 +708,16 @@ export class CodexDriver implements Driver {
           const changes: Any[] = Array.isArray(item?.changes) ? item.changes : []
           const first = changes[0]
           const diff = first ? changeDiff(first.kind?.move_path ?? first.path, parseUnified(String(first.diff ?? '')), false) : undefined
-          const names = changes.map((c) => rel(c.path)).join('、')
+          const names = changes.map((c) => rel(c.path)).join(t('、'))
           const a = await this.host.permission(
             {
-              title: names ? `Codex 想要修改 ${clip(names, 120)}` : 'Codex 想要修改文件',
-              detail: p.reason ?? (p.grantRoot ? `并获得 ${p.grantRoot} 的写入权限` : undefined),
+              title: names ? t('Codex 想要修改 {0}', clip(names, 120)) : t('Codex 想要修改文件'),
+              detail: p.reason ?? (p.grantRoot ? t('并获得 {0} 的写入权限', p.grantRoot) : undefined),
               diff,
               options: [
-                { id: 'accept', label: '是' },
-                { id: 'session', label: '是，本次会话中允许所有修改' },
-                { id: 'decline', label: '否，告诉 Codex 该怎么做', feedback: true }
+                { id: 'accept', label: t('是') },
+                { id: 'session', label: t('是，本次会话中允许所有修改') },
+                { id: 'decline', label: t('否，告诉 Codex 该怎么做'), feedback: true }
               ]
             },
             key
@@ -714,7 +745,7 @@ export class CodexDriver implements Driver {
           this.reply(id, { decision: 'denied' })
           return
         default:
-          this.replyError(id, `Infinite Studio 不支持 ${method}`)
+          this.replyError(id, t('Infinite Studio 不支持 {0}', method))
       }
     } catch {
       // 授权被撤回 / 视图关闭
@@ -747,13 +778,13 @@ function describeCommand(it: Any): Omit<ToolView, 'status'> {
   const acts: Any[] = Array.isArray(it.commandActions) ? it.commandActions : []
   const output = it.aggregatedOutput || undefined
   if (acts.length && acts.every((a) => a.type === 'read')) {
-    return { icon: 'read', verb: '读取', summary: acts.map((a) => rel(a.path ?? a.name)).join('、'), path: acts.length === 1 ? acts[0].path : undefined, input: cmd, output }
+    return { icon: 'read', verb: t('读取'), summary: acts.map((a) => rel(a.path ?? a.name)).join(t('、')), path: acts.length === 1 ? acts[0].path : undefined, input: cmd, output }
   }
   if (acts.length && acts.every((a) => a.type === 'search' || a.type === 'listFiles')) {
     const a = acts[0]
-    return { icon: 'search', verb: a.type === 'search' ? '搜索' : '列出文件', summary: String(a.query ?? a.path ?? cmd), input: cmd, output }
+    return { icon: 'search', verb: a.type === 'search' ? t('搜索') : t('列出文件'), summary: String(a.query ?? a.path ?? cmd), input: cmd, output }
   }
-  return { icon: 'bash', verb: '运行', summary: cmd, input: cmd, output, outputHint: it.exitCode != null && it.exitCode !== 0 ? `退出码 ${it.exitCode}` : undefined }
+  return { icon: 'bash', verb: t('运行'), summary: cmd, input: cmd, output, outputHint: it.exitCode != null && it.exitCode !== 0 ? t('退出码 {0}', it.exitCode) : undefined }
 }
 
 function changeDiff(path: string, hunks: Hunk[], applied: boolean): DiffInfo {

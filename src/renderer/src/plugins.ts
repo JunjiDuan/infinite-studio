@@ -7,6 +7,7 @@ import { icons } from './icons'
 import type { MenuItem } from './menu'
 import { newTerminal, type TermHandle } from './panel'
 import { persist, state } from './store'
+import { t } from './i18n'
 
 const status = new Map<string, PluginStatus | 'checking'>()
 const terminals = new Map<string, TermHandle>()
@@ -70,19 +71,19 @@ export async function launchInTerminal(def: PluginDef): Promise<void> {
   if (existing?.alive()) return existing.focus()
   const s = status.get(def.id)
   if (typeof s !== 'object' || !s.installed || !s.launch) {
-    toast(`${def.name} 尚未安装`)
+    toast(t('{0} 尚未安装', def.name))
     return
   }
-  const t = await newTerminal(state.root ?? undefined, { title: def.name, run: s.launch })
-  if (t) terminals.set(def.id, t)
+  const term = await newTerminal(state.root ?? undefined, { title: def.name, run: s.launch })
+  if (term) terminals.set(def.id, term)
 }
 
 async function install(def: PluginDef): Promise<void> {
   const npm = isWin ? 'npm.cmd' : 'npm'
-  const t = await newTerminal(undefined, { title: `安装 ${def.name}`, run: `${npm} install -g ${def.npmPackage}` })
-  if (!t) return
-  toast(`正在安装 ${def.name}，完成后点击“重新检测”`)
-  await t.ready
+  const term = await newTerminal(undefined, { title: t('安装 {0}', def.name), run: `${npm} install -g ${def.npmPackage}` })
+  if (!term) return
+  toast(t('正在安装 {0}，完成后点击“重新检测”', def.name))
+  await term.ready
   void refreshPlugins()
 }
 
@@ -107,28 +108,28 @@ function card(def: PluginDef): HTMLElement {
   const installed = typeof s === 'object' && s.installed
 
   const badge = checking
-    ? h('span', { class: 'plg-badge' }, '检测中…')
+    ? h('span', { class: 'plg-badge' }, t('检测中…'))
     : installed
-      ? h('span', { class: 'plg-badge ok' }, s.version ? `v${s.version}` : '已安装')
-      : h('span', { class: 'plg-badge warn' }, '未安装')
+      ? h('span', { class: 'plg-badge ok' }, s.version ? `v${s.version}` : t('已安装'))
+      : h('span', { class: 'plg-badge warn' }, t('未安装'))
 
   const toggle = h('button', {
     class: 'plg-switch' + (on ? ' on' : ''),
     role: 'switch',
     'aria-checked': String(on),
-    'aria-label': `${on ? '停用' : '启用'} ${def.name}`,
-    title: on ? '已启用，点击停用' : '已停用，点击启用',
+    'aria-label': `${on ? t('停用') : t('启用')} ${def.name}`,
+    title: on ? t('已启用，点击停用') : t('已停用，点击启用'),
     onClick: () => setEnabled(def.id, !on)
   })
 
   const actions: HTMLElement[] = []
   if (installed && on) {
-    actions.push(h('button', { class: 'btn small primary', onClick: () => void openChat(def.id) }, '打开对话'))
-    actions.push(h('button', { class: 'btn small', title: '原生命令行界面，可用于登录和 / 命令', onClick: () => void launchInTerminal(def) }, '在终端中运行'))
+    actions.push(h('button', { class: 'btn small primary', onClick: () => void openChat(def.id) }, t('打开对话')))
+    actions.push(h('button', { class: 'btn small', title: t('原生命令行界面，可用于登录和 / 命令'), onClick: () => void launchInTerminal(def) }, t('在终端中运行')))
   } else if (!checking && !installed) {
-    actions.push(h('button', { class: 'btn small primary', title: `npm install -g ${def.npmPackage}`, onClick: () => void install(def) }, '安装'))
+    actions.push(h('button', { class: 'btn small primary', title: `npm install -g ${def.npmPackage}`, onClick: () => void install(def) }, t('安装')))
   }
-  actions.push(h('button', { class: 'btn small', onClick: () => window.open(def.homepage) }, '文档'))
+  actions.push(h('button', { class: 'btn small', onClick: () => window.open(def.homepage) }, t('文档')))
 
   return h(
     'div',
@@ -140,7 +141,7 @@ function card(def: PluginDef): HTMLElement {
       h('div', { class: 'plg-meta' }, h('div', { class: 'plg-name' }, def.name, badge), h('div', { class: 'plg-pub' }, def.publisher)),
       toggle
     ),
-    h('p', { class: 'plg-desc' }, def.description),
+    h('p', { class: 'plg-desc' }, t(def.description)),
     h('div', { class: 'plg-actions' }, ...actions)
   )
 }
@@ -159,11 +160,11 @@ export function createPluginsView(): HTMLElement {
     h(
       'div',
       { class: 'side-head' },
-      h('span', { class: 'side-title' }, '插件'),
+      h('span', { class: 'side-title' }, t('插件')),
       h(
         'div',
         { class: 'side-actions' },
-        h('button', { class: 'icon-btn small', 'aria-label': '重新检测', title: '重新检测', html: icons.refresh, onClick: () => void refreshPlugins() })
+        h('button', { class: 'icon-btn small', 'aria-label': t('重新检测'), title: t('重新检测'), html: icons.refresh, onClick: () => void refreshPlugins() })
       )
     ),
     listEl
@@ -173,19 +174,19 @@ export function createPluginsView(): HTMLElement {
 /* ---------------- 对外贡献：命令、右键菜单 ---------------- */
 
 export function pluginCommands(openManager: () => void): Command[] {
-  const cmds: Command[] = [{ id: 'plugins.manage', title: '管理插件', run: openManager }]
+  const cmds: Command[] = [{ id: 'plugins.manage', title: t('管理插件'), run: openManager }]
   for (const def of PLUGINS) {
     if (!usable(def)) continue
-    cmds.push({ id: `plugins.${def.id}.chat`, title: `${def.name}：打开对话`, run: () => void openChat(def.id) })
-    cmds.push({ id: `plugins.${def.id}.new`, title: `${def.name}：新建对话标签`, run: () => void openChat(def.id, { fresh: true }) })
-    cmds.push({ id: `plugins.${def.id}.terminal`, title: `${def.name}：在终端中运行`, run: () => void launchInTerminal(def) })
+    cmds.push({ id: `plugins.${def.id}.chat`, title: t('{0}：打开对话', def.name), run: () => void openChat(def.id) })
+    cmds.push({ id: `plugins.${def.id}.new`, title: t('{0}：新建对话标签', def.name), run: () => void openChat(def.id, { fresh: true }) })
+    cmds.push({ id: `plugins.${def.id}.terminal`, title: t('{0}：在终端中运行', def.name), run: () => void launchInTerminal(def) })
     const tab = activeTab()
-    if (tab) cmds.push({ id: `plugins.${def.id}.mention`, title: `${def.name}：引用当前文件`, run: () => mentionInChat(def.id, tab.path) })
+    if (tab) cmds.push({ id: `plugins.${def.id}.mention`, title: t('{0}：引用当前文件', def.name), run: () => mentionInChat(def.id, tab.path) })
   }
   return cmds
 }
 
 export function pluginTreeItems(path: string): MenuItem[] {
-  const items: MenuItem[] = PLUGINS.filter(usable).map((def) => ({ label: `在 ${def.name} 中引用`, run: () => mentionInChat(def.id, path) }))
+  const items: MenuItem[] = PLUGINS.filter(usable).map((def) => ({ label: t('在 {0} 中引用', def.name), run: () => mentionInChat(def.id, path) }))
   return items.length ? [...items, 'sep'] : []
 }

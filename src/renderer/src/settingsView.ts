@@ -1,16 +1,57 @@
-import type { FontId, LayoutId, Space, ThemeId } from '../../shared/types'
+import type { FontId, Space, ThemeId } from '../../shared/types'
 import { h, toast } from './dom'
 import { icons } from './icons'
 import { monaco } from './monaco'
 import { MAX_SIZE, MIN_SIZE, PRESETS, emit, on, persist, sameLook, sanitizeSpace, setSpace, state } from './store'
 import { ACCENTS, FONTS, THEMES, readableAccent } from './theme'
 import { fullMotion, setMotionLevel, viewTransition, type MotionLevel } from './motion'
+import { refreshAgentContext } from './chat'
+import { getLocale, saveLocale, t, type Locale } from './i18n'
+import { anyDirty } from './editor'
+
+/** 设置页的两大类 */
+export type SettingsPane = 'system' | 'appearance'
+const PANES: [SettingsPane, string, string][] = [
+  ['system', t('系统设置'), t('编辑器、AI 助手、窗口与数据')],
+  ['appearance', t('个性化与主题'), t('空间、主题、字体与动效')]
+]
+
+const SHORTCUTS: [string, string][] = [
+  [t('命令面板'), 'Ctrl K'],
+  [t('在文件中搜索'), 'Ctrl Shift F'],
+  [t('源代码管理'), 'Ctrl Shift G'],
+  [t('显示 / 隐藏侧栏'), 'Ctrl B'],
+  [t('显示 / 隐藏终端'), 'Ctrl `'],
+  [t('专注模式'), 'Ctrl .'],
+  [t('保存'), 'Ctrl S'],
+  [t('关闭标签'), 'Ctrl W'],
+  [t('切换标签'), 'Ctrl Tab'],
+  [t('移动标签'), 'Ctrl Shift PgUp / PgDn'],
+  [t('向右拆分编辑器'), 'Ctrl \\'],
+  [t('自动换行'), 'Alt Z'],
+  [t('个性化与主题'), 'Ctrl ,']
+]
 
 const MOTION_OPTS: [MotionLevel, string, string][] = [
-  ['full', '完整', '弹簧、位移、拖拽物理感'],
-  ['reduced', '简约', '只保留淡入淡出'],
-  ['off', '关闭', '所有变化立即生效']
+  ['full', t('完整'), t('弹簧、位移、拖拽物理感')],
+  ['reduced', t('简约'), t('只保留淡入淡出')],
+  ['off', t('关闭'), t('所有变化立即生效')]
 ]
+
+const LANGS: [Locale, string, string][] = [
+  ['zh', '简体中文', 'Chinese (Simplified)'],
+  ['en', 'English', '英语']
+]
+
+/** 切换界面语言：记下设置后重新加载窗口 */
+export async function switchLocale(l: Locale): Promise<void> {
+  if (l === getLocale()) return
+  if (anyDirty() && !confirm(t('有未保存的修改。切换语言需要重新加载窗口，未保存的修改会丢失。仍然切换吗？'))) return
+  saveLocale(l)
+  state.settings.locale = l
+  await window.api.settings.save(state.settings).catch(() => {})
+  window.api.win.reload()
+}
 
 let page: HTMLElement | null = null
 let host: HTMLElement
@@ -23,6 +64,11 @@ let sizeLabel: HTMLElement
 let customColor: HTMLInputElement
 let bindBtn: HTMLButtonElement
 let wrapInput: HTMLInputElement
+let ctxInput: HTMLInputElement
+let navEl: HTMLElement
+let navInk: HTMLElement
+let sysInfo: { recents: HTMLElement; bindings: HTMLElement; sizes: HTMLElement }
+let pane: SettingsPane = 'appearance'
 let onClose: () => void = () => {}
 
 export function initSettings(container: HTMLElement, closed: () => void): void {
@@ -39,14 +85,40 @@ export function isSettingsOpen(): boolean {
 
 let closeTimer: ReturnType<typeof setTimeout> | undefined
 
-export function openSettings(): void {
+export function openSettings(which: SettingsPane = pane): void {
   if (!page) build()
+  showPane(which)
   clearTimeout(closeTimer)
   page!.classList.remove('leaving')
   page!.hidden = false
   sync()
   requestAnimationFrame(() => preview?.layout())
   ;(page!.querySelector('[aria-pressed="true"]') as HTMLElement | null)?.focus()
+}
+
+/** 切换设置分类：内容区换页，左侧指示条滑到对应按钮 */
+function showPane(which: SettingsPane): void {
+  pane = which
+  if (!page) return
+  page.querySelectorAll<HTMLElement>('.set-pane').forEach((el) => (el.hidden = el.dataset.pane !== which))
+  let target: HTMLElement | null = null
+  navEl.querySelectorAll<HTMLElement>('.set-nav-btn').forEach((b) => {
+    const on = b.dataset.pane === which
+    b.classList.toggle('on', on)
+    b.setAttribute('aria-current', on ? 'page' : 'false')
+    if (on) target = b
+  })
+  const panes = page.querySelector<HTMLElement>('.set-panes')
+  if (panes) panes.scrollTop = 0
+  page.scrollTop = 0
+  requestAnimationFrame(() => {
+    const t = target as HTMLElement | null
+    if (!t) return
+    navInk.style.transform = `translateY(${t.offsetTop}px)`
+    navInk.style.height = `${t.offsetHeight}px`
+    navInk.classList.add('show')
+    if (which === 'appearance') preview?.layout()
+  })
 }
 
 export function closeSettings(): void {
@@ -90,7 +162,7 @@ function build(): void {
     class: 'text-input',
     maxlength: '40',
     spellcheck: 'false',
-    onChange: () => setSpace({ name: nameInput.value.trim() || '我的空间' })
+    onChange: () => setSpace({ name: nameInput.value.trim() || t('我的空间') })
   })
 
   spacesGrid = h('div', { class: 'grid3' })
@@ -119,8 +191,8 @@ function build(): void {
   customColor = h('input', {
     type: 'color',
     class: 'color-input',
-    'aria-label': '自定义强调色',
-    title: '自定义颜色',
+    'aria-label': t('自定义强调色'),
+    title: t('自定义颜色'),
     onInput: () => setSpace({ accent: customColor.value.toUpperCase() })
   })
   const accents = h(
@@ -128,11 +200,11 @@ function build(): void {
     { class: 'swatches' },
     ...ACCENTS.map((a) => {
       const b = option('accent', a.hex, 'swatch', h('span', { class: 'swatch-dot', 'data-hex': a.hex }))
-      b.setAttribute('aria-label', '强调色：' + a.name)
+      b.setAttribute('aria-label', t('强调色：') + a.name)
       b.title = a.name
       return b
     }),
-    h('label', { class: 'custom-color' }, customColor, h('span', {}, '自定义'))
+    h('label', { class: 'custom-color' }, customColor, h('span', {}, t('自定义')))
   )
 
   const fonts = h(
@@ -153,15 +225,7 @@ function build(): void {
     onInput: () => setSpace({ size: Number(sizeInput.value) })
   })
 
-  const layoutCard = (id: LayoutId, label: string, schematic: HTMLElement) => option('layout', id, 'layout-card', schematic, h('span', { class: 'opt-label' }, label))
   const bar = (w: string, cls = '') => h('span', { class: 'bar ' + cls, style: { width: w } })
-  const layouts = h(
-    'div',
-    { class: 'grid3' },
-    layoutCard('classic', '经典 · 文件栏常驻', h('span', { class: 'schem classic' }, h('span', { class: 'col c-rail' }), h('span', { class: 'col c-side' }), h('span', { class: 'lines' }, bar('70%'), bar('50%', 'acc'), bar('60%')))),
-    layoutCard('minimal', '极简 · 只留编辑区', h('span', { class: 'schem minimal' }, h('span', { class: 'lines' }, bar('70%'), bar('50%', 'acc'), bar('60%')))),
-    layoutCard('focus', '专注 · 居中单列', h('span', { class: 'schem focus' }, h('span', { class: 'lines center' }, bar('40%', 'faint'), bar('40%', 'acc'), bar('40%', 'faint'))))
-  )
 
   wrapInput = h('input', {
     type: 'checkbox',
@@ -178,32 +242,46 @@ function build(): void {
   const left = h(
     'div',
     { class: 'set-left' },
-    h('div', { class: 'set-intro' }, h('h1', {}, '你的空间'), h('p', {}, '主题、强调色、字体和布局打包成一个“空间”。每个项目可以绑定自己的空间，打开项目时自动切换。')),
+    h('div', { class: 'set-intro' }, h('h1', {}, t('个性化与主题')), h('p', {}, t('主题、强调色和字体打包成一个“空间”。每个项目可以绑定自己的空间，打开项目时自动切换。'))),
     section(
-      '当前空间',
+      t('当前空间'),
       h(
         'div',
         { class: 'name-row' },
-        h('label', { for: 'space-name', class: 'sr-only' }, '空间名称'),
+        h('label', { for: 'space-name', class: 'sr-only' }, t('空间名称')),
         nameInput,
-        h('button', { class: 'btn primary', onClick: saveAsNew }, '保存为新空间'),
+        h('button', { class: 'btn primary', onClick: saveAsNew }, t('保存为新空间')),
         bindBtn
       ),
       h(
         'div',
         { class: 'link-row' },
-        h('button', { class: 'link-btn', onClick: () => window.api.space.export(state.settings.space).then((ok) => ok && toast('已导出')) }, '导出 .infinite-space'),
-        h('button', { class: 'link-btn', onClick: importSpace }, '导入空间')
+        h('button', { class: 'link-btn', onClick: () => window.api.space.export(state.settings.space).then((ok) => ok && toast(t('已导出'))) }, t('导出 .infinite-space')),
+        h('button', { class: 'link-btn', onClick: importSpace }, t('导入空间'))
       )
     ),
-    section('预设与已保存的空间', spacesGrid),
-    section('主题', themes),
-    section('强调色 · 整个界面只有这一种颜色', accents),
-    section('代码字体', fonts, h('div', { class: 'size-row' }, h('label', { for: 'font-size' }, '字号'), sizeInput, sizeLabel)),
-    section('布局', layouts),
-    section('编辑器', h('label', { class: 'check-row', for: 'word-wrap' }, wrapInput, h('span', {}, '自动换行'), h('span', { class: 'muted' }, 'Alt Z'))),
     section(
-      '动效',
+      getLocale() === 'zh' ? '语言 · Language' : 'Language · 语言',
+      h(
+        'div',
+        { class: 'grid3 lang-grid' },
+        ...LANGS.map(([id, label, sub]) =>
+          h(
+            'button',
+            { class: 'opt lang-opt', 'data-locale': id, 'aria-pressed': String(getLocale() === id), onClick: () => void switchLocale(id) },
+            h('span', { class: 'opt-label' }, label),
+            h('span', { class: 'opt-sub' }, sub)
+          )
+        )
+      ),
+      h('p', { class: 'muted small' }, t('界面语言，切换后窗口会重新加载。'))
+    ),
+    section(t('预设与已保存的空间'), spacesGrid),
+    section(t('主题'), themes),
+    section(t('强调色 · 整个界面只有这一种颜色'), accents),
+    section(t('代码字体'), fonts, h('div', { class: 'size-row' }, h('label', { for: 'font-size' }, t('字号')), sizeInput, sizeLabel)),
+    section(
+      t('动效'),
       h(
         'div',
         { class: 'grid3' },
@@ -226,7 +304,7 @@ function build(): void {
           )
         )
       ),
-      h('p', { class: 'muted small' }, '系统开启“减少动态效果”时，完整档会自动降为简约。')
+      h('p', { class: 'muted small' }, t('系统开启“减少动态效果”时，完整档会自动降为简约。'))
     )
   )
 
@@ -241,12 +319,109 @@ function build(): void {
   const right = h(
     'div',
     { class: 'set-right' },
-    h('div', { class: 'pv-head' }, h('h2', {}, '实时预览'), h('span', { class: 'kbd-hint' }, 'Esc 返回编辑器')),
+    h('div', { class: 'pv-head' }, h('h2', {}, t('实时预览'))),
     previewFrame,
-    h('p', { class: 'muted small' }, '空间就是一个配置文件，可以分享给别人一键导入。随时用 Ctrl K → “切换空间” 切换。')
+    h('p', { class: 'muted small' }, t('空间就是一个配置文件，可以分享给别人一键导入。随时用 Ctrl K → “切换空间” 切换。'))
   )
 
-  page = h('div', { class: 'settings-page', role: 'region', 'aria-label': '个性化设置' }, h('div', { class: 'set-inner' }, left, right))
+  // ---- 系统设置 ----
+  ctxInput = h('input', {
+    type: 'checkbox',
+    id: 'agent-context',
+    onChange: () => {
+      state.settings.agentContext = ctxInput.checked
+      persist()
+      refreshAgentContext()
+    }
+  })
+  sysInfo = { recents: h('span', { class: 'muted' }), bindings: h('span', { class: 'muted' }), sizes: h('span', { class: 'muted' }) }
+  const resetSizes = () => {
+    state.settings.sidebarWidth = undefined
+    state.settings.panelHeight = undefined
+    state.settings.chatWidth = undefined
+    persist()
+    emit('layout')
+    toast(t('已恢复默认尺寸，终端和对话面板下次打开时生效'))
+    sync()
+  }
+  const system = h(
+    'div',
+    { class: 'set-left' },
+    h('div', { class: 'set-intro' }, h('h1', {}, t('系统设置')), h('p', {}, t('编辑器行为、AI 助手、窗口和本地数据。修改立即生效。'))),
+    section(t('编辑器'), h('label', { class: 'check-row', for: 'word-wrap' }, wrapInput, h('span', {}, t('自动换行')), h('span', { class: 'muted' }, 'Alt Z'))),
+    section(t('AI 助手'), h('label', { class: 'check-row', for: 'agent-context' }, ctxInput, h('span', {}, t('发送消息时附带当前文件和选中内容')))),
+    section(t('窗口'), h('div', { class: 'sys-row' }, h('span', {}, t('侧栏、终端和对话面板的尺寸')), sysInfo.sizes, h('span', { class: 'grow' }), h('button', { class: 'btn small', onClick: resetSizes }, t('恢复默认')))),
+    section(
+      t('数据'),
+      h(
+        'div',
+        { class: 'sys-row' },
+        h('span', {}, t('最近打开的文件夹')),
+        sysInfo.recents,
+        h('span', { class: 'grow' }),
+        h('button', {
+          class: 'btn small',
+          onClick: () => {
+            state.settings.recentFolders = []
+            persist()
+            emit('root')
+            sync()
+            toast(t('已清除最近打开记录'))
+          }
+        }, t('清除'))
+      ),
+      h(
+        'div',
+        { class: 'sys-row' },
+        h('span', {}, t('绑定了空间的项目')),
+        sysInfo.bindings,
+        h('span', { class: 'grow' }),
+        h('button', {
+          class: 'btn small',
+          onClick: () => {
+            state.settings.bindings = {}
+            persist()
+            sync()
+            toast(t('已解除所有项目绑定'))
+          }
+        }, t('全部解除'))
+      )
+    ),
+    section(t('快捷键'), h('div', { class: 'sys-keys' }, ...SHORTCUTS.map(([k, v]) => h('div', {}, h('span', {}, k), h('kbd', {}, v)))))
+  )
+
+  // ---- 左侧导航 ----
+  navInk = h('span', { class: 'set-nav-ink', 'aria-hidden': 'true' })
+  navEl = h(
+    'nav',
+    { class: 'set-nav', 'aria-label': t('设置分类') },
+    h(
+      'div',
+      { class: 'set-nav-head' },
+      h('button', { class: 'set-back', 'aria-label': t('返回编辑器 (Esc)'), title: t('返回 Esc'), onClick: () => closeSettings() }, h('span', { class: 'ic', html: icons.arrowLeft }), h('span', {}, t('返回')))
+    ),
+    h('div', { class: 'set-nav-title' }, t('设置')),
+    navInk,
+    ...PANES.map(([id, label, sub]) =>
+      h('button', { class: 'set-nav-btn', 'data-pane': id, onClick: () => showPane(id) }, h('span', { class: 'set-nav-label' }, label), h('span', { class: 'set-nav-sub' }, sub))
+    ),
+  )
+
+  page = h(
+    'div',
+    { class: 'settings-page', role: 'region', 'aria-label': t('设置') },
+    h(
+      'div',
+      { class: 'set-shell' },
+      navEl,
+      h(
+        'div',
+        { class: 'set-panes' },
+        h('div', { class: 'set-pane', 'data-pane': 'system', hidden: true }, h('div', { class: 'set-inner single' }, system)),
+        h('div', { class: 'set-pane', 'data-pane': 'appearance', hidden: true }, h('div', { class: 'set-inner' }, left, right))
+      )
+    )
+  )
   page.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       e.stopPropagation()
@@ -291,8 +466,8 @@ function renderSpaces(): void {
     if (!saved) return btn
     const del = h('button', {
       class: 'icon-btn small del',
-      'aria-label': `删除空间 ${s.name}`,
-      title: '删除',
+      'aria-label': t('删除空间 {0}', s.name),
+      title: t('删除'),
       html: icons.trash,
       onClick: () => {
         state.settings.savedSpaces = state.settings.savedSpaces.filter((x) => x !== s)
@@ -306,17 +481,17 @@ function renderSpaces(): void {
 }
 
 function saveAsNew(): void {
-  const name = nameInput.value.trim() || '我的空间'
+  const name = nameInput.value.trim() || t('我的空间')
   const space = { ...state.settings.space, name }
   const list = state.settings.savedSpaces.filter((s) => s.name !== name)
   if (PRESETS.some((p) => p.name === name)) {
-    toast('不能和预设空间重名')
+    toast(t('不能和预设空间重名'))
     return
   }
   state.settings.savedSpaces = [...list, space]
   setSpace({ name })
   emit('saved')
-  toast(`已保存空间“${name}”`)
+  toast(t('已保存空间“{0}”', name))
 }
 
 function toggleBinding(): void {
@@ -324,10 +499,10 @@ function toggleBinding(): void {
   if (!root) return
   if (state.settings.bindings[root]) {
     delete state.settings.bindings[root]
-    toast('已解除绑定')
+    toast(t('已解除绑定'))
   } else {
     state.settings.bindings[root] = { ...state.settings.space }
-    toast(`打开这个项目时会自动切换到“${state.settings.space.name}”`)
+    toast(t('打开这个项目时会自动切换到“{0}”', state.settings.space.name))
   }
   persist()
   sync()
@@ -340,19 +515,18 @@ async function importSpace(): Promise<void> {
   state.settings.savedSpaces = [...state.settings.savedSpaces.filter((x) => x.name !== s.name), s]
   setSpace({ ...s })
   emit('saved')
-  toast(`已导入空间“${s.name}”`)
+  toast(t('已导入空间“{0}”', s.name))
 }
 
 function previewCode(s: Space): string {
   return [
-    '// 你的空间，你的规则',
+    t('// 你的空间，你的规则'),
     'export const space = defineSpace({',
     `  name: '${s.name.replace(/'/g, "\\'")}',`,
     `  theme: '${s.theme}',`,
     `  accent: '${s.accent}',`,
     `  font: '${FONTS[s.font].name}',`,
     `  size: ${s.size},`,
-    `  layout: '${s.layout}',`,
     '})'
   ].join('\n')
 }
@@ -372,15 +546,26 @@ function sync(): void {
   sizeLabel.textContent = `${s.size}px`
   customColor.value = s.accent.toLowerCase()
   wrapInput.checked = state.settings.wordWrap
+  ctxInput.checked = state.settings.agentContext !== false
+  const nRecent = state.settings.recentFolders.length
+  const nBind = Object.keys(state.settings.bindings).length
+  sysInfo.recents.textContent = nRecent ? t('{0} 个', nRecent) : t('无')
+  sysInfo.bindings.textContent = nBind ? t('{0} 个', nBind) : t('无')
+  sysInfo.sizes.textContent = [
+    state.settings.sidebarWidth ? t('侧栏 {0}px', state.settings.sidebarWidth) : '',
+    state.settings.panelHeight ? t('终端 {0}px', state.settings.panelHeight) : '',
+    state.settings.chatWidth ? t('对话 {0}px', state.settings.chatWidth) : ''
+  ]
+    .filter(Boolean)
+    .join(' · ') || t('均为默认')
   page.querySelectorAll<HTMLElement>('.motion-opt').forEach((el) => el.setAttribute('aria-pressed', String(el.dataset.motion === (state.settings.motion ?? 'full'))))
   const isCustom = !ACCENTS.some((a) => a.hex === s.accent)
   customColor.parentElement!.classList.toggle('on', isCustom)
 
   bindBtn.disabled = !state.root
-  bindBtn.textContent = state.root && state.settings.bindings[state.root] ? '解除项目绑定' : '绑定到当前项目'
-  bindBtn.title = state.root ? '' : '先打开一个文件夹'
+  bindBtn.textContent = state.root && state.settings.bindings[state.root] ? t('解除项目绑定') : t('绑定到当前项目')
+  bindBtn.title = state.root ? '' : t('先打开一个文件夹')
 
-  previewFrame.dataset.layout = s.layout
   previewFrame.querySelector('.pv-space')!.textContent = s.name
   if (preview) {
     preview.setValue(previewCode(s))

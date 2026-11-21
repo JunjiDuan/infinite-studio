@@ -5,6 +5,7 @@ import { closeView, editorSelection, findTab, isDirty, normPath, onSelection, op
 import { isChecked, probeFile, refreshProbe } from './lsp'
 import { languageFor, monaco } from './monaco'
 import { on, state } from './store'
+import { t } from './i18n'
 
 /**
  * IDE 桥接的界面端：执行终端里 claude 调用的工具（openDiff / getDiagnostics / close_tab / closeAllDiffTabs），
@@ -144,11 +145,11 @@ function openDiff(callId: number, args: Record<string, unknown>): Promise<IdeToo
         'div',
         { class: 'diffview-bar' },
         h('span', { class: 'diffview-title', title: newPath }, newPath),
-        h('span', { class: 'diffview-hint' }, 'Claude 建议的修改 · 右侧可以直接改'),
+        h('span', { class: 'diffview-hint' }, t('Claude 建议的修改 · 右侧可以直接改')),
         h('span', { class: 'grow' }),
-        h('button', { class: 'btn small', onClick: () => void openFile(newPath) }, '打开文件'),
-        h('button', { class: 'btn small', title: '拒绝这次修改', onClick: reject }, '拒绝'),
-        h('button', { class: 'btn small primary', title: '接受修改（Ctrl S）', onClick: accept }, '接受')
+        h('button', { class: 'btn small', onClick: () => void openFile(newPath) }, t('打开文件')),
+        h('button', { class: 'btn small', title: t('拒绝这次修改'), onClick: reject }, t('拒绝')),
+        h('button', { class: 'btn small primary', title: t('接受修改（Ctrl S）'), onClick: accept }, t('接受'))
       ),
       host
     )
@@ -303,7 +304,7 @@ export function initIde(): void {
     for (const s of diffs.values()) if (s.callId === id) s.finish(null)
   })
   window.api.ide.onStatus((c) => {
-    if (c && !connected) toast('终端里的 Claude Code 已连接到编辑器')
+    if (c && !connected) toast(t('终端里的 Claude Code 已连接到编辑器'))
     connected = c
     if (c) {
       lastSel = ''

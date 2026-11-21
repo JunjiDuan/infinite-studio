@@ -5,6 +5,7 @@ import { h, toast } from './dom'
 import { icons } from './icons'
 import { emit, on, persist, state } from './store'
 import { resolve } from './theme'
+import { t } from './i18n'
 
 interface Session {
   id: number | null
@@ -55,22 +56,22 @@ function termFont(): { fontFamily: string; fontSize: number } {
 }
 
 export function createPanel(): HTMLElement {
-  tabsEl = h('div', { class: 'panel-tabs', role: 'tablist', 'aria-label': '终端' })
+  tabsEl = h('div', { class: 'panel-tabs', role: 'tablist', 'aria-label': t('终端') })
   bodyEl = h('div', { class: 'panel-body' })
-  const resizer = h('div', { class: 'panel-resizer', role: 'separator', 'aria-orientation': 'horizontal', 'aria-label': '拖动调整终端高度' })
+  const resizer = h('div', { class: 'panel-resizer', role: 'separator', 'aria-orientation': 'horizontal', 'aria-label': t('拖动调整终端高度') })
   panel = h(
     'section',
-    { class: 'panel', 'aria-label': '终端面板' },
+    { class: 'panel', 'aria-label': t('终端面板') },
     resizer,
     h(
       'div',
       { class: 'panel-head' },
-      h('span', { class: 'panel-title' }, '终端'),
+      h('span', { class: 'panel-title' }, t('终端')),
       tabsEl,
       h('span', { class: 'grow' }),
-      h('button', { class: 'icon-btn small', 'aria-label': '新建终端 (Ctrl Shift `)', title: '新建终端 Ctrl Shift `', html: icons.plus, onClick: () => void newTerminal() }),
-      h('button', { class: 'icon-btn small', 'aria-label': '结束当前终端', title: '结束终端', html: icons.trash, onClick: () => active && killSession(active) }),
-      h('button', { class: 'icon-btn small', 'aria-label': '隐藏面板 (Ctrl `)', title: '隐藏 Ctrl `', html: icons.close, onClick: () => setPanelOpen(false) })
+      h('button', { class: 'icon-btn small', 'aria-label': t('新建终端 (Ctrl Shift `)'), title: t('新建终端 Ctrl Shift `'), html: icons.plus, onClick: () => void newTerminal() }),
+      h('button', { class: 'icon-btn small', 'aria-label': t('结束当前终端'), title: t('结束终端'), html: icons.trash, onClick: () => active && killSession(active) }),
+      h('button', { class: 'icon-btn small', 'aria-label': t('隐藏面板 (Ctrl `)'), title: t('隐藏 Ctrl `'), html: icons.close, onClick: () => setPanelOpen(false) })
     ),
     bodyEl
   )
@@ -215,7 +216,7 @@ export async function newTerminal(cwd?: string, opts: { title?: string; run?: st
   term.open(el)
   term.attachCustomKeyEventHandler(keyHandler(term))
   ++counter
-  const s: Session = { id: null, title: opts.title ?? `终端 ${counter}`, term, fit, el }
+  const s: Session = { id: null, title: opts.title ?? t('终端 {0}', counter), term, fit, el }
   sessions.push(s)
   activate(s)
   try {
@@ -233,8 +234,8 @@ export async function newTerminal(cwd?: string, opts: { title?: string; run?: st
     window.api.term.resize(r.id, term.cols, term.rows)
     if (opts.run) window.api.term.write(r.id, opts.run + '\r')
   } catch (e) {
-    term.write(`\x1b[31m无法启动终端：${String(e)}\x1b[0m\r\n`)
-    toast('无法启动终端')
+    term.write('\x1b[31m' + t('无法启动终端：{0}', String(e)) + '\x1b[0m\r\n')
+    toast(t('无法启动终端'))
     return null
   }
 

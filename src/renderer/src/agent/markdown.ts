@@ -3,6 +3,7 @@ import { openFile } from '../editor'
 import { icons } from '../icons'
 import { monaco } from '../monaco'
 import { state } from '../store'
+import { t } from '../i18n'
 
 /**
  * 对话里用的 Markdown 渲染。全部用 DOM 构造，不拼接外部 HTML；
@@ -49,12 +50,12 @@ export function codeBlock(code: string, lang = ''): HTMLElement {
   }
   const copy = h('button', {
     class: 'md-copy',
-    title: '复制',
-    'aria-label': '复制代码',
+    title: t('复制'),
+    'aria-label': t('复制代码'),
     html: icons.copy,
     onClick: () => {
       void navigator.clipboard.writeText(code)
-      toast('已复制')
+      toast(t('已复制'))
     }
   })
   return h('div', { class: 'md-code' }, h('div', { class: 'md-code-head' }, h('span', {}, lang || 'text'), copy), h('pre', {}, codeEl))

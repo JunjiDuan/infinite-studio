@@ -6,6 +6,7 @@ import CssWorker from 'monaco-editor/languages/features/css/css.worker?worker'
 import HtmlWorker from 'monaco-editor/languages/features/html/html.worker?worker'
 import TsWorker from 'monaco-editor/languages/features/typescript/ts.worker?worker'
 import type { ResolvedTheme } from './theme'
+import { t } from './i18n'
 
 ;(self as unknown as { MonacoEnvironment: monaco.Environment }).MonacoEnvironment = {
   getWorker(_id: string, label: string) {
@@ -152,7 +153,7 @@ export function languageFor(path: string): string {
 }
 
 export function languageName(id: string): string {
-  if (id === 'plaintext') return '纯文本'
+  if (id === 'plaintext') return t('纯文本')
   const l = monaco.languages.getLanguages().find((x) => x.id === id)
   return l?.aliases?.[0] ?? id
 }

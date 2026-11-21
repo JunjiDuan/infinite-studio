@@ -18,8 +18,8 @@ export function closeMenu(): void {
   cb?.()
 }
 
-/** onClose：菜单关闭时回调；onStep：左右方向键（菜单栏用来切换相邻菜单） */
-type MenuOptions = { onClose?: () => void; onStep?: (dir: -1 | 1) => void }
+/** onClose：菜单关闭时回调；onStep：左右方向键（菜单栏用来切换相邻菜单）；anchor 为 bottom 时 y 是菜单底边（向上展开） */
+type MenuOptions = { onClose?: () => void; onStep?: (dir: -1 | 1) => void; anchor?: 'top' | 'bottom' }
 
 /** 极简右键菜单：Esc / 点外面关闭，方向键选择 */
 export function showMenu(x: number, y: number, items: MenuItem[], opts: MenuOptions = {}): void {
@@ -54,7 +54,9 @@ export function showMenu(x: number, y: number, items: MenuItem[], opts: MenuOpti
   // 防止超出窗口
   const r = menu.getBoundingClientRect()
   menu.style.left = Math.min(x, window.innerWidth - r.width - 8) + 'px'
-  menu.style.top = Math.min(y, window.innerHeight - r.height - 8) + 'px'
+  const top = opts.anchor === 'bottom' ? y - r.height : y
+  menu.style.top = Math.max(8, Math.min(top, window.innerHeight - r.height - 8)) + 'px'
+  if (opts.anchor === 'bottom') menu.style.transformOrigin = 'bottom left'
   buttons[0]?.focus()
 
   menu.addEventListener('keydown', (e) => {

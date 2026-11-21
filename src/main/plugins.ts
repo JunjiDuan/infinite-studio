@@ -4,6 +4,7 @@ import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { PLUGINS, type PluginStatus } from '../shared/plugins'
+import { tm } from './i18n'
 
 const isWin = process.platform === 'win32'
 
@@ -118,7 +119,7 @@ export async function resolveLaunch(command: string): Promise<Launch | null> {
 
 async function detect(id: string): Promise<PluginStatus> {
   const def = PLUGINS.find((p) => p.id === id)
-  if (!def) throw new Error('未知插件：' + id)
+  if (!def) throw new Error(tm('未知插件：{0}', id))
   const file = await locate(def.command)
   if (!file) return { installed: false }
   const l = await resolveLaunch(def.command)

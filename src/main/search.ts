@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { SearchFile, SearchMatch, SearchOptions, SearchResult } from '../shared/types'
 import { IGNORED } from './fsService'
+import { tm } from './i18n'
 
 const MAX_MATCHES = 5000
 const MAX_FILE_BYTES = 1024 * 1024
@@ -64,7 +65,7 @@ export function registerSearchIpc(): void {
     try {
       re = buildRegex(query, opts)
     } catch (err) {
-      return { files: [], total: 0, truncated: false, error: '正则表达式无效：' + (err as Error).message }
+      return { files: [], total: 0, truncated: false, error: tm('正则表达式无效：{0}', (err as Error).message) }
     }
     const files: SearchFile[] = []
     let total = 0

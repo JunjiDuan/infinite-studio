@@ -1,10 +1,11 @@
-import type { LoginEvent, SessionInfo } from '../../../shared/agents'
+import type { LoginEvent, RateWindow, SessionInfo } from '../../../shared/agents'
 import { PANEL_MCP_SERVER, PANEL_TOOLS } from '../../../shared/ide'
 import { captureBaseline, findNewDiagnostics, panelDiagnostics, saveIfDirty } from '../ide'
 import { listen, unlisten } from './bus'
 import { applyHunks, countChanges, hunksFrom, lineDiff, type Hunk } from './diff'
 import type { ChatHost, DiffInfo, Driver, LoginMethod, LoginUi, ModelOption, PermissionOption, Question, SlashCommand, ToolView, UserInput } from './types'
 import { clip, readText, rel, todoMarkdown } from './util'
+import { t } from '../i18n'
 
 /**
  * Claude Code 驱动：和官方 VS Code 扩展一样，常驻一个
@@ -140,7 +141,7 @@ export class ClaudeDriver implements Driver {
     this.runId = null
     unlisten(id)
     window.api.agent.stop(id)
-    for (const p of this.pending.values()) p.reject(new Error('进程已结束'))
+    for (const p of this.pending.values()) p.reject(new Error(t('进程已结束')))
     this.pending.clear()
   }
 
@@ -149,14 +150,14 @@ export class ClaudeDriver implements Driver {
     this.runId = null
     // 还有请求在等回复（例如启动时的 initialize）：错误随请求失败报告，不再重复提示
     const reported = this.pending.size > 0
-    for (const p of this.pending.values()) p.reject(new Error(stderr.split('\n').slice(-4).join('\n') || '进程已退出'))
+    for (const p of this.pending.values()) p.reject(new Error(stderr.split('\n').slice(-4).join('\n') || t('进程已退出')))
     this.pending.clear()
     clearTimeout(this.killTimer)
     if (this.host.busy()) {
       if (this.interrupting) {
         this.interrupting = false
         this.host.turnEnded({ ok: false, interrupted: true })
-      } else if (!reported) this.host.crashed(code === 0 ? '进程已结束' : stderr ? stderr.split('\n').slice(-6).join('\n') : `进程退出（${code}）`)
+      } else if (!reported) this.host.crashed(code === 0 ? t('进程已结束') : stderr ? stderr.split('\n').slice(-6).join('\n') : t('进程退出（{0}）', code))
     }
   }
 
@@ -169,7 +170,7 @@ export class ClaudeDriver implements Driver {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id)
-        reject(new Error('请求超时'))
+        reject(new Error(t('请求超时')))
       }, timeout)
       this.pending.set(id, {
         resolve: (v) => {
@@ -227,14 +228,14 @@ export class ClaudeDriver implements Driver {
 
   setMode(id: string): void {
     this.mode = id
-    if (this.runId != null) this.control({ subtype: 'set_permission_mode', mode: id }).catch((e) => this.host.note('切换模式失败：' + e.message, 'error'))
+    if (this.runId != null) this.control({ subtype: 'set_permission_mode', mode: id }).catch((e) => this.host.note(t('切换模式失败：') + e.message, 'error'))
   }
 
   setModel(id: string, effort?: string): void {
     const changed = id !== this.model
     this.model = id
     this.effort = effort
-    if (changed && this.runId != null) this.control({ subtype: 'set_model', model: id === 'default' ? undefined : id }).catch((e) => this.host.note('切换模型失败：' + e.message, 'error'))
+    if (changed && this.runId != null) this.control({ subtype: 'set_model', model: id === 'default' ? undefined : id }).catch((e) => this.host.note(t('切换模型失败：') + e.message, 'error'))
   }
 
   listSessions(): Promise<SessionInfo[]> {
@@ -272,9 +273,9 @@ export class ClaudeDriver implements Driver {
     if (what.code) {
       await this.ensure()
       const r = await this.control({ subtype: 'rewind_files', user_message_id: messageId }, 60_000)
-      if (r?.canRewind === false) throw new Error(r.error || '没有这条消息的文件检查点')
+      if (r?.canRewind === false) throw new Error(r.error || t('没有这条消息的文件检查点'))
       const n = Array.isArray(r?.filesChanged) ? r.filesChanged.length : undefined
-      this.host.note(n != null ? `已恢复 ${n} 个文件` : '已恢复文件')
+      this.host.note(n != null ? t('已恢复 {0} 个文件', n) : t('已恢复文件'))
     }
     if (what.conversation) {
       this.stopProcess()
@@ -288,8 +289,8 @@ export class ClaudeDriver implements Driver {
   /* ---------------- 登录 ---------------- */
 
   readonly loginMethods: LoginMethod[] = [
-    { id: 'claudeai', label: 'Claude 订阅账号', hint: 'Pro、Max、Team 或 Enterprise 订阅' },
-    { id: 'console', label: 'Anthropic Console', hint: '按 API 用量计费' }
+    { id: 'claudeai', label: t('Claude 订阅账号'), hint: t('Pro、Max、Team 或 Enterprise 订阅') },
+    { id: 'console', label: 'Anthropic Console', hint: t('按 API 用量计费') }
   ]
 
   async login(method: string, ui: LoginUi): Promise<void> {
@@ -311,13 +312,13 @@ export class ClaudeDriver implements Driver {
             ui.askCode((code) => window.api.agent.loginWrite(id, code))
           } else if (ev.type === 'exit') {
             if (ev.ok) resolve()
-            else reject(new Error(ev.message || '登录失败'))
+            else reject(new Error(ev.message || t('登录失败')))
           }
         }
         early.splice(0).forEach(handle)
         ui.onCancel(() => {
           window.api.agent.loginCancel(id)
-          reject(new Error('已取消登录'))
+          reject(new Error(t('已取消登录')))
         })
       })
     } finally {
@@ -343,6 +344,23 @@ export class ClaudeDriver implements Driver {
 
   /* ---------------- 事件 ---------------- */
 
+  /** CLI 每轮都会输出 rate_limit_event：订阅账号 5 小时 / 每周窗口的利用率（0-1）和重置时间（秒） */
+  private onRateLimit(info: Any): void {
+    const win = info?.unifiedWindows
+    if (!win || typeof win !== 'object') return
+    const names: Record<string, string> = { five_hour: t('5 小时'), seven_day: t('每周'), seven_day_opus: t('每周（Opus）'), seven_day_sonnet: t('每周（Sonnet）') }
+    const windows: RateWindow[] = []
+    for (const [k, w] of Object.entries(win as Record<string, Any>)) {
+      if (typeof w?.utilization !== 'number') continue
+      windows.push({
+        label: names[k] ?? k,
+        usedPercent: Math.max(0, Math.min(100, w.utilization * 100)),
+        resetsAt: typeof w.resetsAt === 'number' ? w.resetsAt * 1000 : undefined
+      })
+    }
+    if (windows.length) this.host.rateLimits({ windows, updatedAt: Date.now() })
+  }
+
   private onEvent(ev: Any): void {
     switch (ev?.type) {
       case 'control_response':
@@ -366,6 +384,8 @@ export class ClaudeDriver implements Driver {
         return this.onUser(ev)
       case 'result':
         return this.onResult(ev)
+      case 'rate_limit_event':
+        return this.onRateLimit(ev.rate_limit_info)
       case '__text':
         return
     }
@@ -375,7 +395,7 @@ export class ClaudeDriver implements Driver {
     const p = this.pending.get(r?.request_id)
     if (!p) return
     this.pending.delete(r.request_id)
-    if (r.subtype === 'error') p.reject(new Error(String(r.error ?? '请求失败')))
+    if (r.subtype === 'error') p.reject(new Error(String(r.error ?? t('请求失败'))))
     else p.resolve(r.response)
   }
 
@@ -390,12 +410,12 @@ export class ClaudeDriver implements Driver {
         this.host.setMode(ev.permissionMode)
       }
     } else if (ev.subtype === 'status') {
-      this.host.status(ev.status === 'compacting' ? '正在压缩对话…' : null)
+      this.host.status(ev.status === 'compacting' ? t('正在压缩对话…') : null)
     } else if (ev.subtype === 'compact_boundary') {
-      this.host.note('对话已压缩，之前的内容已总结')
+      this.host.note(t('对话已压缩，之前的内容已总结'))
     } else if (ev.subtype === 'api_retry' || ev.subtype === 'api_error') {
       const msg = ev.error?.message ?? ev.message
-      if (msg) this.host.status(`接口出错，正在重试…（${msg}）`)
+      if (msg) this.host.status(t('接口出错，正在重试…（{0}）', msg))
     }
   }
 
@@ -510,7 +530,7 @@ export class ClaudeDriver implements Driver {
       return
     }
     if (ev.isCompactSummary) {
-      if (this.replay) this.host.note('之前的对话已压缩')
+      if (this.replay) this.host.note(t('之前的对话已压缩'))
       return
     }
     if (!this.replay) {
@@ -552,8 +572,8 @@ export class ClaudeDriver implements Driver {
     const isErr = !!ev.is_error && !interrupted
     let error: string | undefined
     if (isErr) {
-      error = String(ev.result || (Array.isArray(ev.errors) ? ev.errors.join('\n') : '') || ev.subtype || '出错了')
-      if (ev.subtype === 'error_max_turns') error = '已达到最大轮数'
+      error = String(ev.result || (Array.isArray(ev.errors) ? ev.errors.join('\n') : '') || ev.subtype || t('出错了'))
+      if (ev.subtype === 'error_max_turns') error = t('已达到最大轮数')
     }
     this.host.turnEnded({ ok: !isErr && !interrupted, interrupted, error, durationMs: ev.duration_ms, costUsd: ev.total_cost_usd })
   }
@@ -636,7 +656,7 @@ export class ClaudeDriver implements Driver {
           allowOther: true
         }))
         const ans = await this.host.ask(qs, requestId)
-        if (!ans) return deny('用户跳过了问题')
+        if (!ans) return deny(t('用户跳过了问题'))
         const answers: Record<string, string> = {}
         qs.forEach((q) => {
           const a = ans[q.id]
@@ -648,17 +668,17 @@ export class ClaudeDriver implements Driver {
       if (name === 'ExitPlanMode') {
         const a = await this.host.permission(
           {
-            title: 'Claude 已经拟好计划，要开始执行吗？',
+            title: t('Claude 已经拟好计划，要开始执行吗？'),
             markdown: String(input.plan ?? ''),
             options: [
-              { id: 'auto', label: '是，并自动接受编辑' },
-              { id: 'manual', label: '是，每次编辑前询问' },
-              { id: 'no', label: '否，继续完善计划', feedback: true }
+              { id: 'auto', label: t('是，并自动接受编辑') },
+              { id: 'manual', label: t('是，每次编辑前询问') },
+              { id: 'no', label: t('否，继续完善计划'), feedback: true }
             ]
           },
           requestId
         )
-        if (a.option === 'no') return deny(a.feedback || '用户想继续完善计划')
+        if (a.option === 'no') return deny(a.feedback || t('用户想继续完善计划'))
         const mode = a.option === 'auto' ? 'acceptEdits' : 'default'
         this.mode = mode
         this.host.setMode(mode)
@@ -666,29 +686,29 @@ export class ClaudeDriver implements Driver {
       }
 
       const d = describe(name, input)
-      const options: PermissionOption[] = [{ id: 'yes', label: '是' }]
+      const options: PermissionOption[] = [{ id: 'yes', label: t('是') }]
       let always: Any[] | null = null
       let alwaysMode: string | null = null
       if (EDIT_TOOLS.has(name)) {
         always = suggestions.length ? suggestions : [{ type: 'setMode', mode: 'acceptEdits', destination: 'session' }]
         alwaysMode = always.find((s) => s.type === 'setMode')?.mode ?? null
-        options.push({ id: 'always', label: '是，本次会话中允许所有编辑' })
+        options.push({ id: 'always', label: t('是，本次会话中允许所有编辑') })
       } else if (suggestions.length) {
         always = suggestions
         options.push({ id: 'always', label: suggestionLabel(name, suggestions) })
       }
-      options.push({ id: 'no', label: '否，告诉 Claude 该怎么做', feedback: true })
+      options.push({ id: 'no', label: t('否，告诉 Claude 该怎么做'), feedback: true })
 
       let diff: DiffInfo | undefined
       if (EDIT_TOOLS.has(name)) diff = await proposedDiff(name, input).catch(() => undefined)
       const title =
         name === 'Bash'
-          ? '要运行这条命令吗？'
+          ? t('要运行这条命令吗？')
           : EDIT_TOOLS.has(name)
-            ? `要${name === 'Write' ? '写入' : '修改'} ${rel(input.file_path ?? input.notebook_path)} 吗？`
+            ? t('要{0} {1} 吗？', name === 'Write' ? t('写入') : t('修改'), rel(input.file_path ?? input.notebook_path))
             : name === 'WebFetch'
-              ? `要访问 ${input.url} 吗？`
-              : `要让 Claude 使用 ${d.verb}${d.summary ? '：' + clip(d.summary, 80) : ''} 吗？`
+              ? t('要访问 {0} 吗？', input.url)
+              : t('要让 Claude 使用 {0}{1} 吗？', d.verb, d.summary ? t('：') + clip(d.summary, 80) : '')
       const a = await this.host.permission(
         {
           title,
@@ -736,7 +756,7 @@ function cleanPrompt(s: string): string {
 
 function toolOutput(content: Any): string {
   if (typeof content === 'string') return content
-  if (Array.isArray(content)) return content.map((x: Any) => (x?.type === 'text' ? String(x.text) : x?.type === 'image' ? '[图片]' : '')).join('\n')
+  if (Array.isArray(content)) return content.map((x: Any) => (x?.type === 'text' ? String(x.text) : x?.type === 'image' ? t('[图片]') : '')).join('\n')
   return ''
 }
 
@@ -748,10 +768,10 @@ function jsonBrief(input: Any): string | undefined {
 function suggestionLabel(tool: string, sugg: Any[]): string {
   const rules = sugg.flatMap((s) => (s.type === 'addRules' && Array.isArray(s.rules) ? s.rules : []))
   const r = rules[0]
-  if (r?.ruleContent) return `是，并且不再询问 ${r.toolName ?? tool}(${clip(String(r.ruleContent), 60)})`
+  if (r?.ruleContent) return t('是，并且不再询问 {0}({1})', r.toolName ?? tool, clip(String(r.ruleContent), 60))
   const dirs = sugg.flatMap((s) => (s.type === 'addDirectories' && Array.isArray(s.directories) ? s.directories : []))
-  if (dirs.length) return `是，并允许访问 ${rel(dirs[0])}`
-  return '是，并且不再询问'
+  if (dirs.length) return t('是，并允许访问 {0}', rel(dirs[0]))
+  return t('是，并且不再询问')
 }
 
 export function describe(name: string, i: Any): Omit<ToolView, 'status'> {
@@ -759,10 +779,10 @@ export function describe(name: string, i: Any): Omit<ToolView, 'status'> {
   switch (name) {
     case 'Read': {
       const range = i.offset ? ` (${i.offset}${i.limit ? '-' + (i.offset + i.limit - 1) : ''})` : ''
-      return { icon: 'read', verb: '读取', summary: rel(file) + range, path: file, line: i.offset }
+      return { icon: 'read', verb: t('读取'), summary: rel(file) + range, path: file, line: i.offset }
     }
     case 'Write':
-      return { icon: 'write', verb: '写入', summary: rel(file), path: file, expanded: true }
+      return { icon: 'write', verb: t('写入'), summary: rel(file), path: file, expanded: true }
     case 'Edit':
     case 'MultiEdit':
     case 'NotebookEdit': {
@@ -772,46 +792,46 @@ export function describe(name: string, i: Any): Omit<ToolView, 'status'> {
         const hunks = edits.flatMap((e) => hunksFrom(lineDiff(String(e.old_string ?? ''), String(e.new_string ?? '')), 3))
         diff = { path: file, hunks, ...countChanges(hunks) }
       }
-      return { icon: 'edit', verb: '编辑', summary: rel(file), path: file, diff, expanded: true }
+      return { icon: 'edit', verb: t('编辑'), summary: rel(file), path: file, diff, expanded: true }
     }
     case 'Bash':
-      return { icon: 'bash', verb: '运行', summary: String(i.description || i.command || ''), input: i.command ? String(i.command) : undefined }
+      return { icon: 'bash', verb: t('运行'), summary: String(i.description || i.command || ''), input: i.command ? String(i.command) : undefined }
     case 'BashOutput':
     case 'KillShell':
     case 'KillBash':
-      return { icon: 'bash', verb: name === 'BashOutput' ? '查看输出' : '结束进程', summary: String(i.bash_id ?? i.shell_id ?? '') }
+      return { icon: 'bash', verb: name === 'BashOutput' ? t('查看输出') : t('结束进程'), summary: String(i.bash_id ?? i.shell_id ?? '') }
     case 'Glob':
-      return { icon: 'search', verb: '查找文件', summary: String(i.pattern ?? '') + (i.path ? `  ·  ${rel(i.path)}` : '') }
+      return { icon: 'search', verb: t('查找文件'), summary: String(i.pattern ?? '') + (i.path ? `  ·  ${rel(i.path)}` : '') }
     case 'Grep':
-      return { icon: 'search', verb: '搜索', summary: String(i.pattern ?? '') + (i.path ? `  ·  ${rel(i.path)}` : i.glob ? `  ·  ${i.glob}` : '') }
+      return { icon: 'search', verb: t('搜索'), summary: String(i.pattern ?? '') + (i.path ? `  ·  ${rel(i.path)}` : i.glob ? `  ·  ${i.glob}` : '') }
     case 'WebFetch':
-      return { icon: 'web', verb: '访问网页', summary: String(i.url ?? '') }
+      return { icon: 'web', verb: t('访问网页'), summary: String(i.url ?? '') }
     case 'WebSearch':
-      return { icon: 'web', verb: '搜索网络', summary: String(i.query ?? '') }
+      return { icon: 'web', verb: t('搜索网络'), summary: String(i.query ?? '') }
     case 'Task':
     case 'Agent':
-      return { icon: 'task', verb: i.subagent_type ? `子任务 · ${i.subagent_type}` : '子任务', summary: String(i.description ?? ''), input: i.prompt ? String(i.prompt) : undefined }
+      return { icon: 'task', verb: i.subagent_type ? t('子任务 · {0}', i.subagent_type) : t('子任务'), summary: String(i.description ?? ''), input: i.prompt ? String(i.prompt) : undefined }
     case 'TodoWrite': {
       const todos: Any[] = Array.isArray(i.todos) ? i.todos : []
       const done = todos.filter((t) => t.status === 'completed').length
-      return { icon: 'todo', verb: '更新待办', summary: todos.length ? `${done}/${todos.length} 已完成` : '', markdown: todos.length ? todoMarkdown(todos) : undefined, expanded: true }
+      return { icon: 'todo', verb: t('更新待办'), summary: todos.length ? t('{0}/{1} 已完成', done, todos.length) : '', markdown: todos.length ? todoMarkdown(todos) : undefined, expanded: true }
     }
     case 'ExitPlanMode':
-      return { icon: 'plan', verb: '计划', summary: '', markdown: i.plan ? String(i.plan) : undefined, expanded: true }
+      return { icon: 'plan', verb: t('计划'), summary: '', markdown: i.plan ? String(i.plan) : undefined, expanded: true }
     case 'AskUserQuestion':
-      return { icon: 'other', verb: '提问', summary: Array.isArray(i.questions) ? String(i.questions[0]?.question ?? '') : '' }
+      return { icon: 'other', verb: t('提问'), summary: Array.isArray(i.questions) ? String(i.questions[0]?.question ?? '') : '' }
     case 'Skill':
-      return { icon: 'other', verb: '使用技能', summary: String(i.skill ?? i.command ?? '') }
+      return { icon: 'other', verb: t('使用技能'), summary: String(i.skill ?? i.command ?? '') }
     case 'SlashCommand':
-      return { icon: 'other', verb: '命令', summary: String(i.command ?? '') }
+      return { icon: 'other', verb: t('命令'), summary: String(i.command ?? '') }
     case 'EnterPlanMode':
-      return { icon: 'plan', verb: '进入计划模式', summary: '' }
+      return { icon: 'plan', verb: t('进入计划模式'), summary: '' }
     default: {
       const mcp = name.match(/^mcp__(.+?)__(.+)$/)
       if (mcp && mcp[1] === PANEL_MCP_SERVER && mcp[2] === 'getDiagnostics') {
         const uri = typeof i.uri === 'string' && i.uri ? i.uri : ''
         const path = uri ? decodeURIComponent(uri.replace(/^file:\/\/\/?/i, '')) : ''
-        return { icon: 'search', verb: '查看诊断', summary: path ? rel(path) : '所有文件', path: path || undefined }
+        return { icon: 'search', verb: t('查看诊断'), summary: path ? rel(path) : t('所有文件'), path: path || undefined }
       }
       if (mcp) return { icon: 'mcp', verb: mcp[1].replace(/_/g, ' '), summary: mcp[2], input: jsonBrief(i) }
       const brief = JSON.stringify(i)
@@ -844,7 +864,7 @@ function describeResult(name: string, input: Any, output: string, extra: Any, is
   switch (name) {
     case 'Read': {
       const n = extra?.file?.numLines ?? (output ? output.split('\n').length : 0)
-      return { output: undefined, outputHint: n ? `${n} 行` : undefined }
+      return { output: undefined, outputHint: n ? t('{0} 行', n) : undefined }
     }
     case 'Edit':
     case 'MultiEdit':
@@ -854,7 +874,7 @@ function describeResult(name: string, input: Any, output: string, extra: Any, is
         const lines = extra.content.split(/\r?\n/)
         if (lines[lines.length - 1] === '') lines.pop()
         const hunks: Hunk[] = [{ oldStart: 0, newStart: 1, lines: lines.map((l: string) => '+' + l) }]
-        return { output: undefined, diff: appliedDiff(path, hunks), outputHint: '新文件' }
+        return { output: undefined, diff: appliedDiff(path, hunks), outputHint: t('新文件') }
       }
       const hunks = patchHunks(extra?.structuredPatch)
       if (hunks.length) return { output: undefined, diff: appliedDiff(path, hunks) }
@@ -862,15 +882,15 @@ function describeResult(name: string, input: Any, output: string, extra: Any, is
     }
     case 'Bash': {
       const out = extra && typeof extra.stdout === 'string' ? [extra.stdout, extra.stderr].filter(Boolean).join('\n') : output
-      return { output: out || undefined, outputHint: out ? undefined : '无输出' }
+      return { output: out || undefined, outputHint: out ? undefined : t('无输出') }
     }
     case 'Glob': {
       const n = extra?.numFiles ?? (output ? output.split('\n').filter(Boolean).length : 0)
-      return { outputHint: `${n} 个文件` }
+      return { outputHint: t('{0} 个文件', n) }
     }
     case 'Grep': {
       const n = extra?.numFiles ?? extra?.numLines
-      return { outputHint: n != null ? `${n} 个结果` : undefined }
+      return { outputHint: n != null ? t('{0} 个结果', n) : undefined }
     }
     case 'TodoWrite':
       return { output: undefined }

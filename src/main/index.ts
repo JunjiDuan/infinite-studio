@@ -11,6 +11,7 @@ import { registerAccountIpc } from './account'
 import { registerPluginIpc } from './plugins'
 import { registerAgentIpc } from './agents'
 import { registerIdeIpc, startIdeServer } from './ide'
+import { getSavedLocale, setMainLocale, tm } from './i18n'
 
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json')
 
@@ -26,13 +27,17 @@ async function readSettings(): Promise<Settings | null> {
   }
 }
 
-async function createWindow(): Promise<void> {
+/** prev：重新创建窗口时沿用旧窗口的位置和最大化状态 */
+async function createWindow(prev?: { bounds: Electron.Rectangle; maximized: boolean }): Promise<BrowserWindow> {
   const settings = await readSettings()
+  setMainLocale(settings?.locale, app.getLocale())
   // 开发时用仓库里的图标；打包后图标已嵌进 exe
   const devIcon = path.join(app.getAppPath(), 'build', 'icon.png')
   const win = new BrowserWindow({
-    width: 1440,
-    height: 900,
+    width: prev?.bounds.width ?? 1440,
+    height: prev?.bounds.height ?? 900,
+    x: prev?.bounds.x,
+    y: prev?.bounds.y,
     minWidth: 760,
     minHeight: 480,
     frame: false,
@@ -48,7 +53,10 @@ async function createWindow(): Promise<void> {
     }
   })
 
-  win.once('ready-to-show', () => win.show())
+  win.once('ready-to-show', () => {
+    if (prev?.maximized) win.maximize()
+    win.show()
+  })
 
   // 外部链接用系统浏览器打开，窗口本身禁止跳转
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -73,6 +81,7 @@ async function createWindow(): Promise<void> {
   } else {
     await win.loadFile(path.join(__dirname, '../renderer/index.html'))
   }
+  return win
 }
 
 function senderWindow(e: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): BrowserWindow | null {
@@ -88,21 +97,31 @@ function registerIpc(): void {
     else w.maximize()
   })
   ipcMain.on('win:close', (e) => senderWindow(e)?.close())
+  // 切换界面语言：新开一个窗口再销毁旧窗口（销毁会清理旧窗口的终端、语言服务、对话进程）
+  ipcMain.on('win:reload', (e) => {
+    const old = senderWindow(e)
+    if (!old) return
+    const prev = { bounds: old.getNormalBounds(), maximized: old.isMaximized() }
+    void createWindow(prev).then((win) => (win.isVisible() ? old.destroy() : win.once('show', () => old.destroy())))
+  })
 
   ipcMain.handle('settings:load', () => readSettings())
+  // 界面语言要在页面脚本执行前就知道（界面是启动时一次性搭好的），所以用同步消息
+  ipcMain.on('app:locale', (e) => (e.returnValue = getSavedLocale()))
   ipcMain.handle('settings:save', async (_e, s: Settings) => {
     await fs.mkdir(path.dirname(settingsFile()), { recursive: true })
     const tmp = settingsFile() + '.tmp'
     await fs.writeFile(tmp, JSON.stringify(s, null, 2), 'utf8')
     await fs.rename(tmp, settingsFile())
+    setMainLocale(s?.locale)
   })
 
   ipcMain.handle('space:export', async (e, space: Space) => {
     const w = senderWindow(e)
     const opts: Electron.SaveDialogOptions = {
-      title: '导出空间',
+      title: tm('导出空间'),
       defaultPath: `${space.name || 'space'}.infinite-space`,
-      filters: [{ name: '无界空间', extensions: ['infinite-space'] }]
+      filters: [{ name: tm('无界空间'), extensions: ['infinite-space'] }]
     }
     const r = w ? await dialog.showSaveDialog(w, opts) : await dialog.showSaveDialog(opts)
     if (r.canceled || !r.filePath) return false
@@ -113,9 +132,9 @@ function registerIpc(): void {
   ipcMain.handle('space:import', async (e) => {
     const w = senderWindow(e)
     const opts: Electron.OpenDialogOptions = {
-      title: '导入空间',
+      title: tm('导入空间'),
       properties: ['openFile'],
-      filters: [{ name: '无界空间', extensions: ['infinite-space', 'json'] }]
+      filters: [{ name: tm('无界空间'), extensions: ['infinite-space', 'json'] }]
     }
     const r = w ? await dialog.showOpenDialog(w, opts) : await dialog.showOpenDialog(opts)
     if (r.canceled || !r.filePaths[0]) return null

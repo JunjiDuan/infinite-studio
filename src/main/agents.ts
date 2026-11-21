@@ -9,6 +9,8 @@ import { PLUGINS } from '../shared/plugins'
 import { CLAUDE_MODES, type AgentStart, type ClaudeLoginMethod, type LoginEvent, type SessionInfo } from '../shared/agents'
 import { resolveLaunch } from './plugins'
 import { PANEL_MCP_SERVER, PANEL_TOOLS } from '../shared/ide'
+import { dailyUsage } from './usage'
+import { tm } from './i18n'
 
 /**
  * 对话进程的传输层。协议逻辑在界面里（renderer/src/agent/*），这里只负责：
@@ -110,11 +112,11 @@ function kill(r: Run): void {
 
 async function start(wc: WebContents, req: AgentStart): Promise<number> {
   const def = PLUGINS.find((p) => p.id === req.plugin)
-  if (!def) throw new Error('未知插件')
+  if (!def) throw new Error(tm('未知插件'))
   const args = req.plugin === 'claude' ? claudeArgs(req) : req.plugin === 'codex' ? ['app-server'] : null
-  if (!args) throw new Error('未知插件：' + req.plugin)
+  if (!args) throw new Error(tm('未知插件：{0}', req.plugin))
   const launch = await resolveLaunch(def.command)
-  if (!launch) throw new Error(`没有找到 ${def.name} 命令行工具，请先在插件页安装`)
+  if (!launch) throw new Error(tm('没有找到 {0} 命令行工具，请先在插件页安装', def.name))
 
   let cwd = os.homedir()
   if (req.cwd) {
@@ -319,7 +321,7 @@ async function claudeTranscript(cwd: string, id: string): Promise<unknown[]> {
     const f = path.join(dir, id + '.jsonl')
     if (await fs.stat(f).then(() => true, () => false)) file = f
   }
-  if (!file) throw new Error('找不到这个会话')
+  if (!file) throw new Error(tm('找不到这个会话'))
 
   const parent = new Map<string, string | null>()
   const keep = new Map<string, Record<string, unknown>>()
@@ -367,9 +369,9 @@ const IMG_RE = /^data:image\/(png|jpeg|gif|webp);base64,([A-Za-z0-9+/=]+)$/
 
 async function saveImage(dataUrl: string): Promise<string> {
   const m = typeof dataUrl === 'string' ? dataUrl.match(IMG_RE) : null
-  if (!m) throw new Error('不支持的图片格式')
+  if (!m) throw new Error(tm('不支持的图片格式'))
   const bytes = Buffer.from(m[2], 'base64')
-  if (bytes.length > 20 * 1024 * 1024) throw new Error('图片超过 20 MB')
+  if (bytes.length > 20 * 1024 * 1024) throw new Error(tm('图片超过 20 MB'))
   const dir = path.join(app.getPath('temp'), 'infinite-studio', 'images')
   await fs.mkdir(dir, { recursive: true })
   const file = path.join(dir, `${randomUUID()}.${m[1] === 'jpeg' ? 'jpg' : m[1]}`)
@@ -393,7 +395,7 @@ const stripAnsi = (s: string) => s.replace(/\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07
 async function claudeLogin(wc: WebContents, method: ClaudeLoginMethod): Promise<number> {
   const def = PLUGINS.find((p) => p.id === 'claude')!
   const launch = await resolveLaunch(def.command)
-  if (!launch) throw new Error('没有找到 Claude Code 命令行工具，请先在插件页安装')
+  if (!launch) throw new Error(tm('没有找到 Claude Code 命令行工具，请先在插件页安装'))
   // 同一个窗口同时只跑一个登录流程
   for (const [id, r] of logins) if (r.wc === wc) killLogin(id)
   const args = ['auth', 'login', method === 'console' ? '--console' : '--claudeai']
@@ -427,7 +429,7 @@ async function claudeLogin(wc: WebContents, method: ClaudeLoginMethod): Promise<
   proc.on('close', (code) => {
     logins.delete(id)
     const tail = out.trim().split('\n').slice(-3).join('\n')
-    send({ type: 'exit', ok: code === 0, message: code === 0 ? undefined : tail || `登录失败（${code}）` })
+    send({ type: 'exit', ok: code === 0, message: code === 0 ? undefined : tail || tm('登录失败（{0}）', code) })
   })
   wc.once('destroyed', () => killLogin(id))
   return id
@@ -443,7 +445,7 @@ function killLogin(id: number): void {
 function claudeLogout(): Promise<void> {
   return new Promise((resolve, reject) => {
     void resolveLaunch('claude').then((launch) => {
-      if (!launch) return reject(new Error('没有找到 Claude Code 命令行工具'))
+      if (!launch) return reject(new Error(tm('没有找到 Claude Code 命令行工具')))
       execFile(launch.file, [...launch.pre, 'auth', 'logout'], { env: launch.env, windowsHide: true, timeout: 30_000 }, (err, _o, stderr) => {
         if (err) reject(new Error(String(stderr).trim() || err.message))
         else resolve()
@@ -488,4 +490,5 @@ export function registerAgentIpc(): void {
     return claudeTranscript(dirOf(cwd), id)
   })
   ipcMain.handle('agent:saveImage', (_e, dataUrl: string) => saveImage(dataUrl))
+  ipcMain.handle('agent:dailyUsage', (_e, plugin: string) => dailyUsage(plugin))
 }

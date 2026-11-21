@@ -1,19 +1,17 @@
-import type { AgentStart, ClaudeLoginMethod, LoginEvent, SessionInfo } from './agents'
+import type { AgentStart, ClaudeLoginMethod, LoginEvent, SessionInfo, DailyUsage } from './agents'
 import type { IdeToolResult } from './ide'
 import type { PluginStatus } from './plugins'
 
 export type ThemeId = 'ink' | 'paper' | 'dusk'
 export type FontId = 'jet' | 'plex' | 'space'
-export type LayoutId = 'classic' | 'minimal' | 'focus'
 
-/** 一个“空间”= 主题 + 强调色 + 字体 + 字号 + 布局 */
+/** 一个“空间”= 主题 + 强调色 + 字体 + 字号 */
 export interface Space {
   name: string
   theme: ThemeId
   accent: string
   font: FontId
   size: number
-  layout: LayoutId
 }
 
 export interface Settings {
@@ -39,6 +37,8 @@ export interface Settings {
   plugins?: Record<string, boolean>
   /** 动效强度：完整 / 简约（只淡入淡出）/ 关闭 */
   motion?: 'full' | 'reduced' | 'off'
+  /** 界面语言 */
+  locale?: 'zh' | 'en'
 }
 
 export interface DirEntry {
@@ -105,6 +105,41 @@ export interface GitChange {
   from?: string
 }
 
+/** 工作区里一个有改动的文件（路径相对仓库根目录） */
+export interface GitFile {
+  path: string
+  /** M 修改 / A 新增 / D 删除 / R 重命名 / C 复制 / T 类型变更 / U 未跟踪 / ! 冲突 */
+  status: string
+  from?: string
+}
+
+export type GitStatus =
+  | {
+      ok: true
+      /** 当前分支；分离 HEAD 时为 null */
+      branch: string | null
+      detached: boolean
+      upstream: string | null
+      ahead: number
+      behind: number
+      /** 暂存的更改 */
+      staged: GitFile[]
+      /** 工作区的更改（含未跟踪） */
+      changes: GitFile[]
+      /** 合并冲突 */
+      conflicts: GitFile[]
+      hasCommits: boolean
+    }
+  | { ok: false; reason: 'no-git' | 'not-repo' | 'error'; message?: string }
+
+export type GitOp = 'push' | 'pull' | 'fetch' | 'sync' | 'undoCommit' | 'stash' | 'stashPop'
+
+export interface GitBranch {
+  name: string
+  current: boolean
+  remote: boolean
+}
+
 export interface LspServerInfo {
   id: string
   name: string
@@ -128,10 +163,14 @@ export interface DeviceCode {
 
 export interface Api {
   platform: string
+  /** 设置里选的界面语言；没选过为 null */
+  locale: 'zh' | 'en' | null
   win: {
     minimize(): void
     toggleMaximize(): void
     close(): void
+    /** 重新创建窗口（切换界面语言后） */
+    reload(): void
   }
   fs: {
     openFolderDialog(): Promise<string | null>
@@ -178,6 +217,20 @@ export interface Api {
     log(root: string, limit: number): Promise<GitLog>
     /** 某个提交改动的文件（相对 root） */
     changes(root: string, hash: string): Promise<GitChange[]>
+    status(root: string): Promise<GitStatus>
+    init(root: string): Promise<void>
+    /** paths 为 null 时处理全部 */
+    stage(root: string, paths: string[] | null): Promise<void>
+    unstage(root: string, paths: string[] | null): Promise<void>
+    /** 放弃修改：tracked 从暂存区恢复，untracked 移到回收站 */
+    discard(root: string, tracked: string[], untracked: string[]): Promise<void>
+    commit(root: string, message: string, opts?: { amend?: boolean }): Promise<void>
+    run(root: string, op: GitOp): Promise<void>
+    /** ref：'HEAD'、提交 hash、hash^，或 ':' 表示暂存区 */
+    show(root: string, ref: string, path: string): Promise<string>
+    lastMessage(root: string): Promise<string>
+    branches(root: string): Promise<GitBranch[]>
+    checkout(root: string, name: string, opts?: { create?: boolean; remote?: boolean }): Promise<void>
   }
   search: {
     /** 返回 null 表示已被更新的搜索取代 */
@@ -218,6 +271,8 @@ export interface Api {
     onLogin(cb: (loginId: number, ev: LoginEvent) => void): () => void
     /** Claude：`claude auth logout` */
     claudeLogout(): Promise<void>
+    /** 按天汇总本地会话记录里的 token 消耗 */
+    dailyUsage(plugin: string): Promise<DailyUsage>
   }
   /** IDE 桥接：终端里的 claude 通过主进程的 WebSocket 服务调用这里的工具 */
   ide: {

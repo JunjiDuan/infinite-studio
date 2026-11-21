@@ -2,6 +2,7 @@ import { BrowserWindow, dialog, ipcMain, shell, type WebContents } from 'electro
 import { promises as fs, watch, type FSWatcher } from 'node:fs'
 import path from 'node:path'
 import type { BinaryResult, DirEntry, ReadResult } from '../shared/types'
+import { tm } from './i18n'
 
 export const MAX_FILE_BYTES = 5 * 1024 * 1024
 /** 预览（PDF、Office、图片、音视频）一次读入内存的上限 */
@@ -22,7 +23,7 @@ function senderWindow(e: Electron.IpcMainInvokeEvent): BrowserWindow | null {
 
 /** 新名字只能是单个文件名，不能借机写到别的目录 */
 function assertName(name: string): void {
-  if (!name || name === '.' || name === '..' || /[\\/:*?"<>|]/.test(name)) throw new Error('非法文件名：' + name)
+  if (!name || name === '.' || name === '..' || /[\\/:*?"<>|]/.test(name)) throw new Error(tm('非法文件名：{0}', name))
 }
 
 async function exists(p: string): Promise<boolean> {
@@ -59,8 +60,8 @@ function startWatch(wc: WebContents, root: string): void {
   watcher.on('change', (_event, filename) => {
     if (!filename) return
     const rel = filename.toString()
-    // .git 里只关心分支 / 提交指针的变化（切分支、提交、拉取），用于刷新状态栏分支和提交历史
-    if (isIgnored(rel) && !/^\.git[\\/](HEAD|packed-refs|refs[\\/].+)$/.test(rel)) return
+    // .git 里只关心分支 / 提交指针（切分支、提交、拉取）和暂存区（终端里 git add）的变化，用于刷新源代码管理
+    if (isIgnored(rel) && !/^\.git[\\/](HEAD|index|MERGE_HEAD|packed-refs|refs[\\/].+)$/.test(rel)) return
     entry.pending.add(path.join(root, rel))
     clearTimeout(entry.timer)
     entry.timer = setTimeout(() => {
@@ -77,7 +78,7 @@ function startWatch(wc: WebContents, root: string): void {
 export function registerFsIpc(): void {
   ipcMain.handle('fs:openFolderDialog', async (e) => {
     const w = senderWindow(e)
-    const opts: Electron.OpenDialogOptions = { title: '打开文件夹', properties: ['openDirectory'] }
+    const opts: Electron.OpenDialogOptions = { title: tm('打开文件夹'), properties: ['openDirectory'] }
     const r = w ? await dialog.showOpenDialog(w, opts) : await dialog.showOpenDialog(opts)
     return r.canceled || r.filePaths.length === 0 ? null : r.filePaths[0]
   })
@@ -118,7 +119,7 @@ export function registerFsIpc(): void {
   })
 
   ipcMain.handle('fs:openPath', async (_e, p: string): Promise<string> => {
-    if (RUNNABLE.test(p)) return '出于安全考虑，不直接运行可执行文件或脚本'
+    if (RUNNABLE.test(p)) return tm('出于安全考虑，不直接运行可执行文件或脚本')
     // 返回空字符串表示成功，否则是错误信息
     return shell.openPath(p)
   })
@@ -177,7 +178,7 @@ export function registerFsIpc(): void {
     assertName(newName)
     const to = path.join(path.dirname(from), newName)
     // 只改大小写时目标“存在”其实是同一个文件，允许
-    if (to.toLowerCase() !== from.toLowerCase() && (await exists(to))) throw new Error('已存在同名文件：' + newName)
+    if (to.toLowerCase() !== from.toLowerCase() && (await exists(to))) throw new Error(tm('已存在同名文件：{0}', newName))
     await fs.rename(from, to)
     return to
   })

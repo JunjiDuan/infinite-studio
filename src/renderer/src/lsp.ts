@@ -7,6 +7,7 @@ import { basename, toast } from './dom'
 import { findTab, normPath, onTab, openFile, samePath, tabs } from './editor'
 import { languageFor, monaco } from './monaco'
 import { emit, state } from './store'
+import { t } from './i18n'
 
 // LSP 协议对象结构多变，这里统一按 JSON 处理
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -157,7 +158,7 @@ class Client {
     } catch (e) {
       this.status = 'failed'
       console.warn(`${this.info.name} 语言服务启动失败`, e)
-      toast(`${this.info.name} 语言服务启动失败`)
+      toast(t('{0} 语言服务启动失败', this.info.name))
       throw e
     } finally {
       emit('lsp')
@@ -244,7 +245,7 @@ class Client {
       const model = findModel(params.uri)
       if (model && this.docs.has(model)) this.setMarkers(model, params.diagnostics ?? [])
     } else if (method === 'window/showMessage' && params?.type <= 2) {
-      toast(`${this.info.name}：${params.message}`)
+      toast(t('{0}：{1}', this.info.name, params.message))
     } else if (method === 'window/logMessage') {
       console.debug(`[${this.info.name}]`, params?.message)
     }
@@ -257,7 +258,7 @@ class Client {
     this.pending.clear()
     this.disposeAll()
     if (wasReady) {
-      toast(`${this.info.name} 语言服务已退出（${code}）`)
+      toast(t('{0} 语言服务已退出（{1}）', this.info.name, code))
       console.warn(`${this.info.name} exited`, code, stderr)
     }
     emit('lsp')
@@ -505,7 +506,7 @@ class Client {
             },
             resolveRenameLocation: prepare
               ? async (model, position, token) => {
-                  const reject = { range: new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column), text: '', rejectReason: '这里没有可以重命名的符号' }
+                  const reject = { range: new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column), text: '', rejectReason: t('这里没有可以重命名的符号') }
                   if (!this.has(model)) return reject
                   const r = await this.request('textDocument/prepareRename', { textDocument: doc(model), position: toPos(position) }, token)
                   if (!r) return reject
@@ -645,7 +646,7 @@ async function collectEdits(we: Json): Promise<{ model: Model; edits: monaco.lan
     }
     byUri.set(dc.textDocument.uri, [...(byUri.get(dc.textDocument.uri) ?? []), ...dc.edits])
   }
-  if (skipped) toast(`有 ${skipped} 个创建 / 重命名 / 删除文件的操作暂不支持，已跳过`)
+  if (skipped) toast(t('有 {0} 个创建 / 重命名 / 删除文件的操作暂不支持，已跳过', skipped))
   const out: { model: Model; edits: monaco.languages.TextEdit[] }[] = []
   for (const [uri, edits] of byUri) {
     const path = normPath(monaco.Uri.parse(uri).fsPath)
@@ -785,7 +786,7 @@ export async function restartLsp(): Promise<void> {
   available = null
   await Promise.all([...old.values()].map((c) => c.stop()))
   for (const t of tabs) void attach(t.model)
-  toast('语言服务已重启')
+  toast(t('语言服务已重启'))
 }
 
 /** 调试用：直接向某个语言服务发请求 */

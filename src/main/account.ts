@@ -3,6 +3,7 @@ import { execFile } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { Account, DeviceCode } from '../shared/types'
+import { tm } from './i18n'
 
 /**
  * GitHub OAuth App 的 Client ID（需在 GitHub → Settings → Developer settings → OAuth Apps
@@ -44,10 +45,10 @@ async function avatarData(url: string): Promise<string | undefined> {
 /** 用 token 取用户资料并保存 */
 async function signIn(token: string): Promise<Account> {
   token = token.trim()
-  if (!token) throw new Error('令牌为空')
+  if (!token) throw new Error(tm('令牌为空'))
   const r = await fetch('https://api.github.com/user', { headers: { ...UA, Authorization: `Bearer ${token}` } })
-  if (r.status === 401) throw new Error('令牌无效或已过期')
-  if (!r.ok) throw new Error(`GitHub 返回 ${r.status}`)
+  if (r.status === 401) throw new Error(tm('令牌无效或已过期'))
+  if (!r.ok) throw new Error(tm('GitHub 返回 {0}', r.status))
   const u = (await r.json()) as { login: string; name: string | null; avatar_url: string; html_url: string }
   const account: Account = {
     provider: 'github',
@@ -56,7 +57,7 @@ async function signIn(token: string): Promise<Account> {
     url: u.html_url,
     avatar: await avatarData(u.avatar_url)
   }
-  if (!safeStorage.isEncryptionAvailable()) throw new Error('系统密钥存储不可用，无法安全保存登录信息')
+  if (!safeStorage.isEncryptionAvailable()) throw new Error(tm('系统密钥存储不可用，无法安全保存登录信息'))
   const stored: Stored = { account, token: safeStorage.encryptString(token).toString('base64') }
   await fs.mkdir(path.dirname(file()), { recursive: true })
   await fs.writeFile(file(), JSON.stringify(stored), 'utf8')
@@ -68,7 +69,7 @@ function ghToken(): Promise<string> {
     execFile('gh', ['auth', 'token'], { timeout: 8000, windowsHide: true }, (err, stdout) => {
       if (err) {
         const missing = (err as NodeJS.ErrnoException).code === 'ENOENT'
-        reject(new Error(missing ? '未找到 GitHub CLI（gh）' : 'GitHub CLI 尚未登录，请先运行 gh auth login'))
+        reject(new Error(missing ? tm('未找到 GitHub CLI（gh）') : tm('GitHub CLI 尚未登录，请先运行 gh auth login')))
       } else resolve(stdout.trim())
     })
   })
@@ -80,7 +81,7 @@ async function post<T>(url: string, body: Record<string, string>): Promise<T> {
     headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams(body).toString()
   })
-  if (!r.ok) throw new Error(`GitHub 返回 ${r.status}`)
+  if (!r.ok) throw new Error(tm('GitHub 返回 {0}', r.status))
   return (await r.json()) as T
 }
 
@@ -90,12 +91,12 @@ let pending: { device: string; interval: number; expires: number; cancelled: boo
 
 async function deviceStart(): Promise<DeviceCode> {
   const id = clientId()
-  if (!id) throw new Error('未配置 GitHub OAuth Client ID')
+  if (!id) throw new Error(tm('未配置 GitHub OAuth Client ID'))
   const r = await post<{ device_code: string; user_code: string; verification_uri: string; interval: number; expires_in: number; error_description?: string }>(
     'https://github.com/login/device/code',
     { client_id: id, scope: 'read:user' }
   )
-  if (!r.device_code) throw new Error(r.error_description ?? '无法发起登录')
+  if (!r.device_code) throw new Error(r.error_description ?? tm('无法发起登录'))
   if (pending) pending.cancelled = true
   pending = { device: r.device_code, interval: r.interval, expires: Date.now() + r.expires_in * 1000, cancelled: false }
   shell.openExternal(r.verification_uri)
@@ -104,9 +105,9 @@ async function deviceStart(): Promise<DeviceCode> {
 
 async function devicePoll(): Promise<Account | null> {
   const p = pending
-  if (!p) throw new Error('没有进行中的登录')
+  if (!p) throw new Error(tm('没有进行中的登录'))
   while (!p.cancelled) {
-    if (Date.now() > p.expires) throw new Error('验证码已过期，请重试')
+    if (Date.now() > p.expires) throw new Error(tm('验证码已过期，请重试'))
     await new Promise((res) => setTimeout(res, p.interval * 1000))
     if (p.cancelled) break
     const r = await post<{ access_token?: string; error?: string; interval?: number; error_description?: string }>(
@@ -118,7 +119,7 @@ async function devicePoll(): Promise<Account | null> {
       return signIn(r.access_token)
     }
     if (r.error === 'slow_down') p.interval = r.interval ?? p.interval + 5
-    else if (r.error !== 'authorization_pending') throw new Error(r.error_description ?? r.error ?? '登录失败')
+    else if (r.error !== 'authorization_pending') throw new Error(r.error_description ?? r.error ?? tm('登录失败'))
   }
   return null
 }

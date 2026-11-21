@@ -3,6 +3,7 @@ import { basename, h, relative } from './dom'
 import { openFile } from './editor'
 import { state } from './store'
 import { reveal } from './tree'
+import { t } from './i18n'
 
 interface Match {
   score: number
@@ -100,24 +101,24 @@ export async function openPalette(initial = ''): Promise<void> {
   const prevFocus = document.activeElement as HTMLElement | null
   const input = h('input', {
     class: 'palette-input',
-    'aria-label': '搜索文件或命令',
-    placeholder: state.root ? '搜索文件，或输入 > 只搜命令' : '输入命令',
+    'aria-label': t('搜索文件或命令'),
+    placeholder: state.root ? t('搜索文件，或输入 > 只搜命令') : t('输入命令'),
     spellcheck: 'false',
     value: initial
   })
   const list = h('div', { class: 'palette-list', role: 'listbox' })
   const panel = h(
     'div',
-    { class: 'palette', role: 'dialog', 'aria-label': '命令面板' },
+    { class: 'palette', role: 'dialog', 'aria-label': t('命令面板') },
     h('div', { class: 'palette-head' }, h('span', { class: 'palette-caret' }, '>'), input, h('kbd', {}, 'Esc')),
     list,
     h(
       'div',
       { class: 'palette-foot' },
-      h('span', {}, '↑ ↓ 选择'),
-      h('span', {}, 'Enter 执行'),
+      h('span', {}, t('↑ ↓ 选择')),
+      h('span', {}, t('Enter 执行')),
       h('span', { class: 'grow' }),
-      h('span', {}, '> 只搜命令')
+      h('span', {}, t('> 只搜命令'))
     )
   )
   backdrop = h('div', { class: 'palette-backdrop', onMousedown: (e: MouseEvent) => e.target === backdrop && done() }, panel)
@@ -189,8 +190,8 @@ export async function openPalette(initial = ''): Promise<void> {
     const rows: HTMLElement[] = []
     const group = (title: string) => rows.push(h('div', { class: 'palette-group' }, title))
     items.forEach((it, i) => {
-      if (filesFirst && i === 0 && nFiles) group('文件')
-      if ((filesFirst && i === nFiles && nCmds) || (!filesFirst && i === 0)) group('命令')
+      if (filesFirst && i === 0 && nFiles) group(t('文件'))
+      if ((filesFirst && i === nFiles && nCmds) || (!filesFirst && i === 0)) group(t('命令'))
       rows.push(
         h(
           'div',
@@ -208,7 +209,7 @@ export async function openPalette(initial = ''): Promise<void> {
         )
       )
     })
-    if (!items.length) rows.push(h('div', { class: 'palette-empty' }, '没有匹配的结果'))
+    if (!items.length) rows.push(h('div', { class: 'palette-empty' }, t('没有匹配的结果')))
     list.replaceChildren(...rows)
   }
 

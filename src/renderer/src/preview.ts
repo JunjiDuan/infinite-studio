@@ -4,6 +4,7 @@ import type { CellObject } from 'xlsx'
 import { basename, h, toast } from './dom'
 import { icons } from './icons'
 import { openView, pathKey, registerPreviewer, revealView, samePath, type ViewSpec } from './editor'
+import { t } from './i18n'
 
 /**
  * 文档预览：PDF、Word（.docx）、Excel（.xlsx/.xls/.ods）、PowerPoint（.pptx，大纲方式）、图片、音视频。
@@ -97,21 +98,21 @@ const MIME: Record<string, string> = {
 }
 
 const LEGACY_HINT: Record<string, string> = {
-  doc: '旧版 Word（.doc）格式暂不支持预览，另存为 .docx 后即可在这里查看。',
-  dot: '旧版 Word 模板（.dot）格式暂不支持预览。',
-  ppt: '旧版 PowerPoint（.ppt）格式暂不支持预览，另存为 .pptx 后即可在这里查看。',
-  pps: '旧版 PowerPoint（.pps）格式暂不支持预览。'
+  doc: t('旧版 Word（.doc）格式暂不支持预览，另存为 .docx 后即可在这里查看。'),
+  dot: t('旧版 Word 模板（.dot）格式暂不支持预览。'),
+  ppt: t('旧版 PowerPoint（.ppt）格式暂不支持预览，另存为 .pptx 后即可在这里查看。'),
+  pps: t('旧版 PowerPoint（.pps）格式暂不支持预览。')
 }
 
 const KIND_LABEL: Record<Kind, string> = {
   pdf: 'PDF',
   docx: 'Word',
-  sheet: '表格',
-  pptx: '演示文稿',
-  image: '图片',
-  audio: '音频',
-  video: '视频',
-  external: '文件'
+  sheet: t('表格'),
+  pptx: t('演示文稿'),
+  image: t('图片'),
+  audio: t('音频'),
+  video: t('视频'),
+  external: t('文件')
 }
 
 function ext(path: string): string {
@@ -189,9 +190,9 @@ export function openPreview(path: string, kind: Kind): void {
   const actions = h(
     'div',
     { class: 'dp-actions' },
-    h('button', { class: 'icon-btn small', title: '重新加载', 'aria-label': '重新加载', html: icons.refresh, onClick: () => void load(p) }),
-    h('button', { class: 'icon-btn small', title: '在文件夹中显示', 'aria-label': '在文件夹中显示', html: icons.folder, onClick: () => void window.api.fs.reveal(p.spec.path!) }),
-    h('button', { class: 'btn small', title: '用系统默认应用打开', onClick: () => void openExternal(p.spec.path!) }, '默认应用打开')
+    h('button', { class: 'icon-btn small', title: t('重新加载'), 'aria-label': t('重新加载'), html: icons.refresh, onClick: () => void load(p) }),
+    h('button', { class: 'icon-btn small', title: t('在文件夹中显示'), 'aria-label': t('在文件夹中显示'), html: icons.folder, onClick: () => void window.api.fs.reveal(p.spec.path!) }),
+    h('button', { class: 'btn small', title: t('用系统默认应用打开'), onClick: () => void openExternal(p.spec.path!) }, t('默认应用打开'))
   )
   el.append(h('div', { class: 'dp-bar' }, info, controls, actions), body)
 
@@ -237,7 +238,7 @@ export function openPreview(path: string, kind: Kind): void {
 
 async function openExternal(path: string): Promise<void> {
   const err = await window.api.fs.openPath(path)
-  if (err) toast('无法打开：' + err)
+  if (err) toast(t('无法打开：') + err)
 }
 
 function setInfo(p: Preview, ...parts: (string | null | undefined)[]): void {
@@ -256,8 +257,8 @@ function message(p: Preview, title: string, detail?: string, withOpen = true): v
         ? h(
             'div',
             { class: 'dp-message-actions' },
-            h('button', { class: 'btn small primary', onClick: () => void openExternal(p.spec.path!) }, '用默认应用打开'),
-            h('button', { class: 'btn small', onClick: () => void window.api.fs.reveal(p.spec.path!) }, '在文件夹中显示')
+            h('button', { class: 'btn small primary', onClick: () => void openExternal(p.spec.path!) }, t('用默认应用打开')),
+            h('button', { class: 'btn small', onClick: () => void window.api.fs.reveal(p.spec.path!) }, t('在文件夹中显示'))
           )
         : null
     )
@@ -278,11 +279,11 @@ async function load(p: Preview): Promise<void> {
     p.controls.replaceChildren()
     setInfo(p, ext(path).toUpperCase() || null)
     const hint = LEGACY_HINT[ext(path)]
-    message(p, hint ? '暂不支持预览这种格式' : '无法在编辑器中显示此文件', hint ?? '这是二进制文件，可以用系统默认应用打开它。')
+    message(p, hint ? t('暂不支持预览这种格式') : t('无法在编辑器中显示此文件'), hint ?? t('这是二进制文件，可以用系统默认应用打开它。'))
     return
   }
 
-  if (!p.body.childElementCount) p.body.replaceChildren(h('div', { class: 'dp-loading' }, '正在加载…'))
+  if (!p.body.childElementCount) p.body.replaceChildren(h('div', { class: 'dp-loading' }, t('正在加载…')))
   const r = await window.api.fs.readBinary(path)
   if (stale()) return
   if (!r.ok) {
@@ -290,9 +291,9 @@ async function load(p: Preview): Promise<void> {
     p.cleanup = null
     p.zoomer = null
     p.controls.replaceChildren()
-    if (r.reason === 'too-large') message(p, '文件太大，无法在编辑器中预览', `大小 ${fmtSize(r.size ?? 0)}，超过 300 MB 上限。`)
-    else if (r.reason === 'missing') message(p, '文件不存在', path, false)
-    else message(p, '无法读取文件', r.message)
+    if (r.reason === 'too-large') message(p, t('文件太大，无法在编辑器中预览'), t('大小 {0}，超过 300 MB 上限。', fmtSize(r.size ?? 0)))
+    else if (r.reason === 'missing') message(p, t('文件不存在'), path, false)
+    else message(p, t('无法读取文件'), r.message)
     return
   }
 
@@ -320,7 +321,7 @@ async function load(p: Preview): Promise<void> {
     p.cleanup = null
     p.zoomer = null
     p.controls.replaceChildren()
-    message(p, '无法预览这个文件', String((err as Error)?.message ?? err))
+    message(p, t('无法预览这个文件'), String((err as Error)?.message ?? err))
   }
 }
 
@@ -353,7 +354,7 @@ const RENDERERS: Record<Exclude<Kind, 'external'>, Renderer> = {
 
 /** 缩放控件：− 100% + */
 function zoomControls(ctx: RenderCtx, get: () => number, set: (v: number) => void, steps = ZOOM_STEPS, extra?: HTMLElement): HTMLElement {
-  const label = h('button', { class: 'dp-zoom-label', title: '重置缩放 (Ctrl 0)' })
+  const label = h('button', { class: 'dp-zoom-label', title: t('重置缩放 (Ctrl 0)') })
   const refresh = () => (label.textContent = `${Math.round(get() * 100)}%`)
   const step = (dir: 1 | -1) => {
     const cur = get()
@@ -373,9 +374,9 @@ function zoomControls(ctx: RenderCtx, get: () => number, set: (v: number) => voi
   return h(
     'div',
     { class: 'dp-zoom' },
-    h('button', { class: 'icon-btn small', title: '缩小 (Ctrl −)', 'aria-label': '缩小', onClick: () => step(-1) }, '−'),
+    h('button', { class: 'icon-btn small', title: t('缩小 (Ctrl −)'), 'aria-label': t('缩小'), onClick: () => step(-1) }, '−'),
     label,
-    h('button', { class: 'icon-btn small', title: '放大 (Ctrl +)', 'aria-label': '放大', onClick: () => step(1) }, '+'),
+    h('button', { class: 'icon-btn small', title: t('放大 (Ctrl +)'), 'aria-label': t('放大'), onClick: () => step(1) }, '+'),
     extra ?? null
   )
 }
@@ -405,15 +406,15 @@ async function renderPdf(ctx: RenderCtx): Promise<() => void> {
   // 加密文档：在预览区里要密码（Electron 不支持 window.prompt）
   task.onPassword = (submit: (pw: string) => void, reason: number) => {
     if (ctx.stale()) return void task.destroy()
-    const input = h('input', { class: 'dp-input', type: 'password', placeholder: '输入密码', 'aria-label': 'PDF 密码' })
+    const input = h('input', { class: 'dp-input', type: 'password', placeholder: t('输入密码'), 'aria-label': t('PDF 密码') })
     const go = () => submit(input.value)
     input.addEventListener('keydown', (e) => e.key === 'Enter' && go())
     ctx.p.body.replaceChildren(
       h(
         'div',
         { class: 'dp-message' },
-        h('div', { class: 'dp-message-title' }, reason === pdfjs.PasswordResponses.INCORRECT_PASSWORD ? '密码不正确，请重试' : '这个 PDF 受密码保护'),
-        h('div', { class: 'dp-message-actions' }, input, h('button', { class: 'btn small primary', onClick: go }, '打开'))
+        h('div', { class: 'dp-message-title' }, reason === pdfjs.PasswordResponses.INCORRECT_PASSWORD ? t('密码不正确，请重试') : t('这个 PDF 受密码保护')),
+        h('div', { class: 'dp-message-actions' }, input, h('button', { class: 'btn small primary', onClick: go }, t('打开')))
       )
     )
     input.focus()
@@ -523,7 +524,7 @@ async function renderPdf(ctx: RenderCtx): Promise<() => void> {
   )
 
   // 页码
-  const pageInput = h('input', { class: 'dp-input dp-page-input', value: '1', 'aria-label': '页码' })
+  const pageInput = h('input', { class: 'dp-input dp-page-input', value: '1', 'aria-label': t('页码') })
   const currentPage = () => {
     const body = ctx.p.body
     const mid = body.scrollTop + body.clientHeight / 3
@@ -562,7 +563,7 @@ async function renderPdf(ctx: RenderCtx): Promise<() => void> {
     for (const j of visible) void renderPage(j)
   }
 
-  const fitBtn = h('button', { class: 'btn small dp-fit', title: '按视图宽度缩放' }, '适合宽度')
+  const fitBtn = h('button', { class: 'btn small dp-fit', title: t('按视图宽度缩放') }, t('适合宽度'))
   const zoom = zoomControls(
     ctx,
     () => scale,
@@ -596,7 +597,7 @@ async function renderPdf(ctx: RenderCtx): Promise<() => void> {
     resizeTimer = setTimeout(fit, 120)
   })
 
-  setInfo(ctx.p, `${n} 页`, fmtSize(ctx.size))
+  setInfo(ctx.p, t('{0} 页', n), fmtSize(ctx.size))
   ctx.after = () => {
     lastWidth = ctx.p.body.clientWidth
     scale = fitScale()
@@ -652,7 +653,7 @@ async function renderDocx(ctx: RenderCtx): Promise<() => void> {
     )
   )
   const pages = doc.querySelectorAll('section.docx').length
-  setInfo(ctx.p, pages ? `${pages} 页` : null, fmtSize(ctx.size))
+  setInfo(ctx.p, pages ? t('{0} 页', pages) : null, fmtSize(ctx.size))
   return () => revokeBlobs(ctx.host)
 }
 
@@ -671,7 +672,7 @@ async function renderSheet(ctx: RenderCtx): Promise<void> {
   const XLSX = await import('xlsx')
   const wb = XLSX.read(ctx.data, { type: 'array', dense: true, cellDates: true, cellStyles: false, cellHTML: false })
   const names = wb.SheetNames
-  if (!names.length) throw new Error('工作簿里没有工作表')
+  if (!names.length) throw new Error(t('工作簿里没有工作表'))
 
   const tableHost = h('div', { class: 'dp-sheet-scroll' })
   const note = h('div', { class: 'dp-sheet-note', hidden: true })
@@ -696,7 +697,7 @@ async function renderSheet(ctx: RenderCtx): Promise<void> {
     const ws = wb.Sheets[name]
     const ref = ws?.['!ref']
     if (!ws || !ref) {
-      tableHost.replaceChildren(h('div', { class: 'dp-loading' }, '（空工作表）'))
+      tableHost.replaceChildren(h('div', { class: 'dp-loading' }, t('（空工作表）')))
       note.hidden = true
       return
     }
@@ -759,8 +760,8 @@ async function renderSheet(ctx: RenderCtx): Promise<void> {
     const totalCols = range.e.c - range.s.c + 1
     const truncated = totalRows > rows || totalCols > cols
     note.hidden = !truncated
-    note.textContent = truncated ? `只显示前 ${rows} 行 × ${cols} 列（共 ${totalRows} 行 × ${totalCols} 列），完整内容请用默认应用打开。` : ''
-    setInfo(ctx.p, `${names.length} 个工作表`, `${totalRows} 行 × ${totalCols} 列`, fmtSize(ctx.size))
+    note.textContent = truncated ? t('只显示前 {0} 行 × {1} 列（共 {2} 行 × {3} 列），完整内容请用默认应用打开。', rows, cols, totalRows, totalCols) : ''
+    setInfo(ctx.p, t('{0} 个工作表', names.length), t('{0} 行 × {1} 列', totalRows, totalCols), fmtSize(ctx.size))
   }
 
   for (const name of names) {
@@ -768,7 +769,7 @@ async function renderSheet(ctx: RenderCtx): Promise<void> {
     tabs.append(
       h(
         'button',
-        { class: 'dp-sheet-tab' + (hidden ? ' hidden-sheet' : ''), role: 'tab', 'data-name': name, title: hidden ? `${name}（隐藏）` : name, onClick: () => show(name) },
+        { class: 'dp-sheet-tab' + (hidden ? ' hidden-sheet' : ''), role: 'tab', 'data-name': name, title: hidden ? t('{0}（隐藏）', name) : name, onClick: () => show(name) },
         name
       )
     )
@@ -812,7 +813,7 @@ async function renderPptx(ctx: RenderCtx): Promise<() => void> {
 
   // 幻灯片顺序以 presentation.xml 为准
   const pres = await xml('ppt/presentation.xml')
-  if (!pres) throw new Error('不是有效的 PowerPoint 文件')
+  if (!pres) throw new Error(t('不是有效的 PowerPoint 文件'))
   const presRels = await rels('ppt/', 'presentation.xml')
   const slidePaths = byTag(pres, 'sldId')
     .map((s) => presRels.get(s.getAttributeNS(NS_REL, 'id') ?? '')?.target)
@@ -830,7 +831,7 @@ async function renderPptx(ctx: RenderCtx): Promise<() => void> {
   }
 
   ctx.host.classList.add('dp-slides')
-  ctx.host.append(h('div', { class: 'dp-banner' }, '演示文稿以大纲方式预览（文字、图片、表格和备注）；版式、动画请用默认应用查看。'))
+  ctx.host.append(h('div', { class: 'dp-banner' }, t('演示文稿以大纲方式预览（文字、图片、表格和备注）；版式、动画请用默认应用查看。')))
 
   for (let i = 0; i < slidePaths.length; i++) {
     if (ctx.stale()) break
@@ -886,7 +887,7 @@ async function renderPptx(ctx: RenderCtx): Promise<() => void> {
       }
     }
     if (media.childElementCount) content.append(media)
-    if (!content.childElementCount) content.append(h('div', { class: 'dp-muted' }, '（这一页没有文字内容）'))
+    if (!content.childElementCount) content.append(h('div', { class: 'dp-muted' }, t('（这一页没有文字内容）')))
     card.append(content)
 
     // 演讲者备注
@@ -898,7 +899,7 @@ async function renderPptx(ctx: RenderCtx): Promise<() => void> {
         .filter((sp) => byTag(sp, 'ph')[0]?.getAttribute('type') === 'body')
         .flatMap((sp) => byTag(sp, 'p').map(textOf))
         .filter((t) => t.trim())
-      if (text.length) card.append(h('div', { class: 'dp-slide-notes' }, h('div', { class: 'dp-muted' }, '备注'), ...text.map((t) => h('p', {}, t))))
+      if (text.length) card.append(h('div', { class: 'dp-slide-notes' }, h('div', { class: 'dp-muted' }, t('备注')), ...text.map((t) => h('p', {}, t))))
     }
     ctx.host.append(card)
   }
@@ -914,7 +915,7 @@ async function renderPptx(ctx: RenderCtx): Promise<() => void> {
       }
     )
   )
-  setInfo(ctx.p, `${slidePaths.length} 张幻灯片`, fmtSize(ctx.size))
+  setInfo(ctx.p, t('{0} 张幻灯片', slidePaths.length), fmtSize(ctx.size))
   return () => blobs.forEach((u) => URL.revokeObjectURL(u))
 }
 
@@ -927,7 +928,7 @@ async function renderImage(ctx: RenderCtx): Promise<() => void> {
     await img.decode()
   } catch {
     URL.revokeObjectURL(url)
-    throw new Error('图片无法解码，可能已损坏或格式不受支持')
+    throw new Error(t('图片无法解码，可能已损坏或格式不受支持'))
   }
   const w = img.naturalWidth
   const hgt = img.naturalHeight
@@ -941,13 +942,13 @@ async function renderImage(ctx: RenderCtx): Promise<() => void> {
   const stage = h('div', { class: 'dp-image-stage' }, img)
   ctx.host.classList.add('dp-image-wrap')
   ctx.host.append(stage)
-  const fitBtn = h('button', { class: 'btn small', title: '适合窗口 / 原始大小' }, '适合窗口')
+  const fitBtn = h('button', { class: 'btn small', title: t('适合窗口 / 原始大小') }, t('适合窗口'))
   const zoomEl = zoomControls(
     ctx,
     () => zoom || Math.min(1, ctx.p.body.clientWidth / w, ctx.p.body.clientHeight / hgt),
     (v) => {
       zoom = v
-      fitBtn.textContent = '适合窗口'
+      fitBtn.textContent = t('适合窗口')
       apply()
     },
     ZOOM_STEPS.concat([6, 8, 10]),
@@ -982,7 +983,7 @@ async function renderMedia(ctx: RenderCtx): Promise<() => void> {
   const el = h(kind, { class: `dp-${kind}-el`, src: url, controls: true, preload: 'metadata' }) as HTMLMediaElement
   await new Promise<void>((resolve, reject) => {
     el.addEventListener('loadedmetadata', () => resolve(), { once: true })
-    el.addEventListener('error', () => reject(new Error('无法播放：格式或编码不受支持')), { once: true })
+    el.addEventListener('error', () => reject(new Error(t('无法播放：格式或编码不受支持'))), { once: true })
   }).catch((err) => {
     URL.revokeObjectURL(url)
     throw err

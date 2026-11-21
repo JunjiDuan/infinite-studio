@@ -4,6 +4,7 @@ import { basename, h, parentDir, relative, toast } from './dom'
 import { icons } from './icons'
 import { showMenu, type MenuItem } from './menu'
 import { state } from './store'
+import { t } from './i18n'
 
 const cache = new Map<string, DirEntry[]>()
 const expanded = new Set<string>()
@@ -29,7 +30,7 @@ export function createTree(): HTMLElement {
   listEl = h('div', {
     class: 'tree',
     role: 'tree',
-    'aria-label': '项目文件',
+    'aria-label': t('项目文件'),
     tabindex: '0',
     onContextmenu: (e: MouseEvent) => {
       if (e.target === listEl && state.root) {
@@ -57,16 +58,16 @@ export function createTree(): HTMLElement {
     h(
       'div',
       { class: 'side-actions' },
-      h('button', { class: 'icon-btn small', 'aria-label': '新建文件', title: '新建文件', html: icons.newFile, onClick: () => beginCreate('file') }),
-      h('button', { class: 'icon-btn small', 'aria-label': '新建文件夹', title: '新建文件夹', html: icons.newFolder, onClick: () => beginCreate('dir') }),
-      h('button', { class: 'icon-btn small', 'aria-label': '刷新文件列表', title: '刷新', html: icons.refresh, onClick: () => refreshTree() }),
-      h('button', { class: 'icon-btn small', 'aria-label': '全部折叠', title: '全部折叠', html: icons.collapse, onClick: collapseAll })
+      h('button', { class: 'icon-btn small', 'aria-label': t('新建文件'), title: t('新建文件'), html: icons.newFile, onClick: () => beginCreate('file') }),
+      h('button', { class: 'icon-btn small', 'aria-label': t('新建文件夹'), title: t('新建文件夹'), html: icons.newFolder, onClick: () => beginCreate('dir') }),
+      h('button', { class: 'icon-btn small', 'aria-label': t('刷新文件列表'), title: t('刷新'), html: icons.refresh, onClick: () => refreshTree() }),
+      h('button', { class: 'icon-btn small', 'aria-label': t('全部折叠'), title: t('全部折叠'), html: icons.collapse, onClick: collapseAll })
     )
   )
   return h(
     'div',
     { class: 'side-view', 'data-view': 'files' },
-    h('div', { class: 'side-head' }, h('span', { class: 'side-title' }, '资源管理器')),
+    h('div', { class: 'side-head' }, h('span', { class: 'side-title' }, t('资源管理器'))),
     projectHead,
     listEl
   )
@@ -202,23 +203,23 @@ export async function trashPath(path?: string): Promise<void> {
   if (!p || (state.root && samePath(p, state.root))) return
   const e = entryOf(p)
   const dirtyInside = tabs.some((t) => isUnder(t.path, p) && isDirty(t))
-  const what = e?.isDir ? '文件夹' : '文件'
-  const warn = dirtyInside ? '\n\n里面有未保存的修改，会一起丢弃。' : ''
-  if (!confirm(`把${what}“${basename(p)}”移到回收站吗？${warn}`)) return
+  const what = e?.isDir ? t('文件夹') : t('文件')
+  const warn = dirtyInside ? t('\n\n里面有未保存的修改，会一起丢弃。') : ''
+  if (!confirm(t('把{0}“{1}”移到回收站吗？{2}', what, basename(p), warn))) return
   try {
     await window.api.fs.trash(p)
     closeUnder(p)
     if (selected && isUnder(selected, p)) selected = null
     await invalidatePaths([p])
-    toast(`已移到回收站：${basename(p)}`)
+    toast(t('已移到回收站：{0}', basename(p)))
   } catch (err) {
-    toast('删除失败：' + String(err))
+    toast(t('删除失败：') + String(err))
   }
 }
 
 function validName(name: string): string | null {
-  if (!name) return '名字不能为空'
-  if (name === '.' || name === '..' || /[\\/:*?"<>|]/.test(name)) return '名字里不能有 \\ / : * ? " < > |'
+  if (!name) return t('名字不能为空')
+  if (name === '.' || name === '..' || /[\\/:*?"<>|]/.test(name)) return t('名字里不能有 \\ / : * ? " < > |')
   return null
 }
 
@@ -263,7 +264,7 @@ async function commitEdit(value: string): Promise<void> {
 }
 
 function inputRow(depth: number, initial: string, isDir: boolean): HTMLElement {
-  const input = h('input', { class: 'tree-input', value: initial, spellcheck: 'false', 'aria-label': '名称' })
+  const input = h('input', { class: 'tree-input', value: initial, spellcheck: 'false', 'aria-label': t('名称') })
   let done = false
   const finish = (commit: boolean) => {
     if (done) return
@@ -299,18 +300,18 @@ function menuFor(path: string, isDir: boolean): MenuItem[] {
   const isRoot = samePath(path, root)
   const dir = isDir ? path : parentDir(path)
   const items: MenuItem[] = [
-    { label: '新建文件', run: () => void beginCreate('file', dir) },
-    { label: '新建文件夹', run: () => void beginCreate('dir', dir) },
+    { label: t('新建文件'), run: () => void beginCreate('file', dir) },
+    { label: t('新建文件夹'), run: () => void beginCreate('dir', dir) },
     'sep'
   ]
   for (const fn of extras) items.push(...fn({ path, isDir, dir }))
   items.push(
-    { label: '在资源管理器中显示', run: () => void window.api.fs.reveal(path) },
-    { label: '复制路径', run: () => void navigator.clipboard.writeText(path).then(() => toast('已复制路径')) },
-    { label: '复制相对路径', disabled: isRoot, run: () => void navigator.clipboard.writeText(relative(root, path)).then(() => toast('已复制相对路径')) }
+    { label: t('在资源管理器中显示'), run: () => void window.api.fs.reveal(path) },
+    { label: t('复制路径'), run: () => void navigator.clipboard.writeText(path).then(() => toast(t('已复制路径'))) },
+    { label: t('复制相对路径'), disabled: isRoot, run: () => void navigator.clipboard.writeText(relative(root, path)).then(() => toast(t('已复制相对路径'))) }
   )
   if (!isRoot) {
-    items.push('sep', { label: '重命名', key: 'F2', run: () => beginRename(path) }, { label: '删除', key: 'Delete', danger: true, run: () => void trashPath(path) })
+    items.push('sep', { label: t('重命名'), key: 'F2', run: () => beginRename(path) }, { label: t('删除'), key: 'Delete', danger: true, run: () => void trashPath(path) })
   }
   return items
 }
@@ -380,6 +381,6 @@ export function render(): void {
     if (justOpened !== null && samePath(dir, justOpened)) enterIdx = -1
   }
   walk(state.root, 0)
-  if (rows.length === 0) rows.push(h('div', { class: 'tree-empty' }, '空文件夹'))
+  if (rows.length === 0) rows.push(h('div', { class: 'tree-empty' }, t('空文件夹')))
   listEl.replaceChildren(...rows)
 }

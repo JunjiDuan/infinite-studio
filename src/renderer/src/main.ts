@@ -45,20 +45,21 @@ import { createPluginsView, pluginCommands, pluginTreeItems, refreshPlugins, ren
 import { icons } from './icons'
 import { defineTheme, languageName, monaco } from './monaco'
 import { closePalette, invalidateFiles, isPaletteOpen, openPalette } from './palette'
-import { closeSettings, initSettings, isSettingsOpen, openSettings } from './settingsView'
+import { closeSettings, initSettings, isSettingsOpen, openSettings, switchLocale } from './settingsView'
 import { PRESETS, type SideView, emit, isFocus, isRailVisible, isSidebarVisible, loadSettings, on, persist, setSpace, state } from './store'
 import { THEMES, applyCssVars } from './theme'
 import { collapse, installRipples, setMotionLevel, viewTransition, type MotionLevel } from './motion'
 import { debugRequest, initLsp, isProbe, lspStatus, refreshProbe, restartLsp, setLspRoot } from './lsp'
 import { createPanel, newTerminal, togglePanel } from './panel'
 import { initPreview, zoomPreviewAt } from './preview'
-import { createScmView, refreshScm } from './scm'
+import { createScmView, onScmCount, refreshScm, scheduleScmStatus } from './scm'
 import { createSearchView, focusSearch, resetSearch } from './search'
 import { addTreeMenuItems, beginCreate, createTree, invalidatePaths, render as renderTree, setTreeRoot } from './tree'
+import { getLocale, t } from './i18n'
 
 /* ---------------- 界面骨架 ---------------- */
 
-const themeDots = h('div', { class: 'theme-dots', role: 'group', 'aria-label': '切换主题' })
+const themeDots = h('div', { class: 'theme-dots', role: 'group', 'aria-label': t('切换主题') })
 
 /* ---------------- 菜单栏（文件 / 编辑） ---------------- */
 
@@ -69,46 +70,47 @@ const hasEditor = (): boolean => !!getEditor()?.getModel()
 const MENUS: MenuDef[] = [
   {
     id: 'file',
-    label: '文件',
+    label: t('文件'),
     items: () => [
-      { label: '新建文件', disabled: !state.root, run: () => showFilesThen(() => void beginCreate('file')) },
-      { label: '新建文件夹', disabled: !state.root, run: () => showFilesThen(() => void beginCreate('dir')) },
+      { label: t('新建文件'), disabled: !state.root, run: () => showFilesThen(() => void beginCreate('file')) },
+      { label: t('新建文件夹'), disabled: !state.root, run: () => showFilesThen(() => void beginCreate('dir')) },
       'sep',
-      { label: '打开文件夹…', key: 'Ctrl O', run: () => void pickFolder() },
-      { label: '关闭文件夹', disabled: !state.root, run: closeFolder },
+      { label: t('打开文件夹…'), key: 'Ctrl O', run: () => void pickFolder() },
+      { label: t('关闭文件夹'), disabled: !state.root, run: closeFolder },
       'sep',
-      { label: '保存', key: 'Ctrl S', disabled: !activeTab(), run: () => void saveActive() },
-      { label: '全部保存', disabled: !anyDirty(), run: () => void saveAll() },
+      { label: t('保存'), key: 'Ctrl S', disabled: !activeTab(), run: () => void saveActive() },
+      { label: t('全部保存'), disabled: !anyDirty(), run: () => void saveAll() },
       'sep',
-      { label: '关闭标签', key: 'Ctrl W', disabled: !activeTab(), run: () => closeTab() },
+      { label: t('关闭标签'), key: 'Ctrl W', disabled: !activeTab(), run: () => closeTab() },
       'sep',
-      { label: '个性化设置', key: 'Ctrl ,', run: openSettings },
+      { label: t('系统设置'), run: () => openSettings('system') },
+      { label: t('个性化与主题'), key: 'Ctrl ,', run: () => openSettings('appearance') },
       'sep',
-      { label: '退出', run: requestClose }
+      { label: t('退出'), run: requestClose }
     ]
   },
   {
     id: 'edit',
-    label: '编辑',
+    label: t('编辑'),
     items: () => {
       const off = !hasEditor()
       return [
-        { label: '撤销', key: 'Ctrl Z', disabled: off, run: () => runEditorAction('undo') },
-        { label: '重做', key: 'Ctrl Y', disabled: off, run: () => runEditorAction('redo') },
+        { label: t('撤销'), key: 'Ctrl Z', disabled: off, run: () => runEditorAction('undo') },
+        { label: t('重做'), key: 'Ctrl Y', disabled: off, run: () => runEditorAction('redo') },
         'sep',
-        { label: '剪切', key: 'Ctrl X', disabled: off, run: () => runEditorAction('editor.action.clipboardCutAction') },
-        { label: '复制', key: 'Ctrl C', disabled: off, run: () => runEditorAction('editor.action.clipboardCopyAction') },
-        { label: '粘贴', key: 'Ctrl V', disabled: off, run: () => void pasteToEditor() },
+        { label: t('剪切'), key: 'Ctrl X', disabled: off, run: () => runEditorAction('editor.action.clipboardCutAction') },
+        { label: t('复制'), key: 'Ctrl C', disabled: off, run: () => runEditorAction('editor.action.clipboardCopyAction') },
+        { label: t('粘贴'), key: 'Ctrl V', disabled: off, run: () => void pasteToEditor() },
         'sep',
-        { label: '全选', key: 'Ctrl A', disabled: off, run: () => runEditorAction('editor.action.selectAll') },
+        { label: t('全选'), key: 'Ctrl A', disabled: off, run: () => runEditorAction('editor.action.selectAll') },
         'sep',
-        { label: '查找', key: 'Ctrl F', disabled: off, run: () => runEditorAction('actions.find') },
-        { label: '替换', key: 'Ctrl H', disabled: off, run: () => runEditorAction('editor.action.startFindReplaceAction') },
+        { label: t('查找'), key: 'Ctrl F', disabled: off, run: () => runEditorAction('actions.find') },
+        { label: t('替换'), key: 'Ctrl H', disabled: off, run: () => runEditorAction('editor.action.startFindReplaceAction') },
         'sep',
-        { label: '在文件中查找', key: 'Ctrl Shift F', disabled: !state.root, run: () => showSideView('search') },
+        { label: t('在文件中查找'), key: 'Ctrl Shift F', disabled: !state.root, run: () => showSideView('search') },
         'sep',
-        { label: '切换行注释', key: 'Ctrl /', disabled: off, run: () => runEditorAction('editor.action.commentLine') },
-        { label: '格式化文档', key: 'Shift Alt F', disabled: off, run: () => runEditorAction('editor.action.formatDocument') }
+        { label: t('切换行注释'), key: 'Ctrl /', disabled: off, run: () => runEditorAction('editor.action.commentLine') },
+        { label: t('格式化文档'), key: 'Shift Alt F', disabled: off, run: () => runEditorAction('editor.action.formatDocument') }
       ]
     }
   }
@@ -150,7 +152,7 @@ function createMenubar(): HTMLElement {
 
   return h(
     'nav',
-    { class: 'menubar', role: 'menubar', 'aria-label': '菜单栏' },
+    { class: 'menubar', role: 'menubar', 'aria-label': t('菜单栏') },
     ...MENUS.map((m) => {
       const b = h(
         'button',
@@ -185,46 +187,81 @@ function createMenubar(): HTMLElement {
 const titlebar = h(
   'header',
   { class: 'titlebar' },
-  h('div', { class: 'tb-left' }, h('span', { class: 'logo', html: icons.logo, title: 'Infinite Studio · 无界工作室' }), createMenubar()),
+  h('div', { class: 'tb-left' }, h('span', { class: 'logo', html: icons.logo, title: t('Infinite Studio · 无界工作室') }), createMenubar()),
   h(
     'button',
-    { class: 'tb-search', 'aria-label': '打开命令面板', onClick: () => openPalette() },
+    { class: 'tb-search', 'aria-label': t('打开命令面板'), onClick: () => openPalette() },
     h('span', { class: 'ic', html: icons.search }),
-    h('span', { class: 'grow' }, '搜索文件，或输入命令'),
+    h('span', { class: 'grow' }, t('搜索文件，或输入命令')),
     h('kbd', {}, 'Ctrl K')
   ),
   h(
     'div',
     { class: 'tb-right' },
     themeDots,
-    h('button', { class: 'win-btn', 'aria-label': '最小化', html: icons.minimize, onClick: () => window.api.win.minimize() }),
-    h('button', { class: 'win-btn', 'aria-label': '最大化', html: icons.maximize, onClick: () => window.api.win.toggleMaximize() }),
-    h('button', { class: 'win-btn close', 'aria-label': '关闭', html: icons.winClose, onClick: () => requestClose() })
+    h('button', { class: 'win-btn', 'aria-label': t('最小化'), html: icons.minimize, onClick: () => window.api.win.minimize() }),
+    h('button', { class: 'win-btn', 'aria-label': t('最大化'), html: icons.maximize, onClick: () => window.api.win.toggleMaximize() }),
+    h('button', { class: 'win-btn close', 'aria-label': t('关闭'), html: icons.winClose, onClick: () => requestClose() })
   )
 )
 
-const railFiles = h('button', { class: 'rail-btn', 'aria-label': '文件 (Ctrl B)', title: '文件 Ctrl B', html: icons.files, onClick: () => showSideView('files', true) })
-const railSearch = h('button', { class: 'rail-btn', 'aria-label': '在文件中搜索 (Ctrl Shift F)', title: '搜索 Ctrl Shift F', html: icons.search, onClick: () => showSideView('search', true) })
-const railScm = h('button', { class: 'rail-btn', 'aria-label': '源代码管理 (Ctrl Shift G)', title: '源代码管理 Ctrl Shift G', html: icons.git, onClick: () => showSideView('scm', true) })
-const railPlugins = h('button', { class: 'rail-btn', 'aria-label': '插件', title: '插件', html: icons.plugin, onClick: () => showSideView('plugins', true) })
+const railFiles = h('button', { class: 'rail-btn', 'aria-label': t('文件 (Ctrl B)'), title: t('文件 Ctrl B'), html: icons.files, onClick: () => showSideView('files', true) })
+const railSearch = h('button', { class: 'rail-btn', 'aria-label': t('在文件中搜索 (Ctrl Shift F)'), title: t('搜索 Ctrl Shift F'), html: icons.search, onClick: () => showSideView('search', true) })
+const railScm = h('button', { class: 'rail-btn', 'aria-label': t('源代码管理 (Ctrl Shift G)'), title: t('源代码管理 Ctrl Shift G'), html: icons.git, onClick: () => showSideView('scm', true) })
+/** 源代码管理按钮右下角的待提交数量 */
+const scmBadge = h('span', { class: 'rail-badge', hidden: true })
+railScm.append(scmBadge)
+onScmCount((n) => {
+  scmBadge.hidden = n === 0
+  scmBadge.textContent = n > 99 ? '99+' : String(n)
+  railScm.setAttribute('aria-label', n ? t('源代码管理 (Ctrl Shift G)') + ' · ' + n : t('源代码管理 (Ctrl Shift G)'))
+})
+const railPlugins = h('button', { class: 'rail-btn', 'aria-label': t('插件'), title: t('插件'), html: icons.plugin, onClick: () => showSideView('plugins', true) })
 const railInk = h('span', { class: 'rail-ink', 'aria-hidden': 'true' })
+const gearBtn: HTMLButtonElement = h('button', {
+  class: 'rail-btn',
+  'aria-label': t('设置'),
+  'aria-haspopup': 'menu',
+  title: t('设置'),
+  html: icons.gear,
+  onClick: () => openGearMenu()
+})
+
+/** 活动栏底部的设置按钮：弹出设置大类菜单（菜单从按钮右侧向上展开） */
+function openGearMenu(): void {
+  const r = gearBtn.getBoundingClientRect()
+  gearBtn.classList.add('on')
+  showMenu(
+    r.right + 6,
+    r.bottom,
+    [
+      { label: t('命令面板…'), key: 'Ctrl K', run: () => void openPalette() },
+      'sep',
+      { label: t('系统设置'), run: () => openSettings('system') },
+      { label: t('个性化与主题'), key: 'Ctrl ,', run: () => openSettings('appearance') },
+      'sep',
+      { label: t('插件'), run: () => showSideView('plugins') }
+    ],
+    { onClose: () => gearBtn.classList.remove('on'), anchor: 'bottom' }
+  )
+}
 const rail = h(
   'nav',
-  { class: 'rail', 'aria-label': '活动栏' },
+  { class: 'rail', 'aria-label': t('活动栏') },
   railInk,
   railFiles,
   railSearch,
   railScm,
-  h('button', { class: 'rail-btn', 'aria-label': '终端 (Ctrl `)', title: '终端 Ctrl `', html: icons.terminal, onClick: () => togglePanel() }),
-  h('button', { class: 'rail-btn', 'aria-label': '专注模式 (Ctrl .)', title: '专注模式 Ctrl .', html: icons.focus, onClick: () => toggleFocus() }),
+  h('button', { class: 'rail-btn', 'aria-label': t('终端 (Ctrl `)'), title: t('终端 Ctrl `'), html: icons.terminal, onClick: () => togglePanel() }),
+  h('button', { class: 'rail-btn', 'aria-label': t('专注模式 (Ctrl .)'), title: t('专注模式 Ctrl .'), html: icons.focus, onClick: () => toggleFocus() }),
   h('span', { class: 'grow' }),
   accountBtn,
   railPlugins,
-  h('button', { class: 'rail-btn', 'aria-label': '设置 (Ctrl ,)', title: '设置 Ctrl ,', html: icons.gear, onClick: () => toggleSettings() })
+  gearBtn
 )
 
-const sidebar = h('aside', { class: 'sidebar', 'aria-label': '侧栏' }, createTree(), createSearchView(), createScmView(), createPluginsView())
-const sideSash = h('div', { class: 'side-sash', role: 'separator', 'aria-orientation': 'vertical', 'aria-label': '拖动调整侧栏宽度，拖到最窄会隐藏', title: '拖动调整宽度 · 双击恢复默认' })
+const sidebar = h('aside', { class: 'sidebar', 'aria-label': t('侧栏') }, createTree(), createSearchView(), createScmView(), createPluginsView())
+const sideSash = h('div', { class: 'side-sash', role: 'separator', 'aria-orientation': 'vertical', 'aria-label': t('拖动调整侧栏宽度，拖到最窄会隐藏'), title: t('拖动调整宽度 · 双击恢复默认') })
 const emptyHint = h('div', { class: 'empty-hint' })
 const welcome = h('div', { class: 'welcome' })
 const editorWrap = h('div', { class: 'editor-wrap' }, emptyHint)
@@ -236,7 +273,7 @@ const stProblems = h('span', { class: 'st-item' })
 const stCursor = h('span', { class: 'st-item' })
 const stEol = h('span', { class: 'st-item' })
 const stLang = h('span', { class: 'st-item' })
-const stLsp = h('button', { class: 'st-item st-lsp', title: '点击重启语言服务', onClick: () => void restartLsp() })
+const stLsp = h('button', { class: 'st-item st-lsp', title: t('点击重启语言服务'), onClick: () => void restartLsp() })
 const stSpace = h('button', { class: 'st-item st-space', onClick: () => toggleSettings() })
 const statusbar = h(
   'footer',
@@ -249,17 +286,17 @@ const statusbar = h(
   stEol,
   stLang,
   stLsp,
-  h('button', { class: 'st-item st-link', onClick: () => togglePanel() }, '终端 Ctrl `'),
-  h('button', { class: 'st-item st-link', onClick: () => toggleFocus() }, '专注 Ctrl .'),
+  h('button', { class: 'st-item st-link', onClick: () => togglePanel() }, t('终端 Ctrl `')),
+  h('button', { class: 'st-item st-link', onClick: () => toggleFocus() }, t('专注 Ctrl .')),
   stSpace
 )
 
 const focusPill = h(
   'div',
   { class: 'focus-pill' },
-  h('span', { class: 'pill-label' }, h('span', { class: 'dot' }), '专注模式'),
-  h('button', { onClick: () => openPalette() }, 'Ctrl K 命令'),
-  h('button', { class: 'pill-exit', onClick: () => toggleFocus() }, '退出 Esc')
+  h('span', { class: 'pill-label' }, h('span', { class: 'dot' }), t('专注模式')),
+  h('button', { onClick: () => openPalette() }, t('Ctrl K 命令')),
+  h('button', { class: 'pill-exit', onClick: () => toggleFocus() }, t('退出 Esc'))
 )
 
 const body = h('div', { class: 'body' }, rail, sidebar, sideSash, editorArea, welcome)
@@ -298,11 +335,11 @@ function renderEmptyHint(): void {
     h(
       'div',
       { class: 'hint-keys' },
-      h('div', {}, h('span', {}, '搜索文件或命令'), h('kbd', {}, 'Ctrl K')),
-      h('div', {}, h('span', {}, '在文件中搜索'), h('kbd', {}, 'Ctrl Shift F')),
-      h('div', {}, h('span', {}, '显示 / 隐藏侧栏'), h('kbd', {}, 'Ctrl B')),
-      h('div', {}, h('span', {}, '专注模式'), h('kbd', {}, 'Ctrl .')),
-      h('div', {}, h('span', {}, '个性化'), h('kbd', {}, 'Ctrl ,'))
+      h('div', {}, h('span', {}, t('搜索文件或命令')), h('kbd', {}, 'Ctrl K')),
+      h('div', {}, h('span', {}, t('在文件中搜索')), h('kbd', {}, 'Ctrl Shift F')),
+      h('div', {}, h('span', {}, t('显示 / 隐藏侧栏')), h('kbd', {}, 'Ctrl B')),
+      h('div', {}, h('span', {}, t('专注模式')), h('kbd', {}, 'Ctrl .')),
+      h('div', {}, h('span', {}, t('个性化与主题')), h('kbd', {}, 'Ctrl ,'))
     )
   )
 }
@@ -314,19 +351,19 @@ function renderWelcome(): void {
       'div',
       { class: 'welcome-inner' },
       h('span', { class: 'logo big', html: icons.logoLarge }),
-      h('h1', {}, '无界工作室'),
+      h('h1', {}, t('无界工作室')),
       h('p', { class: 'en' }, 'Infinite Studio'),
       h(
         'div',
         { class: 'welcome-actions' },
-        h('button', { class: 'btn primary', onClick: () => pickFolder() }, '打开文件夹', h('kbd', {}, 'Ctrl O')),
-        h('button', { class: 'btn', onClick: () => openSettings() }, '个性化你的空间')
+        h('button', { class: 'btn primary', onClick: () => pickFolder() }, t('打开文件夹'), h('kbd', {}, 'Ctrl O')),
+        h('button', { class: 'btn', onClick: () => openSettings('appearance') }, t('个性化你的空间'))
       ),
       recents.length
         ? h(
             'div',
             { class: 'recents' },
-            h('h2', {}, '最近打开'),
+            h('h2', {}, t('最近打开')),
             ...recents.map((p, i) =>
               h('button', { class: 'recent', title: p, style: { '--i': String(i) }, onClick: () => openFolder(p) }, h('span', { class: 'ic', html: icons.folder }), h('span', { class: 'r-name' }, basename(p)), h('span', { class: 'r-path' }, p))
             )
@@ -337,28 +374,28 @@ function renderWelcome(): void {
 }
 
 function renderStatus(): void {
-  const t = activeTab()
+  const tab = activeTab()
   stBranch.replaceChildren(...(state.branch ? [h('span', { class: 'ic', html: icons.gitSmall }), state.branch] : []))
   stBranch.hidden = !state.branch
   const n = problemCount()
-  stProblems.textContent = state.root ? `${n} 个问题` : ''
+  stProblems.textContent = state.root ? t('{0} 个问题', n) : ''
   stProblems.hidden = !state.root
   const pos = getEditor()?.getPosition()
-  stCursor.textContent = t && pos ? `行 ${pos.lineNumber}，列 ${pos.column}` : ''
-  stCursor.hidden = !t
-  stEol.textContent = t ? (t.model.getEOL() === '\r\n' ? 'CRLF' : 'LF') : ''
-  stEol.hidden = !t
-  stLang.textContent = t ? languageName(t.model.getLanguageId()) : ''
-  stLang.hidden = !t
-  const ls = t ? lspStatus(t.model.getLanguageId()) : null
+  stCursor.textContent = tab && pos ? t('行 {0}，列 {1}', pos.lineNumber, pos.column) : ''
+  stCursor.hidden = !tab
+  stEol.textContent = tab ? (tab.model.getEOL() === '\r\n' ? 'CRLF' : 'LF') : ''
+  stEol.hidden = !tab
+  stLang.textContent = tab ? languageName(tab.model.getLanguageId()) : ''
+  stLang.hidden = !tab
+  const ls = tab ? lspStatus(tab.model.getLanguageId()) : null
   stLsp.hidden = !ls || ls.status === 'stopped'
   if (ls) {
-    const label = { starting: '语言服务启动中', ready: '语言服务', failed: '语言服务未运行', stopped: '' }[ls.status]
+    const label = { starting: t('语言服务启动中'), ready: t('语言服务'), failed: t('语言服务未运行'), stopped: '' }[ls.status]
     stLsp.dataset.status = ls.status
-    stLsp.title = `${ls.name} 语言服务 · 点击重启`
+    stLsp.title = t('{0} 语言服务 · 点击重启', ls.name)
     stLsp.replaceChildren(h('span', { class: 'dot' }), label)
   }
-  stSpace.replaceChildren(h('span', { class: 'dot' }), `空间 · ${state.settings.space.name}`)
+  stSpace.replaceChildren(h('span', { class: 'dot' }), t('空间 · {0}', state.settings.space.name))
 }
 
 /** 上一次布局的状态：只有真正变化时才播放展开 / 收起动画 */
@@ -422,13 +459,13 @@ function switchTheme(id: ThemeId, e?: MouseEvent): void {
   viewTransition(() => setSpace({ theme: id }), e ? { reveal: { x: e.clientX, y: e.clientY } } : {})
 }
 
-const MOTION_LABELS: Record<MotionLevel, string> = { full: '完整', reduced: '简约', off: '关闭' }
+const MOTION_LABELS: Record<MotionLevel, string> = { full: t('完整'), reduced: t('简约'), off: t('关闭') }
 function setMotion(l: MotionLevel): void {
   state.settings.motion = l
   setMotionLevel(l)
   persist()
   emit('space')
-  toast(`动效：${MOTION_LABELS[l]}`)
+  toast(t('动效：{0}', MOTION_LABELS[l]))
 }
 
 function applySpace(): void {
@@ -445,7 +482,7 @@ async function openFolder(path: string): Promise<void> {
   try {
     await window.api.fs.readDir(path)
   } catch {
-    toast('文件夹不存在或无法访问')
+    toast(t('文件夹不存在或无法访问'))
     state.settings.recentFolders = state.settings.recentFolders.filter((p) => p !== path)
     persist()
     renderWelcome()
@@ -487,10 +524,13 @@ window.api.fs.onChanged((paths) => {
       renderStatus()
     })
   }
-  if (state.root && paths.some((p) => /[\\/]\.git[\\/]/.test(p))) {
+  if (state.root && paths.some((p) => /[\\/]\.git([\\/]|$)/.test(p))) {
     if (isSidebarVisible() && state.sideView === 'scm') void refreshScm(true)
-    else scmStale = true
-  }
+    else {
+      scmStale = true
+      scheduleScmStatus()
+    }
+  } else if (state.root && paths.length) scheduleScmStatus()
 })
 
 /** 源代码管理视图隐藏期间 .git 有变化，下次显示时再刷新 */
@@ -523,7 +563,7 @@ function toggleSidebar(): void {
  */
 function showSideView(view: SideView, toggle = false): void {
   if (!state.root && view !== 'plugins') {
-    if (view === 'search') toast('先打开一个文件夹')
+    if (view === 'search') toast(t('先打开一个文件夹'))
     return
   }
   if (toggle && isSidebarVisible() && state.sideView === view) {
@@ -608,9 +648,10 @@ function toggleFocus(): void {
   getEditor()?.focus()
 }
 
+/** Ctrl , 和状态栏的空间按钮：打开 / 关闭“个性化与主题” */
 function toggleSettings(): void {
   if (isSettingsOpen()) closeSettings()
-  else openSettings()
+  else openSettings('appearance')
 }
 
 function changeSize(d: number): void {
@@ -619,7 +660,7 @@ function changeSize(d: number): void {
 
 let closing = false
 function requestClose(): void {
-  if (anyDirty() && !confirm('有未保存的修改，确定退出吗？')) return
+  if (anyDirty() && !confirm(t('有未保存的修改，确定退出吗？'))) return
   closing = true
   window.api.win.close()
 }
@@ -634,58 +675,60 @@ window.addEventListener('beforeunload', (e) => {
 /* ---------------- 命令 ---------------- */
 
 registerCommands(() => [
-  { id: 'folder.open', title: '打开文件夹…', key: 'Ctrl O', run: pickFolder },
-  ...(state.root ? [{ id: 'folder.close', title: '关闭文件夹', run: closeFolder }] : []),
+  { id: 'folder.open', title: t('打开文件夹…'), key: 'Ctrl O', run: pickFolder },
+  ...(state.root ? [{ id: 'folder.close', title: t('关闭文件夹'), run: closeFolder }] : []),
   ...(state.root
     ? [
-        { id: 'file.new', title: '新建文件', run: () => showFilesThen(() => beginCreate('file')) },
-        { id: 'dir.new', title: '新建文件夹', run: () => showFilesThen(() => beginCreate('dir')) }
+        { id: 'file.new', title: t('新建文件'), run: () => showFilesThen(() => beginCreate('file')) },
+        { id: 'dir.new', title: t('新建文件夹'), run: () => showFilesThen(() => beginCreate('dir')) }
       ]
     : []),
-  { id: 'file.save', title: '保存', key: 'Ctrl S', run: saveActive },
-  { id: 'file.saveAll', title: '全部保存', run: saveAll },
-  { id: 'file.close', title: '关闭当前标签', key: 'Ctrl W', run: () => closeTab() },
-  { id: 'view.sidebar', title: '显示 / 隐藏侧栏', key: 'Ctrl B', run: toggleSidebar },
-  { id: 'view.search', title: '在文件中搜索', key: 'Ctrl Shift F', run: () => showSideView('search') },
-  { id: 'view.scm', title: '源代码管理：提交历史', key: 'Ctrl Shift G', run: () => showSideView('scm') },
-  { id: 'view.focus', title: '专注模式', key: 'Ctrl .', run: toggleFocus },
-  { id: 'term.toggle', title: '显示 / 隐藏终端', key: 'Ctrl `', run: togglePanel },
-  { id: 'term.new', title: '新建终端', key: 'Ctrl Shift `', run: () => newTerminal() },
-  { id: 'view.settings', title: '打开个性化设置', key: 'Ctrl ,', run: openSettings },
-  { id: 'account.login', title: '登录 GitHub', run: () => void openLoginDialog() },
-  { id: 'view.wrap', title: '切换自动换行', key: 'Alt Z', run: toggleWrap },
-  { id: 'editor.split', title: '向右拆分编辑器', key: 'Ctrl \\', run: () => splitRight() },
-  { id: 'editor.nextGroup', title: '聚焦右侧编辑器组', key: 'Ctrl Alt →', run: () => focusNextGroup(1) },
-  { id: 'editor.prevGroup', title: '聚焦左侧编辑器组', key: 'Ctrl Alt ←', run: () => focusNextGroup(-1) },
-  { id: 'font.bigger', title: '增大字号', key: 'Ctrl =', run: () => changeSize(1) },
-  { id: 'font.smaller', title: '减小字号', key: 'Ctrl -', run: () => changeSize(-1) },
+  { id: 'file.save', title: t('保存'), key: 'Ctrl S', run: saveActive },
+  { id: 'file.saveAll', title: t('全部保存'), run: saveAll },
+  { id: 'file.close', title: t('关闭当前标签'), key: 'Ctrl W', run: () => closeTab() },
+  { id: 'view.sidebar', title: t('显示 / 隐藏侧栏'), key: 'Ctrl B', run: toggleSidebar },
+  { id: 'view.search', title: t('在文件中搜索'), key: 'Ctrl Shift F', run: () => showSideView('search') },
+  { id: 'view.scm', title: t('源代码管理'), key: 'Ctrl Shift G', run: () => showSideView('scm') },
+  { id: 'view.focus', title: t('专注模式'), key: 'Ctrl .', run: toggleFocus },
+  { id: 'term.toggle', title: t('显示 / 隐藏终端'), key: 'Ctrl `', run: togglePanel },
+  { id: 'term.new', title: t('新建终端'), key: 'Ctrl Shift `', run: () => newTerminal() },
+  { id: 'view.settings', title: t('打开个性化与主题'), key: 'Ctrl ,', run: () => openSettings('appearance') },
+  { id: 'view.locale', title: getLocale() === 'zh' ? 'Switch Language: English' : '切换语言：简体中文', run: () => void switchLocale(getLocale() === 'zh' ? 'en' : 'zh') },
+  { id: 'view.systemSettings', title: t('打开系统设置'), run: () => openSettings('system') },
+  { id: 'account.login', title: t('登录 GitHub'), run: () => void openLoginDialog() },
+  { id: 'view.wrap', title: t('切换自动换行'), key: 'Alt Z', run: toggleWrap },
+  { id: 'editor.split', title: t('向右拆分编辑器'), key: 'Ctrl \\', run: () => splitRight() },
+  { id: 'editor.nextGroup', title: t('聚焦右侧编辑器组'), key: 'Ctrl Alt →', run: () => focusNextGroup(1) },
+  { id: 'editor.prevGroup', title: t('聚焦左侧编辑器组'), key: 'Ctrl Alt ←', run: () => focusNextGroup(-1) },
+  { id: 'font.bigger', title: t('增大字号'), key: 'Ctrl =', run: () => changeSize(1) },
+  { id: 'font.smaller', title: t('减小字号'), key: 'Ctrl -', run: () => changeSize(-1) },
   ...(Object.keys(THEMES) as ThemeId[]).map((id) => ({
     id: 'theme.' + id,
-    title: `切换主题：${THEMES[id].label}`,
-    hint: state.settings.space.theme === id ? '当前' : '',
+    title: t('切换主题：{0}', THEMES[id].label),
+    hint: state.settings.space.theme === id ? t('当前') : '',
     run: () => switchTheme(id)
   })),
   ...(['full', 'reduced', 'off'] as MotionLevel[]).map((l) => ({
     id: 'motion.' + l,
-    title: `动效强度：${MOTION_LABELS[l]}`,
-    hint: (state.settings.motion ?? 'full') === l ? '当前' : '',
+    title: t('动效强度：{0}', MOTION_LABELS[l]),
+    hint: (state.settings.motion ?? 'full') === l ? t('当前') : '',
     run: () => setMotion(l)
   })),
-  { id: 'editor.moveTabLeft', title: '向左移动标签', key: 'Ctrl Shift PgUp', run: () => moveActiveTab(-1) },
-  { id: 'editor.moveTabRight', title: '向右移动标签', key: 'Ctrl Shift PgDn', run: () => moveActiveTab(1) },
+  { id: 'editor.moveTabLeft', title: t('向左移动标签'), key: 'Ctrl Shift PgUp', run: () => moveActiveTab(-1) },
+  { id: 'editor.moveTabRight', title: t('向右移动标签'), key: 'Ctrl Shift PgDn', run: () => moveActiveTab(1) },
   ...[...PRESETS, ...state.settings.savedSpaces].map((s) => ({
     id: 'space.' + s.name,
-    title: `切换空间：${s.name}`,
-    hint: state.settings.space.name === s.name ? '当前' : '',
+    title: t('切换空间：{0}', s.name),
+    hint: state.settings.space.name === s.name ? t('当前') : '',
     run: () => setSpace({ ...s })
   })),
-  { id: 'editor.format', title: '格式化文档', key: 'Shift Alt F', run: () => runEditorAction('editor.action.formatDocument') },
-  { id: 'editor.definition', title: '转到定义', key: 'F12', run: () => runEditorAction('editor.action.revealDefinition') },
-  { id: 'editor.references', title: '查找所有引用', key: 'Shift F12', run: () => runEditorAction('editor.action.referenceSearch.trigger') },
-  { id: 'editor.rename', title: '重命名符号', key: 'F2', run: () => runEditorAction('editor.action.rename') },
-  { id: 'editor.outline', title: '转到文件中的符号', key: 'Ctrl Shift O', run: () => runEditorAction('editor.action.quickOutline') },
-  { id: 'lsp.restart', title: '重启语言服务', run: restartLsp },
-  { id: 'window.devtools', title: '开发者工具', key: 'Ctrl Shift I', run: () => toast('按 Ctrl Shift I 打开开发者工具') }
+  { id: 'editor.format', title: t('格式化文档'), key: 'Shift Alt F', run: () => runEditorAction('editor.action.formatDocument') },
+  { id: 'editor.definition', title: t('转到定义'), key: 'F12', run: () => runEditorAction('editor.action.revealDefinition') },
+  { id: 'editor.references', title: t('查找所有引用'), key: 'Shift F12', run: () => runEditorAction('editor.action.referenceSearch.trigger') },
+  { id: 'editor.rename', title: t('重命名符号'), key: 'F2', run: () => runEditorAction('editor.action.rename') },
+  { id: 'editor.outline', title: t('转到文件中的符号'), key: 'Ctrl Shift O', run: () => runEditorAction('editor.action.quickOutline') },
+  { id: 'lsp.restart', title: t('重启语言服务'), run: restartLsp },
+  { id: 'window.devtools', title: t('开发者工具'), key: 'Ctrl Shift I', run: () => toast(t('按 Ctrl Shift I 打开开发者工具')) }
 ])
 
 function runEditorAction(id: string): void {
@@ -700,12 +743,12 @@ function toggleWrap(): void {
   state.settings.wordWrap = !state.settings.wordWrap
   persist()
   emit('layout')
-  toast(state.settings.wordWrap ? '自动换行：开' : '自动换行：关')
+  toast(state.settings.wordWrap ? t('自动换行：开') : t('自动换行：关'))
 }
 
 addTreeMenuItems(({ path }) => pluginTreeItems(path))
 registerCommands(() => pluginCommands(() => showSideView('plugins')))
-addTreeMenuItems(({ dir }) => [{ label: '在终端中打开', run: () => void newTerminal(dir) }, 'sep'])
+addTreeMenuItems(({ dir }) => [{ label: t('在终端中打开'), run: () => void newTerminal(dir) }, 'sep'])
 
 /* ---------------- 快捷键 ---------------- */
 
@@ -782,8 +825,13 @@ on('cursor', renderStatus)
 on('lsp', renderStatus)
 on('markers', renderStatus)
 on('saved', renderStatus)
+on('saved', scheduleScmStatus)
 on('root', () => {
   if (isSidebarVisible() && state.sideView === 'scm') void refreshScm()
+  else {
+    scmStale = true
+    scheduleScmStatus()
+  }
   renderStatus()
   renderWelcome()
   applyLayout()
@@ -792,9 +840,9 @@ on('root', () => {
 
 /** Ctrl Alt K：把当前文件 / 选中行作为 @引用发给终端里运行的 claude（和 VS Code 扩展一样） */
 async function mentionToTerminalClaude(): Promise<void> {
-  if (!recentFile()) return toast('没有打开的文件')
-  if (!ideConnected()) return toast('终端里没有连接到编辑器的 Claude Code；在内置终端里运行 claude 即可自动连接')
-  if (!(await sendAtMention())) toast('发送失败：终端里的 Claude Code 已断开')
+  if (!recentFile()) return toast(t('没有打开的文件'))
+  if (!ideConnected()) return toast(t('终端里没有连接到编辑器的 Claude Code；在内置终端里运行 claude 即可自动连接'))
+  if (!(await sendAtMention())) toast(t('发送失败：终端里的 Claude Code 已断开'))
 }
 
 /* ---------------- 启动 ---------------- */

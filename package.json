@@ -15,7 +15,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "icon": "node scripts/run-electron.cjs scripts/make-icon.cjs",
     "pack": "npm run build && electron-builder --dir",
-    "dist": "npm run build && electron-builder --win --x64 && node scripts/copy-installer.cjs"
+    "dist": "npm run build && electron-builder --win --x64 --dir && node scripts/build-installer.cjs",
+    "installer": "node scripts/build-installer.cjs"
   },
   "build": {
     "appId": "studio.infinite.ide",
@@ -37,7 +38,7 @@
     "win": {
       "target": [
         {
-          "target": "nsis",
+          "target": "dir",
           "arch": [
             "x64"
           ]
@@ -50,19 +51,6 @@
           "to": "typescript-native"
         }
       ]
-    },
-    "nsis": {
-      "oneClick": false,
-      "perMachine": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "shortcutName": "Infinite Studio",
-      "include": "build/installer.nsh",
-      "installerLanguages": [
-        "zh_CN"
-      ],
-      "language": "2052",
-      "artifactName": "InfiniteStudio-Setup-${version}.${ext}"
     },
     "mac": {
       "target": "dmg",

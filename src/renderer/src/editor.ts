@@ -5,6 +5,7 @@ import { showMenu } from './menu'
 import { emit, isFocus, state } from './store'
 import { FONTS } from './theme'
 import { DUR, EASE, SPRING, after, animate, fullMotion } from './motion'
+import { t } from './i18n'
 
 /**
  * 编辑器分成若干“组”，左右排列，组之间的分隔条可以拖动。
@@ -260,7 +261,7 @@ const editorOptions: monaco.editor.IStandaloneEditorConstructionOptions = {
 }
 
 function createGroup(index: number, size = 1): Group {
-  const tabsEl = h('div', { class: 'tabs', role: 'tablist', 'aria-label': '打开的标签' })
+  const tabsEl = h('div', { class: 'tabs', role: 'tablist', 'aria-label': t('打开的标签') })
   const actionsEl = h('div', { class: 'group-actions' })
   const host = h('div', { class: 'editor-host', style: { visibility: 'hidden' } })
   const viewHost = h('div', { class: 'view-host', hidden: true })
@@ -274,8 +275,8 @@ function createGroup(index: number, size = 1): Group {
   const editor = monaco.editor.create(host, editorOptions)
   const closeEl = h('button', {
     class: 'icon-btn small',
-    'aria-label': '关闭编辑器组',
-    title: '关闭编辑器组',
+    'aria-label': t('关闭编辑器组'),
+    title: t('关闭编辑器组'),
     hidden: true,
     html: icons.close,
     onClick: () => removeGroup(g)
@@ -309,8 +310,8 @@ function createGroup(index: number, size = 1): Group {
   actionsEl.append(
     h('button', {
       class: 'icon-btn small',
-      'aria-label': '向右拆分编辑器 (Ctrl \\)',
-      title: '向右拆分 Ctrl \\',
+      'aria-label': t('向右拆分编辑器 (Ctrl \\)'),
+      title: t('向右拆分 Ctrl \\'),
       html: icons.split,
       onClick: () => splitRight(g)
     }),
@@ -331,9 +332,18 @@ function createGroup(index: number, size = 1): Group {
   groups.splice(index, 0, g)
   layoutGroups()
   applyOptions(g)
-  // 新组从 0 宽“长”出来，旁边的组被平滑挤开
+  // 新组从右侧滑入：宽度从 0 展开，旁边的组被平滑挤开。
+  // 内容在动画期间锁定为最终宽度并裁剪，避免每帧按中间宽度重排导致整体形变；
+  // 宽度属于布局属性，用无过冲的缓动，弹簧过冲会让两侧来回抽动。
   if (groups.length > 1 && groupsEl.isConnected) {
-    animate(el, [{ flexGrow: 0, minWidth: '0px', opacity: 0 }, { flexGrow: size, minWidth: '160px', opacity: 1 }], { spring: 'soft' })
+    const finalW = el.getBoundingClientRect().width
+    el.style.setProperty('--pin-w', `${finalW}px`)
+    el.classList.add('entering')
+    const a = animate(el, [{ flexGrow: 0, minWidth: '0px', opacity: 0 }, { flexGrow: size, minWidth: '160px', opacity: 1 }], { duration: DUR.lg, easing: EASE.out })
+    after(a, () => {
+      el.classList.remove('entering')
+      el.style.removeProperty('--pin-w')
+    })
     const sash = el.previousElementSibling ?? el.nextElementSibling
     if (sash?.classList.contains('group-sash')) animate(sash, [{ opacity: 0 }, { opacity: 1 }], { duration: DUR.md, delay: 80 })
   }
@@ -343,6 +353,8 @@ function createGroup(index: number, size = 1): Group {
 function removeGroup(g: Group): void {
   const i = groups.indexOf(g)
   if (i < 0 || groups.length === 1) return
+  // 收起前记下当前宽度：动画期间内容保持这个宽度并被裁剪，整体滑出而不是被挤压重排
+  g.el.style.setProperty('--pin-w', `${g.el.getBoundingClientRect().width}px`)
   groups.splice(i, 1)
   if (activeGroup === g) focusGroup(groups[Math.min(i, groups.length - 1)])
   groupsEl.classList.toggle('multi', groups.length > 1)
@@ -375,7 +387,7 @@ function layoutGroups(): void {
 }
 
 function makeSash(a: Group, b: Group): HTMLElement {
-  const sash = h('div', { class: 'group-sash', role: 'separator', 'aria-orientation': 'vertical', 'aria-label': '拖动调整编辑器宽度' })
+  const sash = h('div', { class: 'group-sash', role: 'separator', 'aria-orientation': 'vertical', 'aria-label': t('拖动调整编辑器宽度') })
   sash.addEventListener('mousedown', (e) => {
     e.preventDefault()
     const startX = e.clientX
@@ -427,7 +439,7 @@ function focusGroup(g: Group): void {
 function updateTitle(): void {
   const it = activeGroup?.active
   const name = it ? (it.type === 'file' ? basename(it.doc.path) : it.spec.title) : null
-  document.title = name ? `${name} — Infinite Studio` : 'Infinite Studio · 无界工作室'
+  document.title = name ? `${name} — Infinite Studio` : t('Infinite Studio · 无界工作室')
 }
 
 /* ---------------- 初始化与选项 ---------------- */
@@ -547,7 +559,7 @@ export async function openFile(rawPath: string, o: OpenOptions = {}): Promise<Ta
       if (!r.ok) {
         if (r.reason === 'binary' && activate && previewer?.(path, true)) return null
         toast(
-          r.reason === 'binary' ? '这是二进制文件，暂不支持打开' : r.reason === 'too-large' ? '文件超过 5 MB，暂不支持打开' : r.reason === 'missing' ? '文件不存在' : '无法读取文件'
+          r.reason === 'binary' ? t('这是二进制文件，暂不支持打开') : r.reason === 'too-large' ? t('文件超过 5 MB，暂不支持打开') : r.reason === 'missing' ? t('文件不存在') : t('无法读取文件')
         )
         return null
       }
@@ -664,7 +676,7 @@ function dropDoc(doc: Tab): void {
 }
 
 function closeItem(g: Group, it: Item): void {
-  if (it.type === 'file' && refs(it.doc) === 1 && isDirty(it.doc) && !confirm(`“${basename(it.doc.path)}” 有未保存的修改，仍然关闭吗？`)) return
+  if (it.type === 'file' && refs(it.doc) === 1 && isDirty(it.doc) && !confirm(t('“{0}” 有未保存的修改，仍然关闭吗？', basename(it.doc.path)))) return
   if (it.type === 'view' && it.spec.onClose?.() === false) return
   detach(g, it)
 }
@@ -679,7 +691,7 @@ export function closeTab(path?: string): void {
   }
   const doc = findTab(path)
   if (!doc) return
-  if (isDirty(doc) && !confirm(`“${basename(doc.path)}” 有未保存的修改，仍然关闭吗？`)) return
+  if (isDirty(doc) && !confirm(t('“{0}” 有未保存的修改，仍然关闭吗？', basename(doc.path)))) return
   closeDoc(doc)
 }
 
@@ -699,7 +711,7 @@ export function closeUnder(path: string): void {
 
 /** 关闭所有文件标签（对话等视图保留） */
 export function closeAll(): boolean {
-  if (anyDirty() && !confirm('有未保存的修改，仍然关闭全部文件吗？')) return false
+  if (anyDirty() && !confirm(t('有未保存的修改，仍然关闭全部文件吗？'))) return false
   for (const t of [...tabs]) closeDoc(t)
   return true
 }
@@ -1257,7 +1269,7 @@ function createTabEl(g: Group, it: Item): HTMLElement {
         closeItem(g, it)
       }
     },
-    h('span', { class: 'tab-dot', title: '未保存' })
+    h('span', { class: 'tab-dot', title: t('未保存') })
   )
   const el = h(
     'div',
@@ -1272,13 +1284,13 @@ function createTabEl(g: Group, it: Item): HTMLElement {
       onContextmenu: (e: MouseEvent) => {
         e.preventDefault()
         showMenu(e.clientX, e.clientY, [
-          { label: '关闭', key: 'Ctrl W', run: () => closeItem(g, it) },
-          { label: '关闭其他', disabled: g.items.length < 2, run: () => closeOthers(g, it) },
+          { label: t('关闭'), key: 'Ctrl W', run: () => closeItem(g, it) },
+          { label: t('关闭其他'), disabled: g.items.length < 2, run: () => closeOthers(g, it) },
           'sep',
-          { label: '向左移动', key: 'Ctrl Shift PgUp', disabled: g.items.indexOf(it) <= 0, run: () => (show(g, it), moveActiveTab(-1)) },
-          { label: '向右移动', key: 'Ctrl Shift PgDn', disabled: g.items.indexOf(it) >= g.items.length - 1, run: () => (show(g, it), moveActiveTab(1)) },
+          { label: t('向左移动'), key: 'Ctrl Shift PgUp', disabled: g.items.indexOf(it) <= 0, run: () => (show(g, it), moveActiveTab(-1)) },
+          { label: t('向右移动'), key: 'Ctrl Shift PgDn', disabled: g.items.indexOf(it) >= g.items.length - 1, run: () => (show(g, it), moveActiveTab(1)) },
           'sep',
-          { label: '向右拆分', key: 'Ctrl \\', run: () => (show(g, it), splitRight(g)) }
+          { label: t('向右拆分'), key: 'Ctrl \\', run: () => (show(g, it), splitRight(g)) }
         ])
       }
     },
@@ -1302,7 +1314,7 @@ function syncTab(g: Group, it: Item, el: HTMLElement): boolean {
   const name = el.querySelector('.tab-name')!
   if (name.textContent === title) return false
   name.textContent = title
-  el.querySelector('.tab-close')!.setAttribute('aria-label', `关闭 ${title}`)
+  el.querySelector('.tab-close')!.setAttribute('aria-label', t('关闭 {0}', title))
   return true
 }
 
@@ -1525,17 +1537,17 @@ export function renderEditorTabs(): void {
 
 /* ---------------- 保存 ---------------- */
 
-export async function saveTab(t: Tab, quiet = false): Promise<boolean> {
-  const content = t.model.getValue(monaco.editor.EndOfLinePreference.TextDefined)
+export async function saveTab(tab: Tab, quiet = false): Promise<boolean> {
+  const content = tab.model.getValue(monaco.editor.EndOfLinePreference.TextDefined)
   try {
-    await window.api.fs.writeFile(t.path, content)
-    t.savedVersion = t.model.getAlternativeVersionId()
-    fire('saved', t)
+    await window.api.fs.writeFile(tab.path, content)
+    tab.savedVersion = tab.model.getAlternativeVersionId()
+    fire('saved', tab)
     emit('tabs')
-    if (!quiet) toast('已保存')
+    if (!quiet) toast(t('已保存'))
     return true
   } catch (e) {
-    toast('保存失败：' + String(e))
+    toast(t('保存失败：') + String(e))
     return false
   }
 }
@@ -1549,7 +1561,7 @@ export async function saveAll(): Promise<void> {
   const dirty = tabs.filter(isDirty)
   let n = 0
   for (const t of dirty) if (await saveTab(t, true)) n++
-  toast(n ? `已保存 ${n} 个文件` : '没有需要保存的文件')
+  toast(n ? t('已保存 {0} 个文件', n) : t('没有需要保存的文件'))
 }
 
 /**
@@ -1594,21 +1606,21 @@ export function renamePath(from: string, to: string): void {
  * 改过的只提示，不覆盖用户的修改。
  */
 export async function reloadFromDisk(path: string): Promise<void> {
-  const t = findTab(path)
-  if (!t) return
-  const r = await window.api.fs.readFile(t.path)
+  const tab = findTab(path)
+  if (!tab) return
+  const r = await window.api.fs.readFile(tab.path)
   if (!r.ok) {
-    if (r.reason === 'missing') toast(`“${basename(t.path)}” 已在磁盘上被删除`)
+    if (r.reason === 'missing') toast(t('“{0}” 已在磁盘上被删除', basename(tab.path)))
     return
   }
-  const current = t.model.getValue(monaco.editor.EndOfLinePreference.TextDefined)
+  const current = tab.model.getValue(monaco.editor.EndOfLinePreference.TextDefined)
   if (r.content === current) return
-  if (isDirty(t)) {
-    toast(`“${basename(t.path)}” 在磁盘上被修改了，保存会覆盖它`)
+  if (isDirty(tab)) {
+    toast(t('“{0}” 在磁盘上被修改了，保存会覆盖它', basename(tab.path)))
     return
   }
-  t.model.pushEditOperations([], [{ range: t.model.getFullModelRange(), text: r.content }], () => null)
-  t.savedVersion = t.model.getAlternativeVersionId()
+  tab.model.pushEditOperations([], [{ range: tab.model.getFullModelRange(), text: r.content }], () => null)
+  tab.savedVersion = tab.model.getAlternativeVersionId()
   emit('tabs')
 }
 
