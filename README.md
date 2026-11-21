@@ -26,7 +26,7 @@ npm run dev        # 开发模式，带热更新
 npm run build      # 构建到 out/
 npm start          # 运行构建后的版本
 npm run typecheck  # 类型检查
-npm run dist       # 打包 Windows 安装程序到 release/
+npm run dist       # 打包 Windows 安装程序，并复制到 installer/
 npm run pack       # 只生成免安装目录 release/win-unpacked（调试打包用）
 npm run icon       # 重新生成 build/icon.png
 ```

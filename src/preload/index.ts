@@ -31,6 +31,10 @@ const api: Api = {
     watch: (root) => ipcRenderer.invoke('fs:watch', root),
     onChanged: (cb) => subscribe('fs:changed', cb)
   },
+  git: {
+    log: (root, limit) => ipcRenderer.invoke('git:log', root, limit),
+    changes: (root, hash) => ipcRenderer.invoke('git:changes', root, hash)
+  },
   term: {
     create: (opts) => ipcRenderer.invoke('term:create', opts),
     write: (id, data) => ipcRenderer.send('term:write', id, data),
@@ -58,6 +62,44 @@ const api: Api = {
   space: {
     export: (space) => ipcRenderer.invoke('space:export', space),
     import: () => ipcRenderer.invoke('space:import')
+  },
+  plugins: {
+    detect: (id) => ipcRenderer.invoke('plugins:detect', id)
+  },
+  agent: {
+    start: (req) => ipcRenderer.invoke('agent:start', req),
+    write: (runId, msg) => ipcRenderer.send('agent:write', runId, msg),
+    stop: (runId) => ipcRenderer.send('agent:stop', runId),
+    sessions: (plugin, cwd) => ipcRenderer.invoke('agent:sessions', plugin, cwd),
+    transcript: (plugin, cwd, id) => ipcRenderer.invoke('agent:transcript', plugin, cwd, id),
+    saveImage: (dataUrl) => ipcRenderer.invoke('agent:saveImage', dataUrl),
+    onEvent: (cb) => subscribe('agent:event', cb),
+    onExit: (cb) => subscribe('agent:exit', cb),
+    claudeLogin: (method) => ipcRenderer.invoke('agent:claudeLogin', method),
+    loginWrite: (loginId, text) => ipcRenderer.send('agent:loginWrite', loginId, text),
+    loginCancel: (loginId) => ipcRenderer.send('agent:loginCancel', loginId),
+    onLogin: (cb) => subscribe('agent:login', cb),
+    claudeLogout: () => ipcRenderer.invoke('agent:claudeLogout')
+  },
+  ide: {
+    register: () => ipcRenderer.send('ide:register'),
+    onCall: (cb) => subscribe('ide:call', cb),
+    onCancel: (cb) => subscribe('ide:cancel', cb),
+    onStatus: (cb) => subscribe('ide:status', cb),
+    result: (id, r) => ipcRenderer.send('ide:result', id, r),
+    setWorkspace: (folders) => ipcRenderer.send('ide:workspace', folders),
+    selection: (sel) => ipcRenderer.send('ide:selection', sel),
+    atMention: (params) => ipcRenderer.invoke('ide:atMention', params)
+  },
+  account: {
+    get: () => ipcRenderer.invoke('account:get'),
+    hasDeviceFlow: () => ipcRenderer.invoke('account:hasDeviceFlow'),
+    loginToken: (token) => ipcRenderer.invoke('account:loginToken', token),
+    loginGh: () => ipcRenderer.invoke('account:loginGh'),
+    deviceStart: () => ipcRenderer.invoke('account:deviceStart'),
+    devicePoll: () => ipcRenderer.invoke('account:devicePoll'),
+    deviceCancel: () => ipcRenderer.invoke('account:deviceCancel'),
+    logout: () => ipcRenderer.invoke('account:logout')
   }
 }
 

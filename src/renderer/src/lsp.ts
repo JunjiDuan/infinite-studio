@@ -110,7 +110,7 @@ class Client {
       const rootUri = monaco.Uri.file(this.root).toString()
       const res = await this.request('initialize', {
         processId: null,
-        clientInfo: { name: 'Infinite Studio', version: '0.2.0' },
+        clientInfo: { name: 'Infinite Studio', version: '0.1.0' },
         locale: 'zh-cn',
         rootPath: this.root,
         rootUri,
@@ -698,7 +698,68 @@ async function attach(model: Model): Promise<void> {
   } catch {
     return
   }
-  if (!model.isDisposed() && findTab(normPath(model.uri.fsPath))?.model === model) c.open(model)
+  if (!model.isDisposed() && (findTab(normPath(model.uri.fsPath))?.model === model || probes.has(model))) c.open(model)
+}
+
+/* ---------------- 后台检查（IDE 桥接用） ---------------- */
+
+/**
+ * 没有打开标签的文件也交给语言服务检查（相当于 VS Code 的 openTextDocument）：
+ * Claude 修改文件前后要对比诊断，而语言服务只分析打开的文档。
+ * 引用计数；最后一个使用者释放时关闭文档，模型如果是这里建的也一并释放。
+ */
+const probes = new Map<Model, { refs: number; created: boolean }>()
+
+export function isProbe(model: Model): boolean {
+  return probes.has(model)
+}
+
+export async function probeFile(path: string): Promise<(() => void) | null> {
+  const p = normPath(path)
+  const uri = monaco.Uri.file(p)
+  let model = findModel(uri.toString())
+  let created = false
+  if (!model) {
+    const r = await window.api.fs.readFile(p)
+    if (!r.ok) return null
+    model = findModel(uri.toString())
+    if (!model) {
+      model = monaco.editor.createModel(r.content, languageFor(p), uri)
+      created = true
+    }
+  }
+  const entry = probes.get(model) ?? { refs: 0, created }
+  entry.refs++
+  probes.set(model, entry)
+  await attach(model)
+  const m = model
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    const e = probes.get(m)
+    if (!e || --e.refs > 0) return
+    probes.delete(m)
+    if (m.isDisposed() || tabs.some((t) => t.model === m)) return
+    clientOf(m)?.close(m)
+    if (e.created) m.dispose()
+  }
+}
+
+/** 磁盘上的文件变了：后台检查的模型重新读入（标签页由 reloadFromDisk 处理） */
+export async function refreshProbe(path: string): Promise<boolean> {
+  const model = findModel(monaco.Uri.file(normPath(path)).toString())
+  if (!model || !probes.has(model) || tabs.some((t) => t.model === model)) return false
+  const r = await window.api.fs.readFile(normPath(path))
+  if (!r.ok || model.isDisposed()) return false
+  if (model.getValue(monaco.editor.EndOfLinePreference.TextDefined) === r.content) return false
+  model.setValue(r.content)
+  return true
+}
+
+/** 这个模型是否有语言服务在检查 */
+export function isChecked(model: Model): boolean {
+  return !!clientOf(model)?.has(model)
 }
 
 export function initLsp(): void {

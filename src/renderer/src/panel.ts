@@ -185,7 +185,18 @@ function keyHandler(term: Terminal) {
   }
 }
 
-export async function newTerminal(cwd?: string): Promise<void> {
+export interface TermHandle {
+  /** 向终端输入文字 */
+  write(data: string): void
+  /** 显示面板并切到这个终端 */
+  focus(): void
+  alive(): boolean
+  /** 交互式程序界面画完、输出安静下来后 resolve */
+  ready: Promise<void>
+}
+
+/** 新建终端。opts.run 会在 shell 启动后自动输入执行；opts.title 替换标签名 */
+export async function newTerminal(cwd?: string, opts: { title?: string; run?: string } = {}): Promise<TermHandle | null> {
   setPanelOpen(true)
   const el = h('div', { class: 'term-host' })
   bodyEl.append(el)
@@ -203,7 +214,8 @@ export async function newTerminal(cwd?: string): Promise<void> {
   term.loadAddon(fit)
   term.open(el)
   term.attachCustomKeyEventHandler(keyHandler(term))
-  const s: Session = { id: null, title: `终端 ${++counter}`, term, fit, el }
+  ++counter
+  const s: Session = { id: null, title: opts.title ?? `终端 ${counter}`, term, fit, el }
   sessions.push(s)
   activate(s)
   try {
@@ -214,14 +226,40 @@ export async function newTerminal(cwd?: string): Promise<void> {
   try {
     const r = await window.api.term.create({ cwd: cwd ?? state.root ?? undefined, cols: term.cols, rows: term.rows })
     s.id = r.id
-    s.title = `${r.shell} ${counter}`
+    if (!opts.title) s.title = `${r.shell} ${counter}`
     renderTabs()
     term.onData((d) => window.api.term.write(r.id, d))
     term.onResize(({ cols, rows }) => window.api.term.resize(r.id, cols, rows))
     window.api.term.resize(r.id, term.cols, term.rows)
+    if (opts.run) window.api.term.write(r.id, opts.run + '\r')
   } catch (e) {
     term.write(`\x1b[31m无法启动终端：${String(e)}\x1b[0m\r\n`)
     toast('无法启动终端')
+    return null
+  }
+
+  // 就绪判断：启动 2.5 秒之后，输出安静 1.5 秒（交互式 CLI 画完界面）
+  const started = Date.now()
+  const ready = new Promise<void>((resolve) => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const arm = () => {
+      clearTimeout(timer)
+      timer = setTimeout(() => (Date.now() - started > 2500 ? (sub.dispose(), resolve()) : arm()), 1500)
+    }
+    const sub = term.onWriteParsed(arm)
+    arm()
+  })
+
+  return {
+    write: (d) => {
+      if (s.id !== null) window.api.term.write(s.id, d)
+    },
+    focus: () => {
+      setPanelOpen(true)
+      activate(s)
+    },
+    alive: () => sessions.includes(s),
+    ready
   }
 }
 

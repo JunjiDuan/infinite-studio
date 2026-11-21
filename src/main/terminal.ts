@@ -2,6 +2,8 @@ import { ipcMain, type WebContents } from 'electron'
 import { execFileSync } from 'node:child_process'
 import os from 'node:os'
 import type { IPty } from '@lydell/node-pty'
+import { childEnv } from './plugins'
+import { ideTerminalEnv } from './ide'
 
 interface Term {
   pty: IPty
@@ -44,9 +46,9 @@ export function registerTerminalIpc(): void {
     const pty = loadPty()
     const shell = pickShell()
     const env: Record<string, string> = {}
-    for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v
-    // 不要把宿主注入的变量带进用户的 shell
-    delete env.ELECTRON_RUN_AS_NODE
+    // 不要把宿主注入的变量（ELECTRON_RUN_AS_NODE、CLAUDECODE 等）带进用户的 shell：
+    // 否则在终端里运行 claude 会被当成嵌套会话，或者连到 VS Code 的 IDE 服务
+    for (const [k, v] of Object.entries(childEnv(ideTerminalEnv()))) if (v !== undefined) env[k] = v
     env.TERM_PROGRAM = 'InfiniteStudio'
     env.COLORTERM = 'truecolor'
     const proc = pty.spawn(shell.file, shell.args, {

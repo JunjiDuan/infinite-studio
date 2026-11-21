@@ -9,6 +9,7 @@ const cache = new Map<string, DirEntry[]>()
 const expanded = new Set<string>()
 let listEl: HTMLElement
 let titleEl: HTMLElement
+let projectHead: HTMLElement
 let selected: string | null = null
 
 type Editing = { mode: 'file' | 'dir'; dir: string } | { mode: 'rename'; path: string } | null
@@ -22,7 +23,7 @@ export function addTreeMenuItems(fn: ExtraItems): void {
 }
 
 export function createTree(): HTMLElement {
-  titleEl = h('span', { class: 'side-title' })
+  titleEl = h('span', { class: 'project-name' })
   listEl = h('div', {
     class: 'tree',
     role: 'tree',
@@ -38,24 +39,42 @@ export function createTree(): HTMLElement {
     },
     onKeydown: onTreeKey
   })
+  projectHead = h(
+    'div',
+    { class: 'project-head open' },
+    h(
+      'button',
+      {
+        class: 'project-toggle',
+        'aria-expanded': 'true',
+        onClick: () => setProjectOpen(!projectHead.classList.contains('open'))
+      },
+      h('span', { class: 'chev', html: icons.chevron }),
+      titleEl
+    ),
+    h(
+      'div',
+      { class: 'side-actions' },
+      h('button', { class: 'icon-btn small', 'aria-label': '新建文件', title: '新建文件', html: icons.newFile, onClick: () => beginCreate('file') }),
+      h('button', { class: 'icon-btn small', 'aria-label': '新建文件夹', title: '新建文件夹', html: icons.newFolder, onClick: () => beginCreate('dir') }),
+      h('button', { class: 'icon-btn small', 'aria-label': '刷新文件列表', title: '刷新', html: icons.refresh, onClick: () => refreshTree() }),
+      h('button', { class: 'icon-btn small', 'aria-label': '全部折叠', title: '全部折叠', html: icons.collapse, onClick: collapseAll })
+    )
+  )
   return h(
     'div',
     { class: 'side-view', 'data-view': 'files' },
-    h(
-      'div',
-      { class: 'side-head' },
-      titleEl,
-      h(
-        'div',
-        { class: 'side-actions' },
-        h('button', { class: 'icon-btn small', 'aria-label': '新建文件', title: '新建文件', html: icons.newFile, onClick: () => beginCreate('file') }),
-        h('button', { class: 'icon-btn small', 'aria-label': '新建文件夹', title: '新建文件夹', html: icons.newFolder, onClick: () => beginCreate('dir') }),
-        h('button', { class: 'icon-btn small', 'aria-label': '刷新文件列表', title: '刷新', html: icons.refresh, onClick: () => refreshTree() }),
-        h('button', { class: 'icon-btn small', 'aria-label': '全部折叠', title: '全部折叠', html: icons.collapse, onClick: collapseAll })
-      )
-    ),
+    h('div', { class: 'side-head' }, h('span', { class: 'side-title' }, '资源管理器')),
+    projectHead,
     listEl
   )
+}
+
+/** 展开 / 收起项目节（资源管理器里项目名那一行） */
+function setProjectOpen(open: boolean): void {
+  projectHead.classList.toggle('open', open)
+  projectHead.querySelector('.project-toggle')?.setAttribute('aria-expanded', String(open))
+  listEl.hidden = !open
 }
 
 async function load(dir: string, force = false): Promise<DirEntry[]> {
@@ -158,6 +177,7 @@ function targetDir(): string | null {
 export async function beginCreate(mode: 'file' | 'dir', dir?: string): Promise<void> {
   const d = dir ?? targetDir()
   if (!d || !state.root) return
+  setProjectOpen(true)
   if (!samePath(d, state.root)) {
     expanded.add(d)
     await load(d)

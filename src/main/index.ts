@@ -3,9 +3,14 @@ import { existsSync, promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { Settings, Space } from '../shared/types'
 import { registerFsIpc } from './fsService'
+import { registerGitIpc } from './git'
 import { registerSearchIpc } from './search'
 import { registerLspIpc } from './lsp'
 import { registerTerminalIpc } from './terminal'
+import { registerAccountIpc } from './account'
+import { registerPluginIpc } from './plugins'
+import { registerAgentIpc } from './agents'
+import { registerIdeIpc, startIdeServer } from './ide'
 
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json')
 
@@ -123,9 +128,14 @@ function registerIpc(): void {
   })
 
   registerFsIpc()
+  registerGitIpc()
   registerSearchIpc()
   registerTerminalIpc()
   registerLspIpc()
+  registerAccountIpc()
+  registerPluginIpc()
+  registerAgentIpc()
+  registerIdeIpc()
 }
 
 Menu.setApplicationMenu(null)
@@ -133,7 +143,8 @@ Menu.setApplicationMenu(null)
 app.whenReady().then(() => {
   app.setAppUserModelId('studio.infinite.ide')
   registerIpc()
-  createWindow()
+  // 先开 IDE 桥接服务：终端创建时要用到它的端口
+  void startIdeServer().finally(() => createWindow())
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })

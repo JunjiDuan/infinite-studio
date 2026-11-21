@@ -42,6 +42,8 @@ export function emit(topic: Topic): void {
   subs.get(topic)?.forEach((fn) => fn())
 }
 
+export type SideView = 'files' | 'search' | 'scm' | 'plugins'
+
 export const state = {
   settings: {
     space: { ...PRESETS[0] },
@@ -57,7 +59,7 @@ export const state = {
   /** Ctrl B 临时切换文件栏；null 表示跟随布局 */
   sidebarOverride: null as boolean | null,
   /** 侧栏当前显示的视图 */
-  sideView: 'files' as 'files' | 'search',
+  sideView: 'files' as SideView,
   /** 底部终端面板是否展开 */
   panelOpen: false
 }
@@ -71,7 +73,16 @@ export async function loadSettings(): Promise<void> {
     bindings: Object.fromEntries(Object.entries(s.bindings ?? {}).map(([k, v]) => [k, sanitizeSpace(v)])),
     recentFolders: Array.isArray(s.recentFolders) ? s.recentFolders.filter((x) => typeof x === 'string').slice(0, 8) : [],
     wordWrap: !!s.wordWrap,
-    panelHeight: typeof s.panelHeight === 'number' ? Math.max(120, Math.min(2000, s.panelHeight)) : undefined
+    panelHeight: typeof s.panelHeight === 'number' ? Math.max(120, Math.min(2000, s.panelHeight)) : undefined,
+    sidebarWidth: typeof s.sidebarWidth === 'number' ? Math.max(170, Math.min(800, s.sidebarWidth)) : undefined,
+    chatWidth: typeof s.chatWidth === 'number' ? Math.max(300, Math.min(1200, s.chatWidth)) : undefined,
+    agentModes: s.agentModes && typeof s.agentModes === 'object' ? { ...s.agentModes } : {},
+    agentPrefs: s.agentPrefs && typeof s.agentPrefs === 'object' ? { ...s.agentPrefs } : {},
+    agentContext: s.agentContext !== false,
+    plugins:
+      s.plugins && typeof s.plugins === 'object'
+        ? Object.fromEntries(Object.entries(s.plugins).filter(([, v]) => typeof v === 'boolean'))
+        : {}
   }
 }
 
@@ -111,7 +122,9 @@ export function isFocus(): boolean {
 }
 
 export function isSidebarVisible(): boolean {
-  if (isFocus() || !state.root) return false
+  if (isFocus()) return false
+  // 没打开文件夹时，只有插件视图可以单独打开
+  if (!state.root) return state.sideView === 'plugins' && state.sidebarOverride === true
   return state.sidebarOverride ?? state.settings.space.layout === 'classic'
 }
 

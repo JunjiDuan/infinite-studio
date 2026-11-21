@@ -3,15 +3,23 @@ import { h } from './dom'
 export type MenuItem = { label: string; key?: string; danger?: boolean; disabled?: boolean; run: () => void } | 'sep'
 
 let current: HTMLElement | null = null
+let onCurrentClose: (() => void) | null = null
 
 export function closeMenu(): void {
   current?.remove()
   current = null
+  const cb = onCurrentClose
+  onCurrentClose = null
+  cb?.()
 }
 
+/** onClose：菜单关闭时回调；onStep：左右方向键（菜单栏用来切换相邻菜单） */
+type MenuOptions = { onClose?: () => void; onStep?: (dir: -1 | 1) => void }
+
 /** 极简右键菜单：Esc / 点外面关闭，方向键选择 */
-export function showMenu(x: number, y: number, items: MenuItem[]): void {
+export function showMenu(x: number, y: number, items: MenuItem[], opts: MenuOptions = {}): void {
   closeMenu()
+  onCurrentClose = opts.onClose ?? null
   const buttons: HTMLButtonElement[] = []
   const menu = h(
     'div',
@@ -49,6 +57,7 @@ export function showMenu(x: number, y: number, items: MenuItem[]): void {
     if (e.key === 'ArrowDown') buttons[(i + 1) % buttons.length]?.focus()
     else if (e.key === 'ArrowUp') buttons[(i - 1 + buttons.length) % buttons.length]?.focus()
     else if (e.key === 'Escape') closeMenu()
+    else if (opts.onStep && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) opts.onStep(e.key === 'ArrowLeft' ? -1 : 1)
     else return
     e.preventDefault()
     e.stopPropagation()

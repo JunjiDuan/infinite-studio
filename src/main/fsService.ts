@@ -55,7 +55,8 @@ function startWatch(wc: WebContents, root: string): void {
   watcher.on('change', (_event, filename) => {
     if (!filename) return
     const rel = filename.toString()
-    if (isIgnored(rel)) return
+    // .git 里只关心分支 / 提交指针的变化（切分支、提交、拉取），用于刷新状态栏分支和提交历史
+    if (isIgnored(rel) && !/^\.git[\\/](HEAD|packed-refs|refs[\\/].+)$/.test(rel)) return
     entry.pending.add(path.join(root, rel))
     clearTimeout(entry.timer)
     entry.timer = setTimeout(() => {

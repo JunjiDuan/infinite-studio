@@ -11,9 +11,10 @@ import './styles.css'
 
 import type { ThemeId } from '../../shared/types'
 import { registerCommands } from './commands'
-import { basename, h, relative, toast } from './dom'
+import { basename, h, toast } from './dom'
+import { showMenu, type MenuItem } from './menu'
+import { ideConnected, initIde, sendAtMention } from './ide'
 import {
-  activate,
   activeTab,
   anyDirty,
   applyEditorOptions,
@@ -21,36 +22,166 @@ import {
   closeTab,
   cycleTab,
   findTab,
+  focusNextGroup,
   getEditor,
+  hasItems,
   initEditor,
-  isDirty,
   openFile,
   problemCount,
+  recentFile,
   reloadFromDisk,
+  renderEditorTabs,
   saveActive,
   saveAll,
+  setTrailing,
+  splitRight,
   tabs
 } from './editor'
+import { accountBtn, initAccount, openLoginDialog } from './account'
+import { agentIcons, initChat, insertAtMention, onTabsChanged, toggleChatFocus } from './chat'
+import { createPluginsView, pluginCommands, pluginTreeItems, refreshPlugins, render as renderPlugins } from './plugins'
 import { icons } from './icons'
 import { defineTheme, languageName, monaco } from './monaco'
 import { closePalette, invalidateFiles, isPaletteOpen, openPalette } from './palette'
 import { closeSettings, initSettings, isSettingsOpen, openSettings } from './settingsView'
-import { PRESETS, emit, isFocus, isRailVisible, isSidebarVisible, loadSettings, on, persist, setSpace, state } from './store'
+import { PRESETS, type SideView, emit, isFocus, isRailVisible, isSidebarVisible, loadSettings, on, persist, setSpace, state } from './store'
 import { THEMES, applyCssVars } from './theme'
-import { debugRequest, initLsp, lspStatus, restartLsp, setLspRoot } from './lsp'
+import { debugRequest, initLsp, isProbe, lspStatus, refreshProbe, restartLsp, setLspRoot } from './lsp'
 import { createPanel, newTerminal, togglePanel } from './panel'
+import { createScmView, refreshScm } from './scm'
 import { createSearchView, focusSearch, resetSearch } from './search'
 import { addTreeMenuItems, beginCreate, createTree, invalidatePaths, render as renderTree, setTreeRoot } from './tree'
 
 /* ---------------- 界面骨架 ---------------- */
 
-const crumbs = h('nav', { class: 'crumbs', 'aria-label': '当前路径' })
 const themeDots = h('div', { class: 'theme-dots', role: 'group', 'aria-label': '切换主题' })
+
+/* ---------------- 菜单栏（文件 / 编辑） ---------------- */
+
+type MenuDef = { id: string; label: string; items: () => MenuItem[] }
+
+const hasEditor = (): boolean => !!getEditor()?.getModel()
+
+const MENUS: MenuDef[] = [
+  {
+    id: 'file',
+    label: '文件',
+    items: () => [
+      { label: '新建文件', disabled: !state.root, run: () => showFilesThen(() => void beginCreate('file')) },
+      { label: '新建文件夹', disabled: !state.root, run: () => showFilesThen(() => void beginCreate('dir')) },
+      'sep',
+      { label: '打开文件夹…', key: 'Ctrl O', run: () => void pickFolder() },
+      { label: '关闭文件夹', disabled: !state.root, run: closeFolder },
+      'sep',
+      { label: '保存', key: 'Ctrl S', disabled: !activeTab(), run: () => void saveActive() },
+      { label: '全部保存', disabled: !anyDirty(), run: () => void saveAll() },
+      'sep',
+      { label: '关闭标签', key: 'Ctrl W', disabled: !activeTab(), run: () => closeTab() },
+      'sep',
+      { label: '个性化设置', key: 'Ctrl ,', run: openSettings },
+      'sep',
+      { label: '退出', run: requestClose }
+    ]
+  },
+  {
+    id: 'edit',
+    label: '编辑',
+    items: () => {
+      const off = !hasEditor()
+      return [
+        { label: '撤销', key: 'Ctrl Z', disabled: off, run: () => runEditorAction('undo') },
+        { label: '重做', key: 'Ctrl Y', disabled: off, run: () => runEditorAction('redo') },
+        'sep',
+        { label: '剪切', key: 'Ctrl X', disabled: off, run: () => runEditorAction('editor.action.clipboardCutAction') },
+        { label: '复制', key: 'Ctrl C', disabled: off, run: () => runEditorAction('editor.action.clipboardCopyAction') },
+        { label: '粘贴', key: 'Ctrl V', disabled: off, run: () => void pasteToEditor() },
+        'sep',
+        { label: '全选', key: 'Ctrl A', disabled: off, run: () => runEditorAction('editor.action.selectAll') },
+        'sep',
+        { label: '查找', key: 'Ctrl F', disabled: off, run: () => runEditorAction('actions.find') },
+        { label: '替换', key: 'Ctrl H', disabled: off, run: () => runEditorAction('editor.action.startFindReplaceAction') },
+        'sep',
+        { label: '在文件中查找', key: 'Ctrl Shift F', disabled: !state.root, run: () => showSideView('search') },
+        'sep',
+        { label: '切换行注释', key: 'Ctrl /', disabled: off, run: () => runEditorAction('editor.action.commentLine') },
+        { label: '格式化文档', key: 'Shift Alt F', disabled: off, run: () => runEditorAction('editor.action.formatDocument') }
+      ]
+    }
+  }
+]
+
+async function pasteToEditor(): Promise<void> {
+  const ed = getEditor()
+  if (!ed?.getModel()) return
+  const text = await navigator.clipboard.readText().catch(() => '')
+  ed.focus()
+  if (text) ed.trigger('menu', 'paste', { text })
+}
+
+function createMenubar(): HTMLElement {
+  const btns = new Map<string, HTMLElement>()
+  let openId: string | null = null
+  // 点开着的菜单的按钮：mousedown 先触发“点外面关闭”，这里记住刚关掉的是哪个，避免又被打开
+  let justClosed: string | null = null
+
+  const open = (id: string): void => {
+    const def = MENUS.find((m) => m.id === id)!
+    const btn = btns.get(id)!
+    const r = btn.getBoundingClientRect()
+    openId = id
+    btn.classList.add('on')
+    showMenu(r.left, r.bottom + 4, def.items(), {
+      onClose: () => {
+        btn.classList.remove('on')
+        if (openId === id) openId = null
+        justClosed = id
+        setTimeout(() => (justClosed = null))
+      },
+      onStep: (d) => {
+        const i = MENUS.findIndex((m) => m.id === id)
+        open(MENUS[(i + d + MENUS.length) % MENUS.length].id)
+      }
+    })
+  }
+
+  return h(
+    'nav',
+    { class: 'menubar', role: 'menubar', 'aria-label': '菜单栏' },
+    ...MENUS.map((m) => {
+      const b = h(
+        'button',
+        {
+          class: 'menubar-btn',
+          role: 'menuitem',
+          'aria-haspopup': 'menu',
+          onMousedown: (e: MouseEvent) => {
+            if (e.button !== 0) return
+            e.preventDefault() // 不抢编辑器焦点
+            if (justClosed === m.id) return
+            open(m.id)
+          },
+          onMouseenter: () => {
+            if (openId && openId !== m.id) open(m.id)
+          },
+          onKeydown: (e: KeyboardEvent) => {
+            if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') {
+              e.preventDefault()
+              open(m.id)
+            }
+          }
+        },
+        m.label
+      )
+      btns.set(m.id, b)
+      return b
+    })
+  )
+}
 
 const titlebar = h(
   'header',
   { class: 'titlebar' },
-  h('div', { class: 'tb-left' }, h('span', { class: 'logo', html: icons.logo, title: 'Infinite Studio · 无界工作室' }), crumbs),
+  h('div', { class: 'tb-left' }, h('span', { class: 'logo', html: icons.logo, title: 'Infinite Studio · 无界工作室' }), createMenubar()),
   h(
     'button',
     { class: 'tb-search', 'aria-label': '打开命令面板', onClick: () => openPalette() },
@@ -70,23 +201,28 @@ const titlebar = h(
 
 const railFiles = h('button', { class: 'rail-btn', 'aria-label': '文件 (Ctrl B)', title: '文件 Ctrl B', html: icons.files, onClick: () => showSideView('files', true) })
 const railSearch = h('button', { class: 'rail-btn', 'aria-label': '在文件中搜索 (Ctrl Shift F)', title: '搜索 Ctrl Shift F', html: icons.search, onClick: () => showSideView('search', true) })
+const railScm = h('button', { class: 'rail-btn', 'aria-label': '源代码管理 (Ctrl Shift G)', title: '源代码管理 Ctrl Shift G', html: icons.git, onClick: () => showSideView('scm', true) })
+const railPlugins = h('button', { class: 'rail-btn', 'aria-label': '插件', title: '插件', html: icons.plugin, onClick: () => showSideView('plugins', true) })
 const rail = h(
   'nav',
   { class: 'rail', 'aria-label': '活动栏' },
   railFiles,
   railSearch,
+  railScm,
   h('button', { class: 'rail-btn', 'aria-label': '终端 (Ctrl `)', title: '终端 Ctrl `', html: icons.terminal, onClick: () => togglePanel() }),
   h('button', { class: 'rail-btn', 'aria-label': '专注模式 (Ctrl .)', title: '专注模式 Ctrl .', html: icons.focus, onClick: () => toggleFocus() }),
   h('span', { class: 'grow' }),
-  h('button', { class: 'rail-btn', 'aria-label': '个性化设置 (Ctrl ,)', title: '个性化 Ctrl ,', html: icons.sliders, onClick: () => toggleSettings() })
+  accountBtn,
+  railPlugins,
+  h('button', { class: 'rail-btn', 'aria-label': '设置 (Ctrl ,)', title: '设置 Ctrl ,', html: icons.gear, onClick: () => toggleSettings() })
 )
 
-const sidebar = h('aside', { class: 'sidebar', 'aria-label': '侧栏' }, createTree(), createSearchView())
-const tabBar = h('div', { class: 'tabs', role: 'tablist', 'aria-label': '打开的文件' })
-const editorHost = h('div', { class: 'editor-host' })
+const sidebar = h('aside', { class: 'sidebar', 'aria-label': '侧栏' }, createTree(), createSearchView(), createScmView(), createPluginsView())
+const sideSash = h('div', { class: 'side-sash', role: 'separator', 'aria-orientation': 'vertical', 'aria-label': '拖动调整侧栏宽度，拖到最窄会隐藏', title: '拖动调整宽度 · 双击恢复默认' })
 const emptyHint = h('div', { class: 'empty-hint' })
 const welcome = h('div', { class: 'welcome' })
-const editorArea = h('main', { class: 'editor-area' }, tabBar, h('div', { class: 'editor-wrap' }, editorHost, emptyHint), createPanel())
+const editorWrap = h('div', { class: 'editor-wrap' }, emptyHint)
+const editorArea = h('main', { class: 'editor-area' }, editorWrap, createPanel())
 
 const stBranch = h('span', { class: 'st-item' })
 const stProblems = h('span', { class: 'st-item' })
@@ -119,7 +255,7 @@ const focusPill = h(
   h('button', { class: 'pill-exit', onClick: () => toggleFocus() }, '退出 Esc')
 )
 
-const body = h('div', { class: 'body' }, rail, sidebar, editorArea, welcome)
+const body = h('div', { class: 'body' }, rail, sidebar, sideSash, editorArea, welcome)
 const app = h('div', { id: 'app' }, titlebar, body, statusbar, focusPill)
 document.body.append(app)
 
@@ -138,62 +274,9 @@ function renderThemeDots(): void {
   )
 }
 
-function renderCrumbs(): void {
-  const t = activeTab()
-  const parts: string[] = []
-  if (state.root) {
-    parts.push(basename(state.root))
-    if (t) parts.push(...relative(state.root, t.path).split('/'))
-  } else if (t) {
-    parts.push(basename(t.path))
-  } else {
-    parts.push('Infinite Studio', '无界工作室')
-  }
-  const nodes: Node[] = []
-  parts.forEach((p, i) => {
-    if (i) nodes.push(h('span', { class: 'sep' }, '/'))
-    nodes.push(h('span', { class: i === parts.length - 1 ? 'cur' : '' }, p))
-  })
-  crumbs.replaceChildren(...nodes)
-}
-
 function renderTabs(): void {
-  const cur = activeTab()
-  tabBar.replaceChildren(
-    ...tabs.map((t) => {
-      const dirty = isDirty(t)
-      return h(
-        'div',
-        {
-          class: 'tab' + (t === cur ? ' on' : '') + (dirty ? ' dirty' : ''),
-          role: 'tab',
-          tabindex: '0',
-          'aria-selected': String(t === cur),
-          title: t.path,
-          onClick: () => activate(t.path),
-          onAuxclick: (e: MouseEvent) => e.button === 1 && closeTab(t.path),
-          onKeydown: (e: KeyboardEvent) => e.key === 'Enter' && activate(t.path)
-        },
-        h('span', { class: 'tab-name' }, basename(t.path)),
-        h(
-          'button',
-          {
-            class: 'tab-close',
-            'aria-label': `关闭 ${basename(t.path)}`,
-            html: icons.close,
-            onClick: (e: MouseEvent) => {
-              e.stopPropagation()
-              closeTab(t.path)
-            }
-          },
-          h('span', { class: 'tab-dot', title: '未保存' })
-        )
-      )
-    })
-  )
-  tabBar.hidden = tabs.length === 0
-  emptyHint.hidden = tabs.length > 0
-  editorHost.style.visibility = tabs.length ? 'visible' : 'hidden'
+  renderEditorTabs()
+  emptyHint.hidden = hasItems()
 }
 
 function renderEmptyHint(): void {
@@ -266,7 +349,7 @@ function renderStatus(): void {
 }
 
 function applyLayout(): void {
-  const welcomeMode = !state.root && tabs.length === 0
+  const welcomeMode = !state.root && !hasItems()
   app.classList.toggle('focus', isFocus() && !welcomeMode)
   app.classList.toggle('no-rail', !isRailVisible() && !welcomeMode)
   app.classList.toggle('no-side', !isSidebarVisible())
@@ -275,6 +358,9 @@ function applyLayout(): void {
   sidebar.dataset.view = state.sideView
   railFiles.classList.toggle('on', isSidebarVisible() && state.sideView === 'files')
   railSearch.classList.toggle('on', isSidebarVisible() && state.sideView === 'search')
+  railScm.classList.toggle('on', isSidebarVisible() && state.sideView === 'scm')
+  railPlugins.classList.toggle('on', isSidebarVisible() && state.sideView === 'plugins')
+  sidebar.style.width = `${state.settings.sidebarWidth ?? SIDE_DEFAULT}px`
   applyEditorOptions()
 }
 
@@ -323,7 +409,9 @@ window.api.fs.onChanged((paths) => {
     else {
       // 为“查看定义”临时建的模型，文件变了就丢掉，下次重新读
       const shadow = monaco.editor.getModel(monaco.Uri.file(p))
-      if (shadow && !tabs.some((t) => t.model === shadow)) shadow.dispose()
+      // 正在后台检查（IDE 桥接）的文件重新读入，其余的丢掉
+      if (shadow && isProbe(shadow)) void refreshProbe(p)
+      else if (shadow && !tabs.some((t) => t.model === shadow)) shadow.dispose()
     }
   }
   if (state.root && paths.some((p) => /[\\/]\.git[\\/]HEAD$/.test(p))) {
@@ -332,7 +420,14 @@ window.api.fs.onChanged((paths) => {
       renderStatus()
     })
   }
+  if (state.root && paths.some((p) => /[\\/]\.git[\\/]/.test(p))) {
+    if (isSidebarVisible() && state.sideView === 'scm') void refreshScm(true)
+    else scmStale = true
+  }
 })
+
+/** 源代码管理视图隐藏期间 .git 有变化，下次显示时再刷新 */
+let scmStale = false
 
 async function pickFolder(): Promise<void> {
   const p = await window.api.fs.openFolderDialog()
@@ -359,8 +454,8 @@ function toggleSidebar(): void {
 /**
  * 切到侧栏的某个视图。toggle 为 true 时，再点一次当前视图会收起侧栏（活动栏按钮的行为）。
  */
-function showSideView(view: 'files' | 'search', toggle = false): void {
-  if (!state.root) {
+function showSideView(view: SideView, toggle = false): void {
+  if (!state.root && view !== 'plugins') {
     if (view === 'search') toast('先打开一个文件夹')
     return
   }
@@ -373,7 +468,59 @@ function showSideView(view: 'files' | 'search', toggle = false): void {
   }
   emit('layout')
   if (view === 'search' && isSidebarVisible()) focusSearch()
+  if (view === 'plugins' && isSidebarVisible()) void refreshPlugins()
+  if (view === 'scm' && isSidebarVisible()) {
+    void refreshScm(scmStale)
+    scmStale = false
+  }
 }
+
+/* ---------------- 侧栏宽度 ---------------- */
+
+const SIDE_DEFAULT = 240
+const SIDE_MIN = 170
+
+/** 能否通过拖动把侧栏拉出来（没打开文件夹时只有插件视图可以） */
+const canShowSidebar = (): boolean => !!state.root || state.sideView === 'plugins'
+
+// 拖动分隔条调整侧栏宽度；拖得比最小宽度的一半还窄就隐藏，隐藏后从左边缘往右拖又能拉出来
+sideSash.addEventListener('mousedown', (e) => {
+  if (e.button !== 0) return
+  e.preventDefault()
+  const startX = e.clientX
+  const startW = isSidebarVisible() ? sidebar.offsetWidth : 0
+  const max = () => Math.max(SIDE_MIN, Math.min(800, body.clientWidth - 320))
+  sideSash.classList.add('on')
+  document.body.classList.add('resizing-h')
+  const move = (ev: MouseEvent) => {
+    const w = startW + ev.clientX - startX
+    const show = w >= SIDE_MIN / 2 && canShowSidebar()
+    if (show) {
+      state.settings.sidebarWidth = Math.round(Math.min(max(), Math.max(SIDE_MIN, w)))
+      sidebar.style.width = `${state.settings.sidebarWidth}px`
+    }
+    if (show !== isSidebarVisible()) {
+      if (show && isFocus()) state.focusOverride = false
+      state.sidebarOverride = show
+      emit('layout')
+    }
+  }
+  const up = () => {
+    sideSash.classList.remove('on')
+    document.body.classList.remove('resizing-h')
+    window.removeEventListener('mousemove', move)
+    window.removeEventListener('mouseup', up)
+    persist()
+    if (isSidebarVisible() && state.sideView === 'scm') void refreshScm()
+  }
+  window.addEventListener('mousemove', move)
+  window.addEventListener('mouseup', up)
+})
+sideSash.addEventListener('dblclick', () => {
+  state.settings.sidebarWidth = undefined
+  persist()
+  emit('layout')
+})
 
 /** 先确保文件栏可见，再执行（比如从命令面板新建文件） */
 function showFilesThen(fn: () => void): void {
@@ -426,11 +573,16 @@ registerCommands(() => [
   { id: 'file.close', title: '关闭当前标签', key: 'Ctrl W', run: () => closeTab() },
   { id: 'view.sidebar', title: '显示 / 隐藏侧栏', key: 'Ctrl B', run: toggleSidebar },
   { id: 'view.search', title: '在文件中搜索', key: 'Ctrl Shift F', run: () => showSideView('search') },
+  { id: 'view.scm', title: '源代码管理：提交历史', key: 'Ctrl Shift G', run: () => showSideView('scm') },
   { id: 'view.focus', title: '专注模式', key: 'Ctrl .', run: toggleFocus },
   { id: 'term.toggle', title: '显示 / 隐藏终端', key: 'Ctrl `', run: togglePanel },
   { id: 'term.new', title: '新建终端', key: 'Ctrl Shift `', run: () => newTerminal() },
   { id: 'view.settings', title: '打开个性化设置', key: 'Ctrl ,', run: openSettings },
+  { id: 'account.login', title: '登录 GitHub', run: () => void openLoginDialog() },
   { id: 'view.wrap', title: '切换自动换行', key: 'Alt Z', run: toggleWrap },
+  { id: 'editor.split', title: '向右拆分编辑器', key: 'Ctrl \\', run: () => splitRight() },
+  { id: 'editor.nextGroup', title: '聚焦右侧编辑器组', key: 'Ctrl Alt →', run: () => focusNextGroup(1) },
+  { id: 'editor.prevGroup', title: '聚焦左侧编辑器组', key: 'Ctrl Alt ←', run: () => focusNextGroup(-1) },
   { id: 'font.bigger', title: '增大字号', key: 'Ctrl =', run: () => changeSize(1) },
   { id: 'font.smaller', title: '减小字号', key: 'Ctrl -', run: () => changeSize(-1) },
   ...(Object.keys(THEMES) as ThemeId[]).map((id) => ({
@@ -469,6 +621,8 @@ function toggleWrap(): void {
   toast(state.settings.wordWrap ? '自动换行：开' : '自动换行：关')
 }
 
+addTreeMenuItems(({ path }) => pluginTreeItems(path))
+registerCommands(() => pluginCommands(() => showSideView('plugins')))
 addTreeMenuItems(({ dir }) => [{ label: '在终端中打开', run: () => void newTerminal(dir) }, 'sep'])
 
 /* ---------------- 快捷键 ---------------- */
@@ -487,10 +641,12 @@ window.addEventListener(
     if (ctrl && backquote) {
       if (e.shiftKey) void newTerminal()
       else togglePanel()
-    } else if (ctrl && !e.shiftKey && k === 'k') openPalette()
+    } else if (ctrl && e.altKey && !e.shiftKey && k === 'k') void mentionToTerminalClaude()
+    else if (ctrl && !e.shiftKey && k === 'k') openPalette()
     else if (ctrl && !e.shiftKey && k === 'p') openPalette()
     else if (ctrl && e.shiftKey && k === 'p') openPalette('>')
     else if (ctrl && e.shiftKey && k === 'f') showSideView('search')
+    else if (ctrl && e.shiftKey && k === 'g') showSideView('scm')
     else if (ctrl && k === 's') void saveActive()
     else if (ctrl && k === 'o') void pickFolder()
     else if (ctrl && k === 'w') closeTab()
@@ -500,8 +656,14 @@ window.addEventListener(
     else if (ctrl && (k === '=' || k === '+')) changeSize(1)
     else if (ctrl && k === '-') changeSize(-1)
     else if (ctrl && k === 'tab') cycleTab(e.shiftKey ? -1 : 1)
+    else if (ctrl && !e.shiftKey && k === '\\') splitRight()
+    else if (ctrl && e.altKey && k === 'arrowright') focusNextGroup(1)
+    else if (ctrl && e.altKey && k === 'arrowleft') focusNextGroup(-1)
     else if (e.altKey && k === 'z') toggleWrap()
-    else handled = false
+    else if (e.altKey && !ctrl && k === 'k') insertAtMention()
+    else if (ctrl && !e.shiftKey && k === 'escape') {
+      if (!toggleChatFocus()) getEditor()?.focus()
+    } else handled = false
     if (handled) {
       e.preventDefault()
       e.stopPropagation()
@@ -522,8 +684,9 @@ window.addEventListener('keydown', (e) => {
 on('space', applySpace)
 on('layout', applyLayout)
 on('tabs', () => {
+  renderPlugins()
+  onTabsChanged()
   renderTabs()
-  renderCrumbs()
   renderTree()
   renderStatus()
   applyLayout()
@@ -533,23 +696,34 @@ on('lsp', renderStatus)
 on('markers', renderStatus)
 on('saved', renderStatus)
 on('root', () => {
-  renderCrumbs()
+  if (isSidebarVisible() && state.sideView === 'scm') void refreshScm()
   renderStatus()
   renderWelcome()
   applyLayout()
   closePalette()
 })
 
+/** Ctrl Alt K：把当前文件 / 选中行作为 @引用发给终端里运行的 claude（和 VS Code 扩展一样） */
+async function mentionToTerminalClaude(): Promise<void> {
+  if (!recentFile()) return toast('没有打开的文件')
+  if (!ideConnected()) return toast('终端里没有连接到编辑器的 Claude Code；在内置终端里运行 claude 即可自动连接')
+  if (!(await sendAtMention())) toast('发送失败：终端里的 Claude Code 已断开')
+}
+
 /* ---------------- 启动 ---------------- */
 
 async function boot(): Promise<void> {
   await loadSettings()
-  initEditor(editorHost)
+  initEditor(editorWrap)
+  setTrailing(agentIcons)
   initLsp()
+  initIde()
+  void initAccount()
+  initChat()
+  void refreshPlugins()
   initSettings(body, () => getEditor()?.focus())
   applySpace()
   renderTabs()
-  renderCrumbs()
   renderEmptyHint()
   renderWelcome()
   applyLayout()

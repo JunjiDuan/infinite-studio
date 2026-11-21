@@ -1,0 +1,68 @@
+/**
+ * AI 对话面板（Claude Code / Codex）的共享定义。
+ *
+ * 两个插件都按官方 VS Code 扩展的方式驱动命令行：
+ * - Claude Code：常驻 `claude -p --input-format stream-json`，通过 control_request 协议交互；
+ * - Codex：常驻 `codex app-server`，JSON-RPC 协议。
+ */
+
+export interface AgentMode {
+  id: string
+  label: string
+  hint: string
+}
+
+/** Claude Code 的权限模式（与 VS Code 扩展一致）。第一个是默认值。 */
+export const CLAUDE_MODES: AgentMode[] = [
+  { id: 'default', label: '编辑前询问', hint: '修改文件、运行命令前都会征求你的同意' },
+  { id: 'acceptEdits', label: '自动编辑', hint: '直接修改文件；运行命令等其它操作仍会询问' },
+  { id: 'plan', label: '计划模式', hint: '先探索代码并给出方案，确认后才动手' },
+  { id: 'bypassPermissions', label: '跳过权限', hint: '不经确认执行所有操作（包括运行命令），请谨慎使用' }
+]
+
+/** Codex 的模式（与 VS Code 扩展一致）：对话 / Agent / Agent（完全访问） */
+export interface CodexMode extends AgentMode {
+  sandbox: 'read-only' | 'workspace-write' | 'danger-full-access'
+  approval: 'on-request' | 'never'
+}
+
+export const CODEX_MODES: CodexMode[] = [
+  { id: 'agent', label: 'Agent', hint: '可以读写工作区内的文件、运行命令；越界操作前会询问', sandbox: 'workspace-write', approval: 'on-request' },
+  { id: 'chat', label: '对话', hint: '只读：可以查看代码、回答问题，修改或运行命令前会询问', sandbox: 'read-only', approval: 'on-request' },
+  { id: 'full', label: 'Agent（完全访问）', hint: '不受沙箱限制、不再询问，可访问网络和整个磁盘，请谨慎使用', sandbox: 'danger-full-access', approval: 'never' }
+]
+
+export const AGENT_MODES: Record<string, AgentMode[]> = { claude: CLAUDE_MODES, codex: CODEX_MODES }
+
+/** 启动一个对话进程 */
+export interface AgentStart {
+  plugin: string
+  cwd?: string
+  /** Claude：权限模式 */
+  mode?: string
+  /** Claude：模型别名或 id */
+  model?: string
+  /** Claude：思考强度 */
+  effort?: string
+  /** Claude：续接的会话 id */
+  resume?: string
+  /** Claude：只保留到这条消息（uuid）为止的历史 */
+  resumeAt?: string
+}
+
+/** Claude 的登录方式：claude.ai 订阅 / Anthropic Console（API 计费） */
+export type ClaudeLoginMethod = 'claudeai' | 'console'
+
+/** 登录流程的进度 */
+export type LoginEvent =
+  | { type: 'url'; url: string }
+  | { type: 'output'; text: string }
+  | { type: 'exit'; ok: boolean; message?: string }
+
+/** 历史会话 */
+export interface SessionInfo {
+  id: string
+  title: string
+  /** 毫秒时间戳 */
+  updatedAt: number
+}

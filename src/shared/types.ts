@@ -1,3 +1,7 @@
+import type { AgentStart, ClaudeLoginMethod, LoginEvent, SessionInfo } from './agents'
+import type { IdeToolResult } from './ide'
+import type { PluginStatus } from './plugins'
+
 export type ThemeId = 'ink' | 'paper' | 'dusk'
 export type FontId = 'jet' | 'plex' | 'space'
 export type LayoutId = 'classic' | 'minimal' | 'focus'
@@ -21,6 +25,18 @@ export interface Settings {
   wordWrap: boolean
   /** 终端面板高度（px） */
   panelHeight?: number
+  /** 侧栏宽度（px） */
+  sidebarWidth?: number
+  /** 对话面板宽度（px） */
+  chatWidth?: number
+  /** 插件 id → 对话面板选择的模式 */
+  agentModes?: Record<string, string>
+  /** 插件 id → 对话面板选择的模型和思考强度 */
+  agentPrefs?: Record<string, { model?: string; effort?: string }>
+  /** 发消息时自动附带当前文件 / 选中内容 */
+  agentContext?: boolean
+  /** 插件 id → 是否启用（未记录视为启用） */
+  plugins?: Record<string, boolean>
 }
 
 export interface DirEntry {
@@ -61,11 +77,47 @@ export interface SearchResult {
   error?: string
 }
 
+export interface GitCommit {
+  hash: string
+  parents: string[]
+  author: string
+  email: string
+  /** 毫秒时间戳 */
+  time: number
+  /** 例如 HEAD -> main、origin/main、tag: v1.0 */
+  refs: string[]
+  subject: string
+}
+
+export type GitLog = { ok: true; commits: GitCommit[] } | { ok: false; reason: 'no-git' | 'not-repo' | 'error'; message?: string }
+
+export interface GitChange {
+  /** A / M / D / R / C … */
+  status: string
+  path: string
+  /** 重命名前的路径 */
+  from?: string
+}
+
 export interface LspServerInfo {
   id: string
   name: string
   /** 对应的 Monaco 语言 id */
   languages: string[]
+}
+
+export interface Account {
+  provider: 'github'
+  login: string
+  name: string
+  url: string
+  /** 头像 data URL */
+  avatar?: string
+}
+
+export interface DeviceCode {
+  userCode: string
+  url: string
 }
 
 export interface Api {
@@ -111,6 +163,12 @@ export interface Api {
     onMessage(cb: (session: number, msg: unknown) => void): () => void
     onExit(cb: (session: number, code: number, stderr: string) => void): () => void
   }
+  git: {
+    /** 所有分支的提交（按时间倒序） */
+    log(root: string, limit: number): Promise<GitLog>
+    /** 某个提交改动的文件（相对 root） */
+    changes(root: string, hash: string): Promise<GitChange[]>
+  }
   search: {
     /** 返回 null 表示已被更新的搜索取代 */
     run(id: number, root: string, query: string, opts: SearchOptions): Promise<SearchResult | null>
@@ -123,5 +181,60 @@ export interface Api {
   space: {
     export(space: Space): Promise<boolean>
     import(): Promise<Space | null>
+  }
+  plugins: {
+    /** 检测插件对应的命令行工具是否已安装 */
+    detect(id: string): Promise<PluginStatus>
+  }
+  agent: {
+    /** 启动对话进程，返回运行 id；进程输出的每行 JSON 通过 onEvent 推送 */
+    start(req: AgentStart): Promise<number>
+    /** 向进程写一条协议消息（主进程会校验类型） */
+    write(runId: number, msg: Record<string, unknown>): void
+    stop(runId: number): void
+    /** 本地历史会话（Claude） */
+    sessions(plugin: string, cwd: string | null): Promise<SessionInfo[]>
+    /** 读取一个历史会话的消息（Claude） */
+    transcript(plugin: string, cwd: string | null, id: string): Promise<Record<string, unknown>[]>
+    /** 把粘贴的图片存成临时文件，返回路径（Codex） */
+    saveImage(dataUrl: string): Promise<string>
+    onEvent(cb: (runId: number, ev: Record<string, unknown>) => void): () => void
+    onExit(cb: (runId: number, code: number, stderr: string) => void): () => void
+    /** Claude：运行 `claude auth login`，返回登录流程 id；进度通过 onLogin 推送 */
+    claudeLogin(method: ClaudeLoginMethod): Promise<number>
+    /** 向登录流程输入授权码 */
+    loginWrite(loginId: number, text: string): void
+    loginCancel(loginId: number): void
+    onLogin(cb: (loginId: number, ev: LoginEvent) => void): () => void
+    /** Claude：`claude auth logout` */
+    claudeLogout(): Promise<void>
+  }
+  /** IDE 桥接：终端里的 claude 通过主进程的 WebSocket 服务调用这里的工具 */
+  ide: {
+    /** 登记为执行工具的窗口 */
+    register(): void
+    onCall(cb: (id: number, tool: string, args: Record<string, unknown>) => void): () => void
+    /** 调用被取消（claude 不再等结果，例如在终端里回答了授权） */
+    onCancel(cb: (id: number) => void): () => void
+    /** 是否有终端里的 claude 连着 */
+    onStatus(cb: (connected: boolean) => void): () => void
+    result(id: number, r: IdeToolResult): void
+    setWorkspace(folders: string[]): void
+    selection(sel: Record<string, unknown>): void
+    /** 向连着的 claude 发送“插入引用”；没有连接时返回 false */
+    atMention(params: Record<string, unknown>): Promise<boolean>
+  }
+  account: {
+    get(): Promise<Account | null>
+    /** 是否配置了 OAuth Client ID，可用浏览器登录 */
+    hasDeviceFlow(): Promise<boolean>
+    loginToken(token: string): Promise<Account>
+    /** 复用 GitHub CLI 的登录 */
+    loginGh(): Promise<Account>
+    deviceStart(): Promise<DeviceCode>
+    /** 等待用户在浏览器授权；被取消时返回 null */
+    devicePoll(): Promise<Account | null>
+    deviceCancel(): Promise<void>
+    logout(): Promise<void>
   }
 }
