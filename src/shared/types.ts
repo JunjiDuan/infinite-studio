@@ -29,7 +29,7 @@ export interface DirEntry {
 
 export type ReadResult =
   | { ok: true; content: string }
-  | { ok: false; reason: 'binary' | 'too-large' | 'error'; message?: string }
+  | { ok: false; reason: 'binary' | 'too-large' | 'missing' | 'error'; message?: string }
 
 export interface Api {
   platform: string
@@ -45,6 +45,17 @@ export interface Api {
     writeFile(path: string, content: string): Promise<void>
     listFiles(root: string): Promise<string[]>
     gitBranch(root: string): Promise<string | null>
+    /** 在 dir 下新建文件 / 文件夹，返回完整路径 */
+    createFile(dir: string, name: string): Promise<string>
+    createDir(dir: string, name: string): Promise<string>
+    /** 同目录改名，返回新路径 */
+    rename(from: string, newName: string): Promise<string>
+    /** 移到回收站 */
+    trash(path: string): Promise<void>
+    reveal(path: string): Promise<void>
+    /** 递归监听；传 null 停止 */
+    watch(root: string | null): Promise<void>
+    onChanged(cb: (paths: string[]) => void): () => void
   }
   settings: {
     load(): Promise<Settings | null>

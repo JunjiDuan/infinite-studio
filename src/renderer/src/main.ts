@@ -20,11 +20,14 @@ import {
   closeAll,
   closeTab,
   cycleTab,
+  findTab,
   getEditor,
   initEditor,
   isDirty,
   problemCount,
+  reloadFromDisk,
   saveActive,
+  saveAll,
   tabs
 } from './editor'
 import { icons } from './icons'
@@ -33,7 +36,7 @@ import { closePalette, invalidateFiles, isPaletteOpen, openPalette } from './pal
 import { closeSettings, initSettings, isSettingsOpen, openSettings } from './settingsView'
 import { PRESETS, emit, isFocus, isRailVisible, isSidebarVisible, loadSettings, on, persist, setSpace, state } from './store'
 import { THEMES, applyCssVars } from './theme'
-import { createTree, render as renderTree, setTreeRoot } from './tree'
+import { beginCreate, createTree, invalidatePaths, render as renderTree, setTreeRoot } from './tree'
 
 /* ---------------- 界面骨架 ---------------- */
 
@@ -72,7 +75,7 @@ const rail = h(
   h('button', { class: 'rail-btn', 'aria-label': '个性化设置 (Ctrl ,)', title: '个性化 Ctrl ,', html: icons.sliders, onClick: () => toggleSettings() })
 )
 
-const sidebar = createTree()
+const sidebar = h('aside', { class: 'sidebar', 'aria-label': '侧栏' }, createTree())
 const tabBar = h('div', { class: 'tabs', role: 'tablist', 'aria-label': '打开的文件' })
 const editorHost = h('div', { class: 'editor-host' })
 const emptyHint = h('div', { class: 'empty-hint' })
@@ -284,8 +287,22 @@ async function openFolder(path: string): Promise<void> {
   const bound = state.settings.bindings[path]
   if (bound) setSpace({ ...bound })
   await setTreeRoot(path)
+  void window.api.fs.watch(path)
   emit('root')
 }
+
+// 磁盘上的变化：刷新目录树、命令面板的文件列表、已打开且没改过的文件
+window.api.fs.onChanged((paths) => {
+  void invalidatePaths(paths)
+  invalidateFiles()
+  for (const p of paths) if (findTab(p)) void reloadFromDisk(p)
+  if (state.root && paths.some((p) => /[\\/]\.git[\\/]HEAD$/.test(p))) {
+    void window.api.fs.gitBranch(state.root).then((b) => {
+      state.branch = b
+      renderStatus()
+    })
+  }
+})
 
 async function pickFolder(): Promise<void> {
   const p = await window.api.fs.openFolderDialog()
@@ -297,6 +314,7 @@ function closeFolder(): void {
   state.root = null
   state.branch = null
   void setTreeRoot(null)
+  void window.api.fs.watch(null)
   emit('root')
 }
 
@@ -305,6 +323,12 @@ function toggleSidebar(): void {
   if (isFocus()) state.focusOverride = false
   state.sidebarOverride = !isSidebarVisible()
   emit('layout')
+}
+
+/** 先确保文件栏可见，再执行（比如从命令面板新建文件） */
+function showFilesThen(fn: () => void): void {
+  if (!isSidebarVisible()) toggleSidebar()
+  fn()
 }
 
 function toggleFocus(): void {
@@ -341,7 +365,14 @@ window.addEventListener('beforeunload', (e) => {
 registerCommands(() => [
   { id: 'folder.open', title: '打开文件夹…', key: 'Ctrl O', run: pickFolder },
   ...(state.root ? [{ id: 'folder.close', title: '关闭文件夹', run: closeFolder }] : []),
+  ...(state.root
+    ? [
+        { id: 'file.new', title: '新建文件', run: () => showFilesThen(() => beginCreate('file')) },
+        { id: 'dir.new', title: '新建文件夹', run: () => showFilesThen(() => beginCreate('dir')) }
+      ]
+    : []),
   { id: 'file.save', title: '保存', key: 'Ctrl S', run: saveActive },
+  { id: 'file.saveAll', title: '全部保存', run: saveAll },
   { id: 'file.close', title: '关闭当前标签', key: 'Ctrl W', run: () => closeTab() },
   { id: 'view.sidebar', title: '显示 / 隐藏文件栏', key: 'Ctrl B', run: toggleSidebar },
   { id: 'view.focus', title: '专注模式', key: 'Ctrl .', run: toggleFocus },
