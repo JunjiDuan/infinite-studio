@@ -34,6 +34,18 @@ export interface ViewSpec {
   onClose?: () => boolean | void
   /** 切换到这个标签时调用 */
   onShow?: () => void
+  /** 对应磁盘上的文件（文档预览等）：文件被删除时关闭标签，改名时跟着改 */
+  path?: string
+}
+
+/**
+ * 文档预览（PDF、Office、图片等）。返回 true 表示已由预览接管，不再按文本打开；
+ * force 为 true 时表示文本方式打不开（二进制），由预览给出“用默认应用打开”的页面。
+ */
+type Previewer = (path: string, force: boolean) => boolean
+let previewer: Previewer | null = null
+export function registerPreviewer(fn: Previewer): void {
+  previewer = fn
 }
 
 type Item = { type: 'file'; doc: Tab; view: monaco.editor.ICodeEditorViewState | null } | { type: 'view'; spec: ViewSpec }
@@ -151,6 +163,10 @@ const isWin = window.api.platform === 'win32'
 /** 统一路径写法：Windows 盘符大写 */
 export function normPath(p: string): string {
   return isWin ? p.replace(/^[a-z]:/, (m) => m.toUpperCase()) : p
+}
+/** 用作 Map / 视图 key 的路径（Windows 不区分大小写） */
+export function pathKey(p: string): string {
+  return isWin ? p.toLowerCase() : p
 }
 export function samePath(a: string, b: string): boolean {
   return isWin ? a.toLowerCase() === b.toLowerCase() : a === b
@@ -462,6 +478,7 @@ export async function openFile(rawPath: string, o: OpenOptions = {}): Promise<Ta
   const activate = o.activate !== false
   const g = activeGroup
   let doc = findTab(path)
+  if (!doc && activate && previewer?.(path, false)) return null
   if (!doc) {
     const uri = monaco.Uri.file(path)
     // 模型可能已被语言服务预先创建（比如“查看定义”时），直接复用
@@ -469,6 +486,7 @@ export async function openFile(rawPath: string, o: OpenOptions = {}): Promise<Ta
     if (!model) {
       const r = await window.api.fs.readFile(path)
       if (!r.ok) {
+        if (r.reason === 'binary' && activate && previewer?.(path, true)) return null
         toast(
           r.reason === 'binary' ? '这是二进制文件，暂不支持打开' : r.reason === 'too-large' ? '文件超过 5 MB，暂不支持打开' : r.reason === 'missing' ? '文件不存在' : '无法读取文件'
         )
@@ -617,6 +635,7 @@ function closeDoc(doc: Tab): void {
 /** 关闭某个路径（或其下所有文件）的标签，不再询问 */
 export function closeUnder(path: string): void {
   for (const t of tabs.filter((x) => isUnder(x.path, path))) closeDoc(t)
+  for (const g of [...groups]) for (const it of [...g.items]) if (it.type === 'view' && it.spec.path && isUnder(it.spec.path, path)) closeItem(g, it)
 }
 
 /** 关闭所有文件标签（对话等视图保留） */
@@ -775,7 +794,7 @@ function renderGroup(g: Group): void {
           tabindex: '0',
           draggable: 'true',
           'aria-selected': String(on),
-          title: isFile ? it.doc.path : it.spec.title,
+          title: isFile ? it.doc.path : (it.spec.path ?? it.spec.title),
           onClick: () => show(g, it),
           onAuxclick: (e: MouseEvent) => e.button === 1 && closeItem(g, it),
           onKeydown: (e: KeyboardEvent) => e.key === 'Enter' && show(g, it),
@@ -883,6 +902,15 @@ export function renamePath(from: string, to: string): void {
     }
     old.dispose()
   }
+  // 文档预览标签只需换路径和标题
+  for (const g of groups)
+    for (const it of g.items) {
+      const spec = it.type === 'view' ? it.spec : null
+      if (!spec?.path || !isUnder(spec.path, from)) continue
+      spec.path = normPath(to + spec.path.slice(from.length))
+      spec.title = basename(spec.path)
+      if (spec.key) spec.key = 'preview:' + pathKey(spec.path)
+    }
   updateTitle()
   emit('tabs')
 }

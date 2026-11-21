@@ -48,6 +48,7 @@ import { PRESETS, type SideView, emit, isFocus, isRailVisible, isSidebarVisible,
 import { THEMES, applyCssVars } from './theme'
 import { debugRequest, initLsp, isProbe, lspStatus, refreshProbe, restartLsp, setLspRoot } from './lsp'
 import { createPanel, newTerminal, togglePanel } from './panel'
+import { initPreview, zoomPreviewAt } from './preview'
 import { createScmView, refreshScm } from './scm'
 import { createSearchView, focusSearch, resetSearch } from './search'
 import { addTreeMenuItems, beginCreate, createTree, invalidatePaths, render as renderTree, setTreeRoot } from './tree'
@@ -653,8 +654,11 @@ window.addEventListener(
     else if (ctrl && k === 'b') toggleSidebar()
     else if (ctrl && k === '.') toggleFocus()
     else if (ctrl && k === ',') toggleSettings()
-    else if (ctrl && (k === '=' || k === '+')) changeSize(1)
-    else if (ctrl && k === '-') changeSize(-1)
+    else if (ctrl && (k === '=' || k === '+')) zoomPreviewAt(e.target, 1) || changeSize(1)
+    else if (ctrl && k === '-') zoomPreviewAt(e.target, -1) || changeSize(-1)
+    else if (ctrl && k === '0' && zoomPreviewAt(e.target, 0)) {
+      /* 预览已处理 */
+    }
     else if (ctrl && k === 'tab') cycleTab(e.shiftKey ? -1 : 1)
     else if (ctrl && !e.shiftKey && k === '\\') splitRight()
     else if (ctrl && e.altKey && k === 'arrowright') focusNextGroup(1)
@@ -715,6 +719,7 @@ async function mentionToTerminalClaude(): Promise<void> {
 async function boot(): Promise<void> {
   await loadSettings()
   initEditor(editorWrap)
+  initPreview()
   setTrailing(agentIcons)
   initLsp()
   initIde()

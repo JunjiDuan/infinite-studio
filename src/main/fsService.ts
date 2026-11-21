@@ -1,9 +1,13 @@
 import { BrowserWindow, dialog, ipcMain, shell, type WebContents } from 'electron'
 import { promises as fs, watch, type FSWatcher } from 'node:fs'
 import path from 'node:path'
-import type { DirEntry, ReadResult } from '../shared/types'
+import type { BinaryResult, DirEntry, ReadResult } from '../shared/types'
 
 export const MAX_FILE_BYTES = 5 * 1024 * 1024
+/** 预览（PDF、Office、图片、音视频）一次读入内存的上限 */
+const MAX_BINARY_BYTES = 300 * 1024 * 1024
+/** “用默认应用打开”不允许直接运行的类型，避免误点就执行了程序或脚本 */
+const RUNNABLE = /\.(exe|com|bat|cmd|msi|msp|scr|pif|cpl|ps1|psm1|vbs|vbe|js|jse|wsf|wsh|hta|lnk|reg|jar|app|sh|command)$/i
 const MAX_LIST = 20000
 export const IGNORED = new Set(['.git', 'node_modules', 'dist', 'out', 'release', 'target', '.next', '.venv', 'venv', '__pycache__', '.idea', '.vs'])
 
@@ -99,6 +103,24 @@ export function registerFsIpc(): void {
       const code = (err as NodeJS.ErrnoException).code
       return { ok: false, reason: code === 'ENOENT' ? 'missing' : 'error', message: String(err) }
     }
+  })
+
+  ipcMain.handle('fs:readBinary', async (_e, file: string): Promise<BinaryResult> => {
+    try {
+      const stat = await fs.stat(file)
+      if (stat.size > MAX_BINARY_BYTES) return { ok: false, reason: 'too-large', size: stat.size }
+      const buf = await fs.readFile(file)
+      return { ok: true, data: buf, size: stat.size }
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code
+      return { ok: false, reason: code === 'ENOENT' ? 'missing' : 'error', message: String(err) }
+    }
+  })
+
+  ipcMain.handle('fs:openPath', async (_e, p: string): Promise<string> => {
+    if (RUNNABLE.test(p)) return '出于安全考虑，不直接运行可执行文件或脚本'
+    // 返回空字符串表示成功，否则是错误信息
+    return shell.openPath(p)
   })
 
   ipcMain.handle('fs:writeFile', async (_e, file: string, content: string) => {

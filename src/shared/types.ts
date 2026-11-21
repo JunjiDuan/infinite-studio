@@ -49,6 +49,10 @@ export type ReadResult =
   | { ok: true; content: string }
   | { ok: false; reason: 'binary' | 'too-large' | 'missing' | 'error'; message?: string }
 
+export type BinaryResult =
+  | { ok: true; data: Uint8Array; size: number }
+  | { ok: false; reason: 'too-large' | 'missing' | 'error'; size?: number; message?: string }
+
 export interface SearchOptions {
   caseSensitive: boolean
   wholeWord: boolean
@@ -132,6 +136,10 @@ export interface Api {
     readDir(dir: string): Promise<DirEntry[]>
     readFile(path: string): Promise<ReadResult>
     writeFile(path: string, content: string): Promise<void>
+    /** 读二进制内容（文档 / 图片 / 音视频预览用） */
+    readBinary(path: string): Promise<BinaryResult>
+    /** 用系统默认应用打开；成功返回空字符串，否则是错误信息 */
+    openPath(path: string): Promise<string>
     listFiles(root: string): Promise<string[]>
     gitBranch(root: string): Promise<string | null>
     /** 在 dir 下新建文件 / 文件夹，返回完整路径 */
