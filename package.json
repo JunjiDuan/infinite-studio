@@ -1,0 +1,27 @@
+{
+  "name": "infinite-studio",
+  "productName": "Infinite Studio",
+  "version": "0.1.0",
+  "description": "无界工作室 Infinite Studio — 极简、高度个性化的桌面 IDE",
+  "main": "out/main/index.js",
+  "type": "commonjs",
+  "private": true,
+  "scripts": {
+    "dev": "node scripts/run.cjs dev",
+    "build": "node scripts/run.cjs build",
+    "start": "node scripts/run.cjs preview",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@fontsource/ibm-plex-mono": "^5.3.0",
+    "@fontsource/inter": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
+    "@fontsource/space-mono": "^5.3.0",
+    "@types/node": "^26.6.6",
+    "electron": "^45.4.1",
+    "electron-vite": "^6.0.0",
+    "monaco-editor": "^0.57.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8"
+  }
+}
