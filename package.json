@@ -16,6 +16,8 @@
     "icon": "node scripts/run-electron.cjs scripts/make-icon.cjs",
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder --win --x64 --dir && node scripts/build-installer.cjs",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "dist:linux": "npm run build && electron-builder --linux",
     "installer": "node scripts/build-installer.cjs"
   },
   "build": {
@@ -53,7 +55,15 @@
       ]
     },
     "mac": {
-      "target": "dmg",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
       "category": "public.app-category.developer-tools",
       "icon": "build/icon.png",
       "extraResources": [
@@ -61,10 +71,25 @@
           "from": "node_modules/@typescript/typescript-darwin-${arch}/lib",
           "to": "typescript-native"
         }
-      ]
+      ],
+      "artifactName": "${productName}-${version}-mac-${arch}.${ext}",
+      "identity": "-"
     },
     "linux": {
-      "target": "AppImage",
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "tar.gz",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "category": "Development",
       "icon": "build/icon.png",
       "extraResources": [
@@ -72,7 +97,8 @@
           "from": "node_modules/@typescript/typescript-linux-${arch}/lib",
           "to": "typescript-native"
         }
-      ]
+      ],
+      "artifactName": "${productName}-${version}-linux-${arch}.${ext}"
     }
   },
   "devDependencies": {

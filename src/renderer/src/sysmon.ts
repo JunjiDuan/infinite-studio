@@ -317,7 +317,7 @@ function renderMem(s: SysSample): Section {
       [t('已缓存'), m.standby != null ? bytes(m.standby + (m.modified ?? 0)) : null],
       [t('分页缓冲池'), m.paged != null ? bytes(m.paged) : null],
       [t('非分页缓冲池'), m.nonpaged != null ? bytes(m.nonpaged) : null],
-      [t('页面文件'), m.pagefile != null ? pct(m.pagefile, 1) : null]
+      [s.os.platform === 'win32' ? t('页面文件') : t('交换空间'), m.pagefile != null ? pct(m.pagefile, 1) : null]
     ])
   )
   return sec
@@ -474,9 +474,8 @@ function render(): void {
   if (net) order.push(net)
   order.push(renderApp(s))
   const extra: HTMLElement[] = []
-  if (s.os.platform === 'win32' && !s.gpus.length && s.cpu.processes == null) extra.push(h('div', { class: 'sm-empty muted' }, t('正在读取显卡、磁盘和网络信息…')))
-  else if (s.os.platform !== 'win32') extra.push(h('div', { class: 'sm-empty muted' }, t('显卡、NPU、磁盘和网络的详细信息目前只支持 Windows')))
-  else if (!npus.length) extra.push(h('div', { class: 'sm-note muted' }, t('没有检测到 NPU')))
+  if (!s.gpus.length && s.cpu.processes == null) extra.push(h('div', { class: 'sm-empty muted' }, t('正在读取显卡、磁盘和网络信息…')))
+  else if (s.os.platform === 'win32' && !npus.length) extra.push(h('div', { class: 'sm-note muted' }, t('没有检测到 NPU')))
 
   // 只在结构变化时重排，避免打断悬停和焦点
   const want = [...order.map((o) => o.el), ...extra]

@@ -27,6 +27,8 @@ npm run build      # 构建到 out/
 npm start          # 运行构建后的版本
 npm run typecheck  # 类型检查
 npm run dist       # 打包 Windows 安装程序，并复制到 installer/
+npm run dist:mac   # 打包 macOS dmg（arm64 + x64），需在 macOS 上运行
+npm run dist:linux # 打包 Linux AppImage / tar.gz，需在 Linux 上运行
 npm run pack       # 只生成免安装目录 release/win-unpacked（调试打包用）
 npm run icon       # 重新生成 build/icon.png
 ```

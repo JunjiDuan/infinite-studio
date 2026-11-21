@@ -953,7 +953,7 @@ export const EN: Record<string, string> = {
   "{0} 个进程 · 处理器 {1}": "{0} processes · CPU {1}",
   "正在读取系统信息…": "Reading system info…",
   "正在读取显卡、磁盘和网络信息…": "Reading GPU, disk and network info…",
-  "显卡、NPU、磁盘和网络的详细信息目前只支持 Windows": "GPU, NPU, disk and network details are currently Windows-only",
+  "交换空间": "Swap",
   "没有检测到 NPU": "No NPU detected",
   "继续刷新": "Resume updates",
   "暂停刷新": "Pause updates",

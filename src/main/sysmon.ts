@@ -6,6 +6,7 @@ import path from 'node:path'
 import { app, ipcMain, type WebContents } from 'electron'
 import type { SysDisk, SysGpu, SysNet, SysProc, SysSample } from '../shared/types'
 import nativeSource from './sysmon.cs?raw'
+import { resetUnixSample, unixSample } from './sysmon-unix'
 
 /**
  * 系统监视器。
@@ -13,6 +14,7 @@ import nativeSource from './sysmon.cs?raw'
  * - 处理器每个核心的占用、内存总量、本 IDE 的进程：Node / Electron 自带接口。
  * - Windows 上的显卡、NPU、显存、温度、磁盘、网络、提交内存等：一个常驻的 PowerShell 进程
  *   加载 sysmon.cs（首次运行时编译并缓存成 dll），每秒输出一行 JSON。
+ * - macOS / Linux 上的同类信息：见 sysmon-unix.ts。
  *
  * 只在有窗口打开着监视器视图时采样，最后一个视图关掉几秒后停掉采样进程。
  */
@@ -198,8 +200,9 @@ async function sample(): Promise<SysSample> {
   const baseMHz = cpus[0]?.speed ?? 0
   const { usage, cores } = cpuUsage()
   const n = nativeLast
+  const u = process.platform === 'win32' ? null : await unixSample()
 
-  const disks: SysDisk[] = []
+  const disks: SysDisk[] = u ? u.disks : []
   if (n?.disks) {
     const letters = n.disks.flatMap((d) => d.name.match(/[A-Z]:/gi) ?? [])
     const vols = await volumes(letters)
@@ -231,27 +234,27 @@ async function sample(): Promise<SysSample> {
       // 任务管理器用的是“处理器效用”（考虑了睿频），读不到时退回按时间片算的平均占用
       usage: utility != null ? Math.min(100, utility) : usage,
       cores,
-      processes: val(n?.cpu.processes),
-      threads: val(n?.cpu.threads),
+      processes: val(n?.cpu.processes ?? u?.cpu.processes),
+      threads: val(n?.cpu.threads ?? u?.cpu.threads),
       handles: val(n?.cpu.handles),
-      temp: val(n?.cpu.temp),
+      temp: val(n?.cpu.temp ?? u?.cpu.temp),
       load: process.platform === 'win32' ? null : os.loadavg()
     },
     mem: {
       total: os.totalmem(),
-      free: os.freemem(),
-      committed: val(n?.mem.committed),
-      commitLimit: val(n?.mem.commitLimit),
-      standby: val(n?.mem.standby),
+      free: val(u?.mem.free) ?? os.freemem(),
+      committed: val(n?.mem.committed ?? u?.mem.committed),
+      commitLimit: val(n?.mem.commitLimit ?? u?.mem.commitLimit),
+      standby: val(n?.mem.standby ?? u?.mem.cached),
       modified: val(n?.mem.modified),
       paged: val(n?.mem.paged),
       nonpaged: val(n?.mem.nonpaged),
-      pagefile: val(n?.mem.pagefile)
+      pagefile: val(n?.mem.pagefile ?? u?.mem.swap)
     },
-    gpus: (n?.gpus ?? []).map(gpuFromNative),
+    gpus: u ? u.gpus : (n?.gpus ?? []).map(gpuFromNative),
     disks,
     // 同一块网卡会出现多个虚拟实例，只留有带宽的
-    nets: (n?.nets ?? []).filter((x) => x.bandwidth > 0 || x.rx > 0 || x.tx > 0),
+    nets: u ? u.nets : (n?.nets ?? []).filter((x) => x.bandwidth > 0 || x.rx > 0 || x.tx > 0),
     app: appProcesses(logical)
   }
 }
@@ -284,6 +287,7 @@ function scheduleStop(): void {
     if (timer) clearInterval(timer)
     timer = null
     stopNative()
+    resetUnixSample()
   }, IDLE_STOP)
 }
 
