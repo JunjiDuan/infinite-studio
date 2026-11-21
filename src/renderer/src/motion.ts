@@ -1,28 +1,6 @@
 /**
- * 动效系统：所有界面动画都从这里走，统一曲线、时长和“动效强度”设置。
- *
- * - full：完整动效（位移、缩放、弹簧）
- * - reduced：只保留淡入淡出，时长缩短（系统开了“减少动态效果”时自动降到这一档）
- * - off：完全关闭
+ * 动效系统：所有界面动画都从这里走，统一曲线和时长。
  */
-
-export type MotionLevel = 'full' | 'reduced' | 'off'
-
-let level: MotionLevel = 'full'
-const prefersReduced = matchMedia('(prefers-reduced-motion: reduce)')
-
-export function setMotionLevel(l: MotionLevel): void {
-  level = l
-  document.documentElement.dataset.motion = motionLevel()
-}
-prefersReduced.addEventListener('change', () => setMotionLevel(level))
-
-/** 实际生效的档位 */
-export function motionLevel(): MotionLevel {
-  return level === 'full' && prefersReduced.matches ? 'reduced' : level
-}
-export const canAnimate = (): boolean => motionLevel() !== 'off'
-export const fullMotion = (): boolean => motionLevel() === 'full'
 
 /**
  * 用阻尼弹簧模拟生成 CSS linear() 缓动，比 cubic-bezier 的“回弹”更自然。
@@ -85,27 +63,15 @@ interface AnimOpts {
   spring?: keyof typeof SPRING
 }
 
-/**
- * 统一的 Element.animate 包装：按动效档位降级。
- * reduced 档只保留 opacity 关键帧（没有就跳过），时长减半。
- */
+/** 统一的 Element.animate 包装 */
 export function animate(el: Element, frames: Frames, o: AnimOpts = {}): Animation | null {
-  const lv = motionLevel()
-  if (lv === 'off') return null
   let duration = o.duration ?? DUR.md
   let easing = o.easing ?? EASE.out
   if (o.spring) {
     duration = SPRING[o.spring].duration
     easing = SPRING[o.spring].easing
   }
-  let kf = frames
-  if (lv === 'reduced') {
-    if (!frames.some((f) => f.opacity !== undefined)) return null
-    kf = frames.map((f) => ({ opacity: f.opacity ?? 1, offset: f.offset }))
-    duration = Math.min(duration, 160) / 1.4
-    easing = EASE.out
-  }
-  return el.animate(kf, { duration, easing, delay: o.delay ?? 0, fill: o.fill ?? 'backwards' })
+  return el.animate(frames, { duration, easing, delay: o.delay ?? 0, fill: o.fill ?? 'backwards' })
 }
 
 /** 动画结束（或被取消）后执行；没有动画时立即执行 */
@@ -125,7 +91,6 @@ export function after(a: Animation | null, fn: () => void): void {
  * 只处理位移（不处理尺寸），适合列表重排。
  */
 export function flip(els: Iterable<Element>, mutate: () => void, o: AnimOpts = { spring: 'snappy' }): void {
-  if (!fullMotion()) return mutate()
   const first = new Map<Element, DOMRect>()
   for (const el of els) first.set(el, el.getBoundingClientRect())
   mutate()
@@ -158,7 +123,6 @@ export function collapse(el: HTMLElement, axis: 'width' | 'height', show: boolea
   collapsing.get(el)?.cancel()
   collapsing.delete(el)
   el.classList.remove('closing')
-  if (!canAnimate()) return
   if (show) {
     const size = axis === 'width' ? el.offsetWidth : el.offsetHeight
     if (!size) return
@@ -202,13 +166,13 @@ type VTDoc = Document & { startViewTransition?: (cb: () => void) => { ready: Pro
  */
 export function viewTransition(update: () => void, o: { reveal?: { x: number; y: number }; kind?: string } = {}): void {
   const d = document as VTDoc
-  if (!canAnimate() || !d.startViewTransition) return update()
+  if (!d.startViewTransition) return update()
   const root = document.documentElement
   root.dataset.vt = o.reveal ? 'reveal' : (o.kind ?? 'fade')
   const t = d.startViewTransition(update)
   t.ready
     .then(() => {
-      if (!o.reveal || !fullMotion()) return
+      if (!o.reveal) return
       const { x, y } = o.reveal
       const r = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y))
       root.animate(
@@ -224,7 +188,6 @@ export function viewTransition(update: () => void, o: { reveal?: { x: number; y:
 
 /** 在按钮上从点击位置扩散一圈柔和的光（主按钮、活动栏用） */
 export function ripple(el: HTMLElement, e: MouseEvent): void {
-  if (!fullMotion()) return
   const r = el.getBoundingClientRect()
   const size = Math.max(r.width, r.height) * 2.2
   const dot = document.createElement('span')

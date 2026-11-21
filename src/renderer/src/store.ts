@@ -35,7 +35,7 @@ export function sameLook(a: Space, b: Space): boolean {
   return a.theme === b.theme && a.accent === b.accent && a.font === b.font && a.size === b.size
 }
 
-type Topic = 'space' | 'layout' | 'root' | 'tabs' | 'cursor' | 'markers' | 'saved' | 'lsp'
+type Topic = 'space' | 'layout' | 'root' | 'tabs' | 'cursor' | 'markers' | 'saved' | 'lsp' | 'debug'
 
 const subs = new Map<Topic, Set<() => void>>()
 
@@ -48,7 +48,7 @@ export function emit(topic: Topic): void {
   subs.get(topic)?.forEach((fn) => fn())
 }
 
-export type SideView = 'files' | 'search' | 'scm' | 'plugins'
+export type SideView = 'files' | 'search' | 'scm' | 'plugins' | 'debug'
 
 export const state = {
   settings: {
@@ -85,7 +85,6 @@ export async function loadSettings(): Promise<void> {
     agentModes: s.agentModes && typeof s.agentModes === 'object' ? { ...s.agentModes } : {},
     agentPrefs: s.agentPrefs && typeof s.agentPrefs === 'object' ? { ...s.agentPrefs } : {},
     agentContext: s.agentContext !== false,
-    motion: s.motion === 'reduced' || s.motion === 'off' ? s.motion : 'full',
     locale: s.locale === 'zh' || s.locale === 'en' ? s.locale : undefined,
     plugins:
       s.plugins && typeof s.plugins === 'object'

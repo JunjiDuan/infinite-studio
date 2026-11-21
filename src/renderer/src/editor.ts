@@ -4,7 +4,7 @@ import { icons } from './icons'
 import { showMenu } from './menu'
 import { emit, isFocus, state } from './store'
 import { FONTS } from './theme'
-import { DUR, EASE, SPRING, after, animate, fullMotion } from './motion'
+import { DUR, EASE, SPRING, after, animate } from './motion'
 import { t } from './i18n'
 
 /**
@@ -193,6 +193,28 @@ export function isUnder(p: string, dir: string): boolean {
   return samePath(head.slice(0, d.length), d) && /[\\/]/.test(head.slice(d.length))
 }
 
+/* ---------------- 扩展点：断点栏 ---------------- */
+
+const editorHooks: ((e: monaco.editor.IStandaloneCodeEditor) => void)[] = []
+let glyphFor: (m: monaco.editor.ITextModel) => boolean = () => false
+
+/** 每个编辑器（包括以后拆分出来的）创建时调用 */
+export function onEditor(fn: (e: monaco.editor.IStandaloneCodeEditor) => void): void {
+  editorHooks.push(fn)
+  groups.forEach((g) => fn(g.editor))
+}
+
+/** 哪些文件显示断点栏（能调试的语言） */
+export function setGlyphPredicate(fn: (m: monaco.editor.ITextModel) => boolean): void {
+  glyphFor = fn
+  groups.forEach(applyGlyph)
+}
+
+function applyGlyph(g: Group): void {
+  const m = g.editor.getModel()
+  g.editor.updateOptions({ glyphMargin: !isFocus() && !!m && glyphFor(m) })
+}
+
 export function getEditor(): monaco.editor.IStandaloneCodeEditor {
   return activeGroup?.editor
 }
@@ -321,6 +343,8 @@ function createGroup(index: number, size = 1): Group {
   editor.onDidChangeCursorPosition(() => {
     if (g === activeGroup) emit('cursor')
   })
+  editor.onDidChangeModel(() => applyGlyph(g))
+  editorHooks.forEach((fn) => fn(editor))
   editor.onDidChangeCursorSelection(() => {
     if (g.active?.type !== 'file') return
     lastFileEditor = editor
@@ -472,7 +496,7 @@ function applyOptions(g: Group): void {
     lineHeight: Math.round(space.size * 1.7),
     lineNumbers: focus ? 'off' : 'on',
     folding: !focus,
-    glyphMargin: false,
+    glyphMargin: !focus && !!g.editor.getModel() && glyphFor(g.editor.getModel()!),
     padding: focus ? { top: 72, bottom: 160 } : { top: 16, bottom: 16 },
     wordWrap: focus || wordWrap ? 'on' : 'off',
     scrollbar: { vertical: focus ? 'hidden' : 'auto', verticalScrollbarSize: 10, horizontalScrollbarSize: 10, useShadows: false }
@@ -1064,17 +1088,16 @@ function tick(now: number): void {
   const dt = Math.min(48, now - d.last) || 16.67
   d.last = now
   const goal = ghostGoal(d)
-  const smooth = fullMotion()
   // 与帧率无关的指数平滑：带一点“拖尾”的跟手感
-  const k = smooth ? 1 - Math.pow(1 - 0.42, dt / 16.67) : 1
+  const k = 1 - Math.pow(1 - 0.42, dt / 16.67)
   const nx = d.gx + (goal.x - d.gx) * k
   d.vx = ((nx - d.gx) / dt) * 16.67
   d.gx = nx
   d.gy += (goal.y - d.gy) * k
   // 横向速度带来轻微倾斜，像被拎着的卡片
   const free = d.target?.kind !== 'tabs'
-  const tiltGoal = smooth ? clamp(d.vx * (free ? 0.5 : 0.25), free ? -8 : -3, free ? 8 : 3) : 0
-  d.tilt += (tiltGoal - d.tilt) * (smooth ? 0.18 : 1)
+  const tiltGoal = clamp(d.vx * (free ? 0.5 : 0.25), free ? -8 : -3, free ? 8 : 3)
+  d.tilt += (tiltGoal - d.tilt) * 0.18
   d.ghost.style.transform = `translate(${d.gx}px, ${d.gy}px) rotate(${d.tilt.toFixed(2)}deg)`
 
   // 贴近标签栏两端时自动滚动
@@ -1347,7 +1370,7 @@ function moveInk(g: Group, target: { l: number; w: number } | null, anim: boolea
     animate(ink, [{ transform: `translateX(${target.l}px) scaleX(0.2)` }, { transform: `translateX(${target.l}px)` }], { spring: 'bouncy' })
     return
   }
-  if (!anim || !fullMotion() || (Math.abs(fromL - target.l) < 0.5 && Math.abs(fromW - target.w) < 0.5)) return
+  if (!anim || (Math.abs(fromL - target.l) < 0.5 && Math.abs(fromW - target.w) < 0.5)) return
   const spanL = Math.min(fromL, target.l)
   const spanR = Math.max(fromL + fromW, target.l + target.w)
   const stretch = 110
@@ -1377,8 +1400,8 @@ function placeInk(g: Group, anim: boolean): void {
 function revealTab(g: Group, l: number, w: number): void {
   const s = g.tabsEl
   const pad = 24
-  if (l < s.scrollLeft + pad) s.scrollTo({ left: Math.max(0, l - pad), behavior: fullMotion() ? 'smooth' : 'auto' })
-  else if (l + w > s.scrollLeft + s.clientWidth - pad) s.scrollTo({ left: l + w - s.clientWidth + pad, behavior: fullMotion() ? 'smooth' : 'auto' })
+  if (l < s.scrollLeft + pad) s.scrollTo({ left: Math.max(0, l - pad), behavior: 'smooth' })
+  else if (l + w > s.scrollLeft + s.clientWidth - pad) s.scrollTo({ left: l + w - s.clientWidth + pad, behavior: 'smooth' })
 }
 
 function renderGroup(g: Group): void {
@@ -1399,7 +1422,7 @@ function renderGroup(g: Group): void {
   const prevActive = g.lastActive
   g.lastOrder = [...g.items]
   g.lastActive = g.active
-  const motion = fullMotion() && g.tabsEl.offsetParent !== null
+  const motion = g.tabsEl.offsetParent !== null
 
   // 1. 记下现有标签的位置（含正在进行的位移），并停掉上一轮的重排动画
   const first = new Map<HTMLElement, DOMRect>()

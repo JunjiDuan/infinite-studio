@@ -1,7 +1,7 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, shell } from 'electron'
 import { existsSync, promises as fs } from 'node:fs'
 import path from 'node:path'
-import type { Settings, Space } from '../shared/types'
+import type { Settings } from '../shared/types'
 import { registerFsIpc } from './fsService'
 import { registerGitIpc } from './git'
 import { registerSearchIpc } from './search'
@@ -9,9 +9,10 @@ import { registerLspIpc } from './lsp'
 import { registerTerminalIpc } from './terminal'
 import { registerAccountIpc } from './account'
 import { registerPluginIpc } from './plugins'
+import { registerDebugIpc } from './debug'
 import { registerAgentIpc } from './agents'
 import { registerIdeIpc, startIdeServer } from './ide'
-import { getSavedLocale, setMainLocale, tm } from './i18n'
+import { getSavedLocale, setMainLocale } from './i18n'
 
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json')
 
@@ -116,36 +117,6 @@ function registerIpc(): void {
     setMainLocale(s?.locale)
   })
 
-  ipcMain.handle('space:export', async (e, space: Space) => {
-    const w = senderWindow(e)
-    const opts: Electron.SaveDialogOptions = {
-      title: tm('导出空间'),
-      defaultPath: `${space.name || 'space'}.infinite-space`,
-      filters: [{ name: tm('无界空间'), extensions: ['infinite-space'] }]
-    }
-    const r = w ? await dialog.showSaveDialog(w, opts) : await dialog.showSaveDialog(opts)
-    if (r.canceled || !r.filePath) return false
-    await fs.writeFile(r.filePath, JSON.stringify({ format: 'infinite-space@1', space }, null, 2), 'utf8')
-    return true
-  })
-
-  ipcMain.handle('space:import', async (e) => {
-    const w = senderWindow(e)
-    const opts: Electron.OpenDialogOptions = {
-      title: tm('导入空间'),
-      properties: ['openFile'],
-      filters: [{ name: tm('无界空间'), extensions: ['infinite-space', 'json'] }]
-    }
-    const r = w ? await dialog.showOpenDialog(w, opts) : await dialog.showOpenDialog(opts)
-    if (r.canceled || !r.filePaths[0]) return null
-    try {
-      const data = JSON.parse(await fs.readFile(r.filePaths[0], 'utf8'))
-      return (data.space ?? data) as Space
-    } catch {
-      return null
-    }
-  })
-
   registerFsIpc()
   registerGitIpc()
   registerSearchIpc()
@@ -153,6 +124,7 @@ function registerIpc(): void {
   registerLspIpc()
   registerAccountIpc()
   registerPluginIpc()
+  registerDebugIpc()
   registerAgentIpc()
   registerIdeIpc()
 }

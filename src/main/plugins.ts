@@ -5,6 +5,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { PLUGINS, type PluginStatus } from '../shared/plugins'
 import { tm } from './i18n'
+import { resetLspServers } from './lsp'
+import { detectLanguage, runPlan } from './toolchains'
 
 const isWin = process.platform === 'win32'
 
@@ -120,6 +122,11 @@ export async function resolveLaunch(command: string): Promise<Launch | null> {
 async function detect(id: string): Promise<PluginStatus> {
   const def = PLUGINS.find((p) => p.id === id)
   if (!def) throw new Error(tm('未知插件：{0}', id))
+  if (def.category === 'language') {
+    const s = await detectLanguage(id)
+    resetLspServers()
+    return s
+  }
   const file = await locate(def.command)
   if (!file) return { installed: false }
   const l = await resolveLaunch(def.command)
@@ -130,4 +137,11 @@ async function detect(id: string): Promise<PluginStatus> {
 
 export function registerPluginIpc(): void {
   ipcMain.handle('plugins:detect', (_e, id: string) => detect(id))
+  ipcMain.handle('plugins:runPlan', async (_e, id: string, file: string) => {
+    try {
+      return await runPlan(id, file)
+    } catch (e) {
+      return { error: String((e as Error)?.message ?? e) }
+    }
+  })
 }

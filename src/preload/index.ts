@@ -74,12 +74,16 @@ const api: Api = {
     load: () => ipcRenderer.invoke('settings:load'),
     save: (s) => ipcRenderer.invoke('settings:save', s)
   },
-  space: {
-    export: (space) => ipcRenderer.invoke('space:export', space),
-    import: () => ipcRenderer.invoke('space:import')
-  },
   plugins: {
-    detect: (id) => ipcRenderer.invoke('plugins:detect', id)
+    detect: (id) => ipcRenderer.invoke('plugins:detect', id),
+    runPlan: (id, file) => ipcRenderer.invoke('plugins:runPlan', id, file)
+  },
+  debug: {
+    start: (pluginId, file) => ipcRenderer.invoke('debug:start', pluginId, file),
+    send: (session, msg) => ipcRenderer.send('debug:send', session, msg),
+    stop: (session) => ipcRenderer.send('debug:stop', session),
+    onMessage: (cb) => subscribe('debug:message', cb),
+    onExit: (cb) => subscribe('debug:exit', cb)
   },
   agent: {
     start: (req) => ipcRenderer.invoke('agent:start', req),

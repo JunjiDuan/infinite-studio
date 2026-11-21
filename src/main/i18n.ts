@@ -46,16 +46,23 @@ const EN: Record<string, string> = {
   '已存在同名文件：{0}': 'A file with this name already exists: {0}',
   '找不到文件夹 {0}': 'Folder not found: {0}',
   无效的提交: 'Invalid commit',
-  导出空间: 'Export Space',
-  导入空间: 'Import Space',
-  无界空间: 'Infinite Space',
   '没有可用的语言服务：{0}': 'No language server available: {0}',
   '正则表达式无效：{0}': 'Invalid regular expression: {0}',
   '{0} 窗口未就绪': '{0} window is not ready',
   当前不在任何分支上: 'Not on any branch',
   仓库没有配置远程仓库: 'This repository has no remote configured',
   请输入提交信息: 'Enter a commit message',
-  无效的分支名: 'Invalid branch name'
+  无效的分支名: 'Invalid branch name',
+  "解释器": "Interpreter",
+  "调试器": "Debugger",
+  "语言服务": "Language server",
+  "编译器": "Compiler",
+  "没有找到 Python 解释器，请先在插件页安装 Python 插件": "Python interpreter not found; install the Python plugin from the Plugins page",
+  "没有找到 JDK，请先在插件页安装 Java 插件": "JDK not found; install the Java plugin from the Plugins page",
+  "没有找到 C/C++ 编译器，请先在插件页安装 C/C++ 插件": "C/C++ compiler not found; install the C/C++ plugin from the Plugins page",
+  "没有安装 debugpy，请在插件页点击 Python 插件的“安装”": "debugpy is not installed; click Install on the Python plugin in the Plugins page",
+  "没有找到调试器（gdb），请先在插件页安装 C/C++ 插件": "Debugger (gdb) not found; install the C/C++ plugin from the Plugins page",
+  "编译失败": "Compilation failed"
 }
 
 /** 和渲染进程的 t() 一样：键是中文原文，{0} 是参数 */

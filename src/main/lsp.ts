@@ -3,7 +3,9 @@ import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import type { LspServerInfo } from '../shared/types'
+import { Framer, frame } from './framing'
 import { tm } from './i18n'
+import { cachedToolchains } from './toolchains'
 
 interface Launch {
   cmd: string
@@ -54,14 +56,25 @@ const DEFS: ServerDef[] = [
     id: 'python',
     name: 'Python',
     languages: ['python'],
-    resolve: () => firstOnPath([['pyright-langserver', ['--stdio']], ['basedpyright-langserver', ['--stdio']], ['pylsp', []]])
+    resolve: () => {
+      // Python 插件用 pip 装的 basedpyright 可能在 Python 的 Scripts 目录里，不一定在 PATH 上
+      const p = cachedToolchains().pythonLsp
+      if (p) return { cmd: /\.(cmd|bat)$/i.test(p.cmd) ? `"${p.cmd}"` : p.cmd, args: p.args, shell: /\.(cmd|bat)$/i.test(p.cmd) }
+      return firstOnPath([['basedpyright-langserver', ['--stdio']], ['pyright-langserver', ['--stdio']], ['pylsp', []]])
+    }
   },
+  { id: 'java', name: 'Java', languages: ['java'], resolve: () => firstOnPath([['jdtls', []]]) },
   { id: 'rust', name: 'Rust', languages: ['rust'], resolve: () => firstOnPath([['rust-analyzer', []]]) },
   { id: 'go', name: 'Go', languages: ['go'], resolve: () => firstOnPath([['gopls', []]]) },
   { id: 'cpp', name: 'C/C++', languages: ['cpp', 'c'], resolve: () => firstOnPath([['clangd', []]]) }
 ]
 
 let resolved: Map<string, Launch> | null = null
+
+/** 插件装好新的语言服务后调用：下次查询时重新查找 */
+export function resetLspServers(): void {
+  resolved = null
+}
 function resolveAll(): Map<string, Launch> {
   if (!resolved) {
     resolved = new Map()
@@ -71,34 +84,6 @@ function resolveAll(): Map<string, Launch> {
     }
   }
   return resolved
-}
-
-/** LSP 基于 Content-Length 分帧 */
-class Framer {
-  private buf = Buffer.alloc(0)
-  constructor(private onMessage: (msg: unknown) => void) {}
-  push(chunk: Buffer): void {
-    this.buf = Buffer.concat([this.buf, chunk])
-    for (;;) {
-      const sep = this.buf.indexOf('\r\n\r\n')
-      if (sep < 0) return
-      const m = /Content-Length:\s*(\d+)/i.exec(this.buf.subarray(0, sep).toString('ascii'))
-      if (!m) {
-        // 头部损坏：丢掉这一段，避免死循环
-        this.buf = this.buf.subarray(sep + 4)
-        continue
-      }
-      const len = Number(m[1])
-      if (this.buf.length < sep + 4 + len) return
-      const body = this.buf.subarray(sep + 4, sep + 4 + len).toString('utf8')
-      this.buf = this.buf.subarray(sep + 4 + len)
-      try {
-        this.onMessage(JSON.parse(body))
-      } catch (e) {
-        console.warn('LSP 消息解析失败', e)
-      }
-    }
-  }
 }
 
 interface Session {
@@ -161,9 +146,7 @@ export function registerLspIpc(): void {
   ipcMain.on('lsp:send', (_e, id: number, msg: unknown) => {
     const s = sessions.get(id)
     if (!s || !s.proc.stdin?.writable) return
-    const body = Buffer.from(JSON.stringify(msg), 'utf8')
-    s.proc.stdin.write(`Content-Length: ${body.length}\r\n\r\n`)
-    s.proc.stdin.write(body)
+    s.proc.stdin.write(frame(msg))
   })
 
   // 客户端会先发 shutdown/exit；2 秒后还没退出就强制结束

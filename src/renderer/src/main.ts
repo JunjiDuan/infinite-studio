@@ -41,14 +41,15 @@ import {
 } from './editor'
 import { accountBtn, initAccount, openLoginDialog } from './account'
 import { agentIcons, initChat, insertAtMention, onTabsChanged, toggleChatFocus } from './chat'
-import { createPluginsView, pluginCommands, pluginTreeItems, refreshPlugins, render as renderPlugins } from './plugins'
+import { createPluginsView, onPluginsChange, pluginCommands, pluginTreeItems, refreshPlugins, render as renderPlugins } from './plugins'
+import { createDebugView, debugActive, debugOrContinue, debugStatus, debugStep, initDebug, onPluginStateChanged, restartDebug, runActiveFile, runButtons, stopDebug, toggleBreakpointAtCursor } from './debug'
 import { icons } from './icons'
 import { defineTheme, languageName, monaco } from './monaco'
 import { closePalette, invalidateFiles, isPaletteOpen, openPalette } from './palette'
 import { closeSettings, initSettings, isSettingsOpen, openSettings, switchLocale } from './settingsView'
-import { PRESETS, type SideView, emit, isFocus, isRailVisible, isSidebarVisible, loadSettings, on, persist, setSpace, state } from './store'
+import { type SideView, emit, isFocus, isRailVisible, isSidebarVisible, loadSettings, on, persist, setSpace, state } from './store'
 import { THEMES, applyCssVars } from './theme'
-import { collapse, installRipples, setMotionLevel, viewTransition, type MotionLevel } from './motion'
+import { collapse, installRipples, viewTransition } from './motion'
 import { debugRequest, initLsp, isProbe, lspStatus, refreshProbe, restartLsp, setLspRoot } from './lsp'
 import { createPanel, newTerminal, togglePanel } from './panel'
 import { initPreview, zoomPreviewAt } from './preview'
@@ -85,6 +86,7 @@ const MENUS: MenuDef[] = [
       'sep',
       { label: t('系统设置'), run: () => openSettings('system') },
       { label: t('个性化与主题'), key: 'Ctrl ,', run: () => openSettings('appearance') },
+      { label: t('多语言设置'), run: () => openSettings('language') },
       'sep',
       { label: t('退出'), run: requestClose }
     ]
@@ -216,6 +218,7 @@ onScmCount((n) => {
   scmBadge.textContent = n > 99 ? '99+' : String(n)
   railScm.setAttribute('aria-label', n ? t('源代码管理 (Ctrl Shift G)') + ' · ' + n : t('源代码管理 (Ctrl Shift G)'))
 })
+const railDebug = h('button', { class: 'rail-btn', 'aria-label': t('运行和调试 (Ctrl Shift D)'), title: t('运行和调试 Ctrl Shift D'), html: icons.bug, onClick: () => showSideView('debug', true) })
 const railPlugins = h('button', { class: 'rail-btn', 'aria-label': t('插件'), title: t('插件'), html: icons.plugin, onClick: () => showSideView('plugins', true) })
 const railInk = h('span', { class: 'rail-ink', 'aria-hidden': 'true' })
 const gearBtn: HTMLButtonElement = h('button', {
@@ -237,6 +240,8 @@ function openGearMenu(): void {
     [
       { label: t('命令面板…'), key: 'Ctrl K', run: () => void openPalette() },
       'sep',
+      { label: t('多语言设置'), icon: icons.languages, run: () => openSettings('language') },
+      'sep',
       { label: t('系统设置'), run: () => openSettings('system') },
       { label: t('个性化与主题'), key: 'Ctrl ,', run: () => openSettings('appearance') },
       'sep',
@@ -252,6 +257,7 @@ const rail = h(
   railFiles,
   railSearch,
   railScm,
+  railDebug,
   h('button', { class: 'rail-btn', 'aria-label': t('终端 (Ctrl `)'), title: t('终端 Ctrl `'), html: icons.terminal, onClick: () => togglePanel() }),
   h('button', { class: 'rail-btn', 'aria-label': t('专注模式 (Ctrl .)'), title: t('专注模式 Ctrl .'), html: icons.focus, onClick: () => toggleFocus() }),
   h('span', { class: 'grow' }),
@@ -260,7 +266,7 @@ const rail = h(
   gearBtn
 )
 
-const sidebar = h('aside', { class: 'sidebar', 'aria-label': t('侧栏') }, createTree(), createSearchView(), createScmView(), createPluginsView())
+const sidebar = h('aside', { class: 'sidebar', 'aria-label': t('侧栏') }, createTree(), createSearchView(), createScmView(), createDebugView(() => showSideView('plugins'), () => showSideView('debug')), createPluginsView())
 const sideSash = h('div', { class: 'side-sash', role: 'separator', 'aria-orientation': 'vertical', 'aria-label': t('拖动调整侧栏宽度，拖到最窄会隐藏'), title: t('拖动调整宽度 · 双击恢复默认') })
 const emptyHint = h('div', { class: 'empty-hint' })
 const welcome = h('div', { class: 'welcome' })
@@ -275,11 +281,13 @@ const stEol = h('span', { class: 'st-item' })
 const stLang = h('span', { class: 'st-item' })
 const stLsp = h('button', { class: 'st-item st-lsp', title: t('点击重启语言服务'), onClick: () => void restartLsp() })
 const stSpace = h('button', { class: 'st-item st-space', onClick: () => toggleSettings() })
+const stDebug = h('button', { class: 'st-item st-debug', hidden: true, onClick: () => showSideView('debug') })
 const statusbar = h(
   'footer',
   { class: 'statusbar' },
   stBranch,
   stProblems,
+  stDebug,
   h('span', { class: 'grow' }),
   stCursor,
   h('span', { class: 'st-item' }, 'UTF-8'),
@@ -396,6 +404,12 @@ function renderStatus(): void {
     stLsp.replaceChildren(h('span', { class: 'dot' }), label)
   }
   stSpace.replaceChildren(h('span', { class: 'dot' }), t('空间 · {0}', state.settings.space.name))
+  const ds = debugStatus()
+  stDebug.hidden = !ds
+  if (ds) {
+    stDebug.dataset.state = ds.state
+    stDebug.replaceChildren(h('span', { class: 'ic', html: icons.bug }), ds.label)
+  }
 }
 
 /** 上一次布局的状态：只有真正变化时才播放展开 / 收起动画 */
@@ -425,6 +439,7 @@ function applyLayout(): void {
   railSearch.classList.toggle('on', side && state.sideView === 'search')
   railScm.classList.toggle('on', side && state.sideView === 'scm')
   railPlugins.classList.toggle('on', side && state.sideView === 'plugins')
+  railDebug.classList.toggle('on', side && state.sideView === 'debug')
   if (anim && !shown.side && side) collapse(sidebar, 'width', true)
   if (anim && !shown.panel && panel) collapse(panelEl, 'height', true)
   shown = { side, panel, focus, welcome: welcomeMode, booted: shown.booted }
@@ -434,7 +449,7 @@ function applyLayout(): void {
 
 /** 活动栏左侧的指示条滑到当前视图的按钮旁边 */
 function placeRailInk(): void {
-  const on = [railFiles, railSearch, railScm, railPlugins].find((b) => b.classList.contains('on'))
+  const on = [railFiles, railSearch, railScm, railDebug, railPlugins].find((b) => b.classList.contains('on'))
   if (!on || !on.offsetParent) {
     railInk.classList.remove('show')
     return
@@ -459,14 +474,6 @@ function switchTheme(id: ThemeId, e?: MouseEvent): void {
   viewTransition(() => setSpace({ theme: id }), e ? { reveal: { x: e.clientX, y: e.clientY } } : {})
 }
 
-const MOTION_LABELS: Record<MotionLevel, string> = { full: t('完整'), reduced: t('简约'), off: t('关闭') }
-function setMotion(l: MotionLevel): void {
-  state.settings.motion = l
-  setMotionLevel(l)
-  persist()
-  emit('space')
-  toast(t('动效：{0}', MOTION_LABELS[l]))
-}
 
 function applySpace(): void {
   const t = applyCssVars(state.settings.space)
@@ -496,8 +503,6 @@ async function openFolder(path: string): Promise<void> {
   persist()
   invalidateFiles()
   state.branch = await window.api.fs.gitBranch(path)
-  const bound = state.settings.bindings[path]
-  if (bound) setSpace({ ...bound })
   await setTreeRoot(path)
   resetSearch()
   void window.api.fs.watch(path)
@@ -562,7 +567,7 @@ function toggleSidebar(): void {
  * 切到侧栏的某个视图。toggle 为 true 时，再点一次当前视图会收起侧栏（活动栏按钮的行为）。
  */
 function showSideView(view: SideView, toggle = false): void {
-  if (!state.root && view !== 'plugins') {
+  if (!state.root && view !== 'plugins' && view !== 'debug') {
     if (view === 'search') toast(t('先打开一个文件夹'))
     return
   }
@@ -695,6 +700,7 @@ registerCommands(() => [
   { id: 'view.settings', title: t('打开个性化与主题'), key: 'Ctrl ,', run: () => openSettings('appearance') },
   { id: 'view.locale', title: getLocale() === 'zh' ? 'Switch Language: English' : '切换语言：简体中文', run: () => void switchLocale(getLocale() === 'zh' ? 'en' : 'zh') },
   { id: 'view.systemSettings', title: t('打开系统设置'), run: () => openSettings('system') },
+  { id: 'view.languageSettings', title: t('打开多语言设置'), run: () => openSettings('language') },
   { id: 'account.login', title: t('登录 GitHub'), run: () => void openLoginDialog() },
   { id: 'view.wrap', title: t('切换自动换行'), key: 'Alt Z', run: toggleWrap },
   { id: 'editor.split', title: t('向右拆分编辑器'), key: 'Ctrl \\', run: () => splitRight() },
@@ -708,26 +714,27 @@ registerCommands(() => [
     hint: state.settings.space.theme === id ? t('当前') : '',
     run: () => switchTheme(id)
   })),
-  ...(['full', 'reduced', 'off'] as MotionLevel[]).map((l) => ({
-    id: 'motion.' + l,
-    title: t('动效强度：{0}', MOTION_LABELS[l]),
-    hint: (state.settings.motion ?? 'full') === l ? t('当前') : '',
-    run: () => setMotion(l)
-  })),
   { id: 'editor.moveTabLeft', title: t('向左移动标签'), key: 'Ctrl Shift PgUp', run: () => moveActiveTab(-1) },
   { id: 'editor.moveTabRight', title: t('向右移动标签'), key: 'Ctrl Shift PgDn', run: () => moveActiveTab(1) },
-  ...[...PRESETS, ...state.settings.savedSpaces].map((s) => ({
-    id: 'space.' + s.name,
-    title: t('切换空间：{0}', s.name),
-    hint: state.settings.space.name === s.name ? t('当前') : '',
-    run: () => setSpace({ ...s })
-  })),
   { id: 'editor.format', title: t('格式化文档'), key: 'Shift Alt F', run: () => runEditorAction('editor.action.formatDocument') },
   { id: 'editor.definition', title: t('转到定义'), key: 'F12', run: () => runEditorAction('editor.action.revealDefinition') },
   { id: 'editor.references', title: t('查找所有引用'), key: 'Shift F12', run: () => runEditorAction('editor.action.referenceSearch.trigger') },
   { id: 'editor.rename', title: t('重命名符号'), key: 'F2', run: () => runEditorAction('editor.action.rename') },
   { id: 'editor.outline', title: t('转到文件中的符号'), key: 'Ctrl Shift O', run: () => runEditorAction('editor.action.quickOutline') },
   { id: 'lsp.restart', title: t('重启语言服务'), run: restartLsp },
+  { id: 'debug.view', title: t('运行和调试'), key: 'Ctrl Shift D', run: () => showSideView('debug') },
+  { id: 'debug.run', title: t('运行当前文件'), key: 'Ctrl F5', run: runActiveFile },
+  { id: 'debug.start', title: debugActive() ? t('调试：继续') : t('调试当前文件'), key: 'F5', run: debugOrContinue },
+  ...(debugActive()
+    ? [
+        { id: 'debug.stop', title: t('调试：停止'), key: 'Shift F5', run: stopDebug },
+        { id: 'debug.restart', title: t('调试：重新启动'), key: 'Ctrl Shift F5', run: restartDebug },
+        { id: 'debug.next', title: t('调试：单步跳过'), key: 'F10', run: () => void debugStep('next') },
+        { id: 'debug.stepIn', title: t('调试：单步进入'), key: 'F11', run: () => void debugStep('stepIn') },
+        { id: 'debug.stepOut', title: t('调试：单步跳出'), key: 'Shift F11', run: () => void debugStep('stepOut') }
+      ]
+    : []),
+  { id: 'debug.toggleBreakpoint', title: t('切换断点'), key: 'F9', run: () => toggleBreakpointAtCursor(getEditor()) },
   { id: 'window.devtools', title: t('开发者工具'), key: 'Ctrl Shift I', run: () => toast(t('按 Ctrl Shift I 打开开发者工具')) }
 ])
 
@@ -772,6 +779,15 @@ window.addEventListener(
     else if (ctrl && e.shiftKey && k === 'p') openPalette('>')
     else if (ctrl && e.shiftKey && k === 'f') showSideView('search')
     else if (ctrl && e.shiftKey && k === 'g') showSideView('scm')
+    else if (ctrl && e.shiftKey && k === 'd') showSideView('debug')
+    else if (k === 'f5' && ctrl && e.shiftKey) void restartDebug()
+    else if (k === 'f5' && ctrl) void runActiveFile()
+    else if (k === 'f5' && e.shiftKey) void stopDebug()
+    else if (k === 'f5') void debugOrContinue()
+    else if (k === 'f9' && !ctrl && !e.shiftKey) toggleBreakpointAtCursor(getEditor())
+    else if (k === 'f10' && !ctrl && debugActive()) debugStep('next')
+    else if (k === 'f11' && !ctrl && debugActive()) debugStep(e.shiftKey ? 'stepOut' : 'stepIn')
+    else if (k === 'f6' && !ctrl && debugActive()) debugStep('pause')
     else if (ctrl && k === 's') void saveActive()
     else if (ctrl && k === 'o') void pickFolder()
     else if (ctrl && k === 'w') closeTab()
@@ -823,6 +839,8 @@ on('tabs', () => {
 })
 on('cursor', renderStatus)
 on('lsp', renderStatus)
+on('debug', renderStatus)
+onPluginsChange(onPluginStateChanged)
 on('markers', renderStatus)
 on('saved', renderStatus)
 on('saved', scheduleScmStatus)
@@ -849,14 +867,14 @@ async function mentionToTerminalClaude(): Promise<void> {
 
 async function boot(): Promise<void> {
   await loadSettings()
-  setMotionLevel(state.settings.motion ?? 'full')
   installRipples()
   app.classList.add('booting')
   setTimeout(() => app.classList.remove('booting'), 900)
   initEditor(editorWrap)
   initPreview()
-  setTrailing(agentIcons)
+  setTrailing(h('div', { class: 'trail' }, runButtons, agentIcons))
   initLsp()
+  initDebug()
   initIde()
   void initAccount()
   initChat()

@@ -213,7 +213,7 @@ class Client {
   private async onServerRequest(id: Json, method: string, params: Json): Promise<void> {
     switch (method) {
       case 'workspace/configuration':
-        return this.respond(id, (params?.items ?? []).map(() => null))
+        return this.respond(id, (params?.items ?? []).map((it: Json) => configFor(it?.section)))
       case 'workspace/workspaceFolders':
         return this.respond(id, [{ uri: monaco.Uri.file(this.root).toString(), name: basename(this.root) }])
       case 'workspace/applyEdit':
@@ -667,6 +667,17 @@ async function applyWorkspaceEdit(we: Json): Promise<void> {
   }
 }
 
+/**
+ * 语言服务来要设置时的回答。basedpyright 默认的检查级别（recommended）对普通脚本太严格，
+ * 改用 standard；项目里有 pyrightconfig.json / pyproject.toml 时以项目为准。
+ */
+function configFor(section: string | undefined): Json {
+  const analysis = { typeCheckingMode: 'standard' }
+  if (section === 'basedpyright.analysis' || section === 'python.analysis') return analysis
+  if (section === 'basedpyright' || section === 'python') return { analysis }
+  return null
+}
+
 /* ---------------- 管理 ---------------- */
 
 const sessions = new Map<number, Client>()
@@ -787,6 +798,16 @@ export async function restartLsp(): Promise<void> {
   await Promise.all([...old.values()].map((c) => c.stop()))
   for (const t of tabs) void attach(t.model)
   toast(t('语言服务已重启'))
+}
+
+/** 插件装好新的语言服务后调用：重新查询可用的语言服务，已打开的文件接上去 */
+export async function refreshLspServers(): Promise<void> {
+  const before = (available ?? []).map((s) => s.id).join(',')
+  available = null
+  const now = await window.api.lsp.servers().catch(() => [])
+  available = now
+  if (now.map((s) => s.id).join(',') === before) return
+  for (const t of tabs) void attach(t.model)
 }
 
 /** 调试用：直接向某个语言服务发请求 */

@@ -10,9 +10,12 @@ import { t } from './i18n'
 interface Session {
   id: number | null
   title: string
-  term: Terminal
-  fit: FitAddon
+  /** 终端；自定义视图（例如调试控制台）没有 */
+  term?: Terminal
+  fit?: FitAddon
   el: HTMLElement
+  /** 自定义视图 */
+  view?: { key: string; onShow?: () => void }
 }
 
 const sessions: Session[] = []
@@ -79,13 +82,14 @@ export function createPanel(): HTMLElement {
   setupResize(resizer)
 
   new ResizeObserver(() => fitActive()).observe(bodyEl)
-  window.api.term.onData((id, data) => sessions.find((s) => s.id === id)?.term.write(data))
+  window.api.term.onData((id, data) => sessions.find((s) => s.id === id)?.term?.write(data))
   window.api.term.onExit((id) => {
     const s = sessions.find((x) => x.id === id)
     if (s) removeSession(s)
   })
   on('space', () => {
     for (const s of sessions) {
+      if (!s.term) continue
       s.term.options.theme = xtermTheme()
       Object.assign(s.term.options, termFont())
     }
@@ -117,7 +121,7 @@ function setupResize(handle: HTMLElement): void {
 }
 
 function fitActive(): void {
-  if (!active || !state.panelOpen || !bodyEl.clientHeight) return
+  if (!active?.fit || !state.panelOpen || !bodyEl.clientHeight) return
   try {
     active.fit.fit()
   } catch {
@@ -143,7 +147,8 @@ function activate(s: Session): void {
   renderTabs()
   requestAnimationFrame(() => {
     fitActive()
-    s.term.focus()
+    if (s.term) s.term.focus()
+    else s.view?.onShow?.()
   })
 }
 
@@ -151,7 +156,7 @@ function removeSession(s: Session): void {
   const i = sessions.indexOf(s)
   if (i < 0) return
   sessions.splice(i, 1)
-  s.term.dispose()
+  s.term?.dispose()
   s.el.remove()
   if (active === s) {
     active = null
@@ -264,6 +269,24 @@ export async function newTerminal(cwd?: string, opts: { title?: string; run?: st
   }
 }
 
+/** 在面板里打开自定义视图标签（同一个 key 只开一个） */
+export function openPanelView(key: string, title: string, el: HTMLElement, onShow?: () => void): void {
+  let s = sessions.find((x) => x.view?.key === key)
+  if (!s) {
+    el.classList.add('panel-view')
+    bodyEl.append(el)
+    s = { id: null, title, el, view: { key, onShow } }
+    sessions.push(s)
+  }
+  setPanelOpen(true)
+  activate(s)
+}
+
+export function closePanelView(key: string): void {
+  const s = sessions.find((x) => x.view?.key === key)
+  if (s) removeSession(s)
+}
+
 export function isPanelOpen(): boolean {
   return state.panelOpen
 }
@@ -274,7 +297,7 @@ export function setPanelOpen(open: boolean): void {
   emit('layout')
   if (open) requestAnimationFrame(() => {
     fitActive()
-    active?.term.focus()
+    active?.term?.focus()
   })
 }
 

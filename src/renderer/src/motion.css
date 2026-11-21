@@ -1,7 +1,6 @@
 /* =====================================================================
  * 动效层：在 styles.css 之后加载，只负责“动起来”的部分。
- * 曲线与时长统一走变量；--m 是位移系数（完整 1 / 简约 0），
- * 关键帧里的位移都乘它，简约档自动只剩淡入淡出。
+ * 曲线与时长统一走变量；--m 是关键帧里的位移系数。
  * ===================================================================== */
 
 :root {
@@ -21,17 +20,6 @@
   --spring-soft-dur: 420ms;
   --spring-bouncy: var(--ease-overshoot);
   --spring-bouncy-dur: 520ms;
-}
-:root[data-motion='reduced'] {
-  --m: 0;
-  --d-md: 140ms;
-  --d-lg: 160ms;
-}
-:root[data-motion='off'] *,
-:root[data-motion='off'] *::before,
-:root[data-motion='off'] *::after {
-  animation: none !important;
-  transition: none !important;
 }
 
 /* ---------------- 通用关键帧 ---------------- */
@@ -860,11 +848,6 @@ body.dragging-tab .tab:hover::before {
 }
 .set-pane:not([hidden]) {
   animation: m-fade var(--d-sm) var(--ease-out);
-}
-.motion-row {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
 }
 
 /* ---------------- 对话面板 ---------------- */

@@ -1,6 +1,6 @@
 import type { AgentStart, ClaudeLoginMethod, LoginEvent, SessionInfo, DailyUsage } from './agents'
 import type { IdeToolResult } from './ide'
-import type { PluginStatus } from './plugins'
+import type { PluginStatus, RunPlan } from './plugins'
 
 export type ThemeId = 'dusk' | 'ink' | 'graphite' | 'paper'
 export type FontId = 'jet' | 'plex' | 'space'
@@ -35,8 +35,6 @@ export interface Settings {
   agentContext?: boolean
   /** 插件 id → 是否启用（未记录视为启用） */
   plugins?: Record<string, boolean>
-  /** 动效强度：完整 / 简约（只淡入淡出）/ 关闭 */
-  motion?: 'full' | 'reduced' | 'off'
   /** 界面语言 */
   locale?: 'zh' | 'en'
 }
@@ -241,13 +239,19 @@ export interface Api {
     load(): Promise<Settings | null>
     save(s: Settings): Promise<void>
   }
-  space: {
-    export(space: Space): Promise<boolean>
-    import(): Promise<Space | null>
-  }
   plugins: {
     /** 检测插件对应的命令行工具是否已安装 */
     detect(id: string): Promise<PluginStatus>
+    /** 编程语言插件：在终端里运行这个文件的命令 */
+    runPlan(id: string, file: string): Promise<RunPlan | { error: string }>
+  }
+  debug: {
+    /** 准备调试（需要时先编译）并启动调试适配器；之后页面用 DAP 和适配器对话 */
+    start(pluginId: string, file: string): Promise<DebugStart>
+    send(session: number, msg: unknown): void
+    stop(session: number): void
+    onMessage(cb: (session: number, msg: unknown) => void): () => void
+    onExit(cb: (session: number, code: number) => void): () => void
   }
   agent: {
     /** 启动对话进程，返回运行 id；进程输出的每行 JSON 通过 onEvent 推送 */
@@ -303,3 +307,7 @@ export interface Api {
     logout(): Promise<void>
   }
 }
+
+export type DebugStart =
+  | { ok: true; id: number; adapterId: string; launch: Record<string, unknown> }
+  | { ok: false; error: string; output?: string }

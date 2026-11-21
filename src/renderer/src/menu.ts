@@ -1,6 +1,6 @@
 import { h } from './dom'
 
-export type MenuItem = { label: string; key?: string; danger?: boolean; disabled?: boolean; run: () => void } | 'sep'
+export type MenuItem = { label: string; icon?: string; key?: string; danger?: boolean; disabled?: boolean; run: () => void } | 'sep'
 
 let current: HTMLElement | null = null
 let onCurrentClose: (() => void) | null = null
@@ -42,7 +42,7 @@ export function showMenu(x: number, y: number, items: MenuItem[], opts: MenuOpti
             it.run()
           }
         },
-        h('span', { class: 'grow' }, it.label),
+        h('span', { class: 'grow ctx-label' }, it.label, it.icon ? h('span', { class: 'ic', html: it.icon }) : null),
         it.key ? h('kbd', {}, it.key) : null
       )
       if (!it.disabled) buttons.push(b)
