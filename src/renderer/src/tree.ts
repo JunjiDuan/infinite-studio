@@ -7,6 +7,8 @@ import { state } from './store'
 
 const cache = new Map<string, DirEntry[]>()
 const expanded = new Set<string>()
+/** 刚展开的文件夹：下一次渲染时它的子项依次浮现 */
+let justOpened: string | null = null
 let listEl: HTMLElement
 let titleEl: HTMLElement
 let projectHead: HTMLElement
@@ -149,8 +151,10 @@ async function toggle(dir: string): Promise<void> {
   else {
     expanded.add(dir)
     await load(dir)
+    justOpened = dir
   }
   render()
+  justOpened = null
 }
 
 function collapseAll(): void {
@@ -324,7 +328,10 @@ export function render(): void {
   const activePath = activeTab()?.path
   const rows: HTMLElement[] = []
   const ed = editing
+  let enterIdx = -1
   const walk = (dir: string, depth: number) => {
+    const entering = enterIdx >= 0 || (justOpened !== null && samePath(dir, justOpened))
+    if (entering && enterIdx < 0) enterIdx = 0
     if (ed && ed.mode !== 'rename' && samePath(ed.dir, dir)) rows.push(inputRow(depth, '', ed.mode === 'dir'))
     for (const e of cache.get(dir) ?? []) {
       const open = e.isDir && expanded.has(e.path)
@@ -363,8 +370,14 @@ export function render(): void {
           )
         )
       }
+      if (entering && rows.length) {
+        const last = rows[rows.length - 1]
+        last.classList.add('enter')
+        last.style.setProperty('--i', String(enterIdx++))
+      }
       if (open) walk(e.path, depth + 1)
     }
+    if (justOpened !== null && samePath(dir, justOpened)) enterIdx = -1
   }
   walk(state.root, 0)
   if (rows.length === 0) rows.push(h('div', { class: 'tree-empty' }, '空文件夹'))

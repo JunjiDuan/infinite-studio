@@ -4,6 +4,7 @@ import { icons } from './icons'
 import { showMenu } from './menu'
 import { emit, isFocus, state } from './store'
 import { FONTS } from './theme'
+import { DUR, EASE, SPRING, after, animate, fullMotion } from './motion'
 
 /**
  * 编辑器分成若干“组”，左右排列，组之间的分隔条可以拖动。
@@ -65,6 +66,18 @@ interface Group {
   editor: monaco.editor.IStandaloneCodeEditor
   /** flex-grow，相对宽度 */
   size: number
+  /** 标签元素按 Item 复用（这样才能做进出场、重排和指示条动画） */
+  tabEls: Map<Item, HTMLElement>
+  /** 活动标签下方滑动的指示条 */
+  ink: HTMLElement
+  inkL: number
+  inkW: number
+  inkOn: boolean
+  /** 上次渲染时的顺序和活动项：没变就只同步样式，不做测量 */
+  lastOrder: Item[]
+  lastActive: Item | null
+  /** 正在播放关闭动画 */
+  closing?: boolean
 }
 
 let tabsEmitQueued = false
@@ -267,7 +280,31 @@ function createGroup(index: number, size = 1): Group {
     html: icons.close,
     onClick: () => removeGroup(g)
   })
-  const g: Group = { id: nextGroupId++, items: [], active: null, el, tabsEl, actionsEl, host, viewHost, dropEl, closeEl, editor, size }
+  const ink = h('span', { class: 'tab-ink', 'aria-hidden': 'true' })
+  tabsEl.append(ink)
+  const g: Group = {
+    id: nextGroupId++,
+    items: [],
+    active: null,
+    el,
+    tabsEl,
+    actionsEl,
+    host,
+    viewHost,
+    dropEl,
+    closeEl,
+    editor,
+    size,
+    tabEls: new Map(),
+    ink,
+    inkL: 0,
+    inkW: 0,
+    inkOn: false,
+    lastOrder: [],
+    lastActive: null
+  }
+  // 标签宽度变化（字体加载、改名、从隐藏恢复）时把指示条贴回去
+  new ResizeObserver(() => placeInk(g, false)).observe(tabsEl)
 
   actionsEl.append(
     h('button', {
@@ -290,11 +327,16 @@ function createGroup(index: number, size = 1): Group {
   })
   editor.onDidFocusEditorText(() => focusGroup(g))
   el.addEventListener('mousedown', () => focusGroup(g), true)
-  setupDrop(g)
 
   groups.splice(index, 0, g)
   layoutGroups()
   applyOptions(g)
+  // 新组从 0 宽“长”出来，旁边的组被平滑挤开
+  if (groups.length > 1 && groupsEl.isConnected) {
+    animate(el, [{ flexGrow: 0, minWidth: '0px', opacity: 0 }, { flexGrow: size, minWidth: '160px', opacity: 1 }], { spring: 'soft' })
+    const sash = el.previousElementSibling ?? el.nextElementSibling
+    if (sash?.classList.contains('group-sash')) animate(sash, [{ opacity: 0 }, { opacity: 1 }], { duration: DUR.md, delay: 80 })
+  }
   return g
 }
 
@@ -302,10 +344,20 @@ function removeGroup(g: Group): void {
   const i = groups.indexOf(g)
   if (i < 0 || groups.length === 1) return
   groups.splice(i, 1)
-  g.editor.dispose()
-  g.el.remove()
   if (activeGroup === g) focusGroup(groups[Math.min(i, groups.length - 1)])
-  layoutGroups()
+  groupsEl.classList.toggle('multi', groups.length > 1)
+  placeTrailing()
+  renderAll()
+  // 收起动画：宽度缩到 0、淡出，旁边的组跟着补位，结束后再真正移除
+  g.closing = true
+  g.el.classList.add('closing')
+  const sash = g.el.previousElementSibling?.classList.contains('group-sash') ? g.el.previousElementSibling : g.el.nextElementSibling
+  const a = animate(g.el, [{ flexGrow: g.size, minWidth: '160px', opacity: 1 }, { flexGrow: 0, minWidth: '0px', opacity: 0 }], { duration: DUR.md, easing: EASE.inOut, fill: 'forwards' })
+  if (sash?.classList.contains('group-sash')) animate(sash, [{ opacity: 1 }, { opacity: 0 }], { duration: DUR.sm, fill: 'forwards' })
+  after(a, () => {
+    g.editor.dispose()
+    if (g.el.parentElement === groupsEl) layoutGroups()
+  })
 }
 
 /** 按顺序排列组，组之间插入可拖动的分隔条 */
@@ -450,8 +502,15 @@ function show(g: Group, it: Item | null, focus = true): void {
   }
   if (focus) focusGroup(g)
   if (g === activeGroup) updateTitle()
+  if (it && it !== prev) revealContent(g, it)
   emit('tabs')
   emit('cursor')
+}
+
+/** 切换标签时内容区的过渡：新内容从下方 6px 淡入 */
+function revealContent(g: Group, it: Item): void {
+  const target = it.type === 'file' ? g.host : g.viewHost
+  animate(target, [{ opacity: 0, transform: 'translateY(6px) scale(0.995)' }, { opacity: 1, transform: 'none' }], { duration: DUR.md, easing: EASE.out })
 }
 
 function revealAt(o: OpenOptions): void {
@@ -687,8 +746,6 @@ export function splitRight(g: Group = activeGroup): void {
   }
 }
 
-let drag: { from: Group; item: Item } | null = null
-
 function moveItem(from: Group, it: Item, to: Group, index?: number): void {
   if (from === to) {
     const i = from.items.indexOf(it)
@@ -721,124 +778,741 @@ function moveItem(from: Group, it: Item, to: Group, index?: number): void {
   if (!from.items.length && groups.length > 1) removeGroup(from)
 }
 
-function setupDrop(g: Group): void {
-  const zoneOf = (e: DragEvent): 'left' | 'right' | 'center' => {
-    const r = g.dropEl.parentElement!.getBoundingClientRect()
-    const x = (e.clientX - r.left) / r.width
-    return x < 0.25 ? 'left' : x > 0.75 ? 'right' : 'center'
+/** 键盘移动当前标签（Ctrl Shift PageUp / PageDown），带重排动画 */
+export function moveActiveTab(dir: 1 | -1): void {
+  const g = activeGroup
+  const it = g.active
+  if (!it || g.items.length < 2) return
+  const i = g.items.indexOf(it)
+  const j = i + dir
+  if (j < 0 || j >= g.items.length) return
+  g.items.splice(i, 1)
+  g.items.splice(j, 0, it)
+  emit('tabs')
+}
+
+/* ---------------- 标签拖动：同组换位 / 跨组移动 / 拖到边缘拆分 ---------------- */
+
+/**
+ * 不用 HTML5 拖放（浏览器生成的半透明截图没法做动画），改为指针事件自己实现：
+ * 1. 按下后移动超过 5px 才开始拖动；被拖的标签“浮起”成一个跟随指针的幽灵标签，原位置留空
+ * 2. 在标签栏里：幽灵锁定在标签栏这一行，其余标签实时让位（transform 平移，弹簧过渡）
+ * 3. 拖出标签栏：幽灵变成可自由移动的卡片，原位置的空隙合拢；
+ *    经过其他组的标签栏时在插入点撑开空隙，经过编辑区时显示左 / 中 / 右三种落点
+ * 4. 松手：幽灵飞到最终位置后消失；拆分时被“吸入”落点区域；Esc 或拖到无效位置则飞回原处
+ */
+
+type DropTarget =
+  | { kind: 'tabs'; g: Group; index: number }
+  | { kind: 'body'; g: Group; zone: 'left' | 'right' | 'center' }
+  | { kind: 'chat'; el: HTMLElement }
+  | null
+
+interface Slot {
+  el: HTMLElement
+  left: number
+  width: number
+}
+
+interface TabDrag {
+  from: Group
+  item: Item
+  src: HTMLElement
+  srcIdx: number
+  ghost: HTMLElement
+  card: HTMLElement
+  w: number
+  h: number
+  grabX: number
+  grabY: number
+  px: number
+  py: number
+  gx: number
+  gy: number
+  vx: number
+  tilt: number
+  target: DropTarget
+  /** 各组标签的原始位置（内容坐标；拖动期间只用 transform 平移，不改布局） */
+  slots: Map<Group, Slot[]>
+  raf: number
+  last: number
+  chatEl: HTMLElement | null
+}
+
+let tabDrag: TabDrag | null = null
+/** 刚放下、正等待幽灵标签飞到位的项：渲染时先隐藏，不播进场动画 */
+let landing: Item | null = null
+let suppressClickUntil = 0
+
+const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v))
+
+/** 指针按下：先“预备”，移动超过阈值才真正开始拖动 */
+function armDrag(g: Group, it: Item, el: HTMLElement, e: PointerEvent): void {
+  if (e.button !== 0 || tabDrag || (e.target as Element).closest('.tab-close')) return
+  const sx = e.clientX
+  const sy = e.clientY
+  const move = (ev: PointerEvent) => {
+    if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < 5) return
+    cleanup()
+    beginDrag(g, it, el, sx, sy, ev)
   }
-  const body = g.dropEl.parentElement!
-  body.addEventListener('dragover', (e) => {
-    if (!drag) return
-    e.preventDefault()
-    g.dropEl.hidden = false
-    g.dropEl.dataset.zone = zoneOf(e)
-  })
-  body.addEventListener('dragleave', (e) => {
-    if (!body.contains(e.relatedTarget as Node)) g.dropEl.hidden = true
-  })
-  body.addEventListener('drop', (e) => {
-    g.dropEl.hidden = true
-    if (!drag) return
-    e.preventDefault()
-    const { from, item } = drag
-    drag = null
-    const zone = zoneOf(e)
-    if (zone === 'center') return moveItem(from, item, g)
-    // 拖到边缘：新建一个组
-    if (from === g && g.items.length === 1) return
-    const ng = createGroup(groups.indexOf(g) + (zone === 'right' ? 1 : 0), g.size / 2)
-    g.size /= 2
-    layoutGroups()
-    moveItem(from, item, ng)
-  })
-  // 拖到标签栏：插到指定位置
-  g.tabsEl.addEventListener('dragover', (e) => {
-    if (!drag) return
-    e.preventDefault()
-  })
-  g.tabsEl.addEventListener('drop', (e) => {
-    if (!drag) return
-    e.preventDefault()
-    const { from, item } = drag
-    drag = null
-    const tabEls = [...g.tabsEl.querySelectorAll<HTMLElement>('.tab')]
-    let index = tabEls.length
-    for (let i = 0; i < tabEls.length; i++) {
-      const r = tabEls[i].getBoundingClientRect()
-      if (e.clientX < r.left + r.width / 2) {
-        index = i
-        break
-      }
+  const cleanup = () => {
+    window.removeEventListener('pointermove', move)
+    window.removeEventListener('pointerup', cleanup)
+    window.removeEventListener('pointercancel', cleanup)
+  }
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', cleanup)
+  window.addEventListener('pointercancel', cleanup)
+}
+
+function beginDrag(g: Group, it: Item, el: HTMLElement, sx: number, sy: number, ev: PointerEvent): void {
+  if (!el.isConnected) return
+  if (g.active !== it) show(g, it, false)
+  const r = el.getBoundingClientRect()
+  const card = el.cloneNode(true) as HTMLElement
+  card.classList.add('on')
+  card.classList.remove('drag-src', 'leaving')
+  card.removeAttribute('tabindex')
+  card.style.width = r.width + 'px'
+  const ghost = h('div', { class: 'tab-ghost', 'aria-hidden': 'true' }, card)
+  ghost.style.transform = `translate(${r.left}px, ${r.top}px)`
+  document.body.append(ghost)
+  el.classList.add('drag-src')
+  document.body.classList.add('dragging-tab')
+  for (const x of groups) x.tabsEl.classList.add('sorting')
+  // 浮起：放大一点、加阴影（CSS 过渡）
+  requestAnimationFrame(() => ghost.classList.add('lifted'))
+
+  tabDrag = {
+    from: g,
+    item: it,
+    src: el,
+    srcIdx: g.items.indexOf(it),
+    ghost,
+    card,
+    w: r.width,
+    h: r.height,
+    grabX: sx - r.left,
+    grabY: sy - r.top,
+    px: ev.clientX,
+    py: ev.clientY,
+    gx: r.left,
+    gy: r.top,
+    vx: 0,
+    tilt: 0,
+    target: null,
+    slots: new Map(),
+    raf: 0,
+    last: performance.now(),
+    chatEl: null
+  }
+  window.addEventListener('pointermove', onDragMove)
+  window.addEventListener('pointerup', onDragUp)
+  window.addEventListener('pointercancel', onDragCancel)
+  window.addEventListener('keydown', onDragKey, true)
+  updateTarget()
+  tabDrag.raf = requestAnimationFrame(tick)
+}
+
+function onDragMove(e: PointerEvent): void {
+  if (!tabDrag) return
+  tabDrag.px = e.clientX
+  tabDrag.py = e.clientY
+  updateTarget()
+}
+
+function onDragUp(): void {
+  endDrag(false)
+}
+function onDragCancel(): void {
+  endDrag(true)
+}
+function onDragKey(e: KeyboardEvent): void {
+  if (e.key !== 'Escape') return
+  e.preventDefault()
+  e.stopPropagation()
+  endDrag(true)
+}
+
+/** 某组标签的原始位置；源组里不含被拖的标签 */
+function slotsOf(d: TabDrag, g: Group): Slot[] {
+  let s = d.slots.get(g)
+  if (!s) {
+    s = g.items
+      .map((x) => g.tabEls.get(x))
+      .filter((el): el is HTMLElement => !!el && el !== d.src)
+      .map((el) => ({ el, left: el.offsetLeft, width: el.offsetWidth }))
+    d.slots.set(g, s)
+  }
+  return s
+}
+
+/** 指针在内容坐标系里的“幽灵中心” → 插入位置（在去掉被拖标签后的列表里） */
+function insertIndex(d: TabDrag, g: Group): number {
+  const r = g.tabsEl.getBoundingClientRect()
+  const cx = d.px - d.grabX + d.w / 2 - r.left + g.tabsEl.scrollLeft
+  let n = 0
+  for (const s of slotsOf(d, g)) {
+    // 源组里排在被拖标签后面的，合拢后的位置要左移一个标签宽
+    const left = g === d.from && s.left > d.src.offsetLeft ? s.left - d.w : s.left
+    if (left + s.width / 2 < cx) n++
+  }
+  return n
+}
+
+function hitTest(d: TabDrag): DropTarget {
+  const { px: x, py: y } = d
+  const live = groups.filter((g) => !g.closing)
+  for (const g of live) {
+    const r = (g.tabsEl.parentElement as HTMLElement).getBoundingClientRect()
+    // 已经在这一行里时上下多给一点容差，避免轻微抖动就“脱出”
+    const tol = d.target?.kind === 'tabs' && d.target.g === g ? 22 : 0
+    if (x >= r.left && x <= r.right && y >= r.top - tol && y <= r.bottom + tol) return { kind: 'tabs', g, index: insertIndex(d, g) }
+  }
+  if (d.item.type === 'file') {
+    for (const box of document.querySelectorAll<HTMLElement>('.chat-box')) {
+      const r = box.getBoundingClientRect()
+      if (r.width && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return { kind: 'chat', el: box }
     }
-    moveItem(from, item, g, index)
-  })
+  }
+  for (const g of live) {
+    const body = g.dropEl.parentElement as HTMLElement
+    const r = body.getBoundingClientRect()
+    if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
+      const fx = (x - r.left) / r.width
+      return { kind: 'body', g, zone: fx < 0.25 ? 'left' : fx > 0.75 ? 'right' : 'center' }
+    }
+  }
+  return null
+}
+
+function updateTarget(): void {
+  const d = tabDrag
+  if (!d) return
+  const t = hitTest(d)
+  d.target = t
+  // 落点区域
+  for (const g of groups) {
+    const on = t?.kind === 'body' && t.g === g
+    if (on) {
+      g.dropEl.hidden = false
+      g.dropEl.dataset.zone = t.zone
+    } else g.dropEl.hidden = true
+  }
+  // 对话输入框：拖进去作为 @引用
+  const chat = t?.kind === 'chat' ? t.el : null
+  if (d.chatEl !== chat) {
+    d.chatEl?.classList.remove('drop')
+    chat?.classList.add('drop')
+    d.chatEl = chat
+  }
+  d.ghost.classList.toggle('free', t?.kind !== 'tabs')
+  applyShifts(d)
+}
+
+/** 根据当前落点，给各组标签设置让位的平移量 */
+function applyShifts(d: TabDrag): void {
+  const t = d.target
+  for (const g of groups) {
+    const isFrom = g === d.from
+    const isTarget = t?.kind === 'tabs' && t.g === g
+    if (!isFrom && !isTarget && !d.slots.has(g)) continue
+    const list = slotsOf(d, g)
+    const srcLeft = isFrom ? d.src.offsetLeft : 0
+    // 源组：拖到别处时空隙合拢；拖到无效区域时保持原位，提示“会回到这里”
+    const away = isFrom && t !== null && !(isTarget && t.kind === 'tabs')
+    for (let k = 0; k < list.length; k++) {
+      const s = list[k]
+      let dx = 0
+      const after = isFrom && s.left > srcLeft
+      if (isTarget && t?.kind === 'tabs') {
+        if (after) dx -= d.w
+        if (k >= t.index) dx += d.w
+      } else if (away && after) dx -= d.w
+      const v = dx ? `translateX(${dx}px)` : ''
+      if (s.el.style.transform !== v) s.el.style.transform = v
+    }
+  }
+}
+
+/** 幽灵标签的目标位置：在标签栏里锁定在这一行，否则自由跟随指针 */
+function ghostGoal(d: TabDrag): { x: number; y: number } {
+  const t = d.target
+  if (t?.kind === 'tabs') {
+    const r = t.g.tabsEl.getBoundingClientRect()
+    return { x: clamp(d.px - d.grabX, r.left - 8, r.right - d.w + 8), y: r.top }
+  }
+  return { x: d.px - d.grabX, y: d.py - d.grabY }
+}
+
+function tick(now: number): void {
+  const d = tabDrag
+  if (!d) return
+  const dt = Math.min(48, now - d.last) || 16.67
+  d.last = now
+  const goal = ghostGoal(d)
+  const smooth = fullMotion()
+  // 与帧率无关的指数平滑：带一点“拖尾”的跟手感
+  const k = smooth ? 1 - Math.pow(1 - 0.42, dt / 16.67) : 1
+  const nx = d.gx + (goal.x - d.gx) * k
+  d.vx = ((nx - d.gx) / dt) * 16.67
+  d.gx = nx
+  d.gy += (goal.y - d.gy) * k
+  // 横向速度带来轻微倾斜，像被拎着的卡片
+  const free = d.target?.kind !== 'tabs'
+  const tiltGoal = smooth ? clamp(d.vx * (free ? 0.5 : 0.25), free ? -8 : -3, free ? 8 : 3) : 0
+  d.tilt += (tiltGoal - d.tilt) * (smooth ? 0.18 : 1)
+  d.ghost.style.transform = `translate(${d.gx}px, ${d.gy}px) rotate(${d.tilt.toFixed(2)}deg)`
+
+  // 贴近标签栏两端时自动滚动
+  const t = d.target
+  if (t?.kind === 'tabs') {
+    const el = t.g.tabsEl
+    const r = el.getBoundingClientRect()
+    const edge = 40
+    let v = 0
+    if (d.px < r.left + edge) v = -Math.ceil((r.left + edge - d.px) / 4)
+    else if (d.px > r.right - edge) v = Math.ceil((d.px - (r.right - edge)) / 4)
+    if (v && el.scrollWidth > el.clientWidth) {
+      const before = el.scrollLeft
+      el.scrollLeft += v
+      if (el.scrollLeft !== before) updateTarget()
+    }
+  }
+  d.raf = requestAnimationFrame(tick)
+}
+
+/** 幽灵标签飞到某个元素的位置后消失，元素随即显示 */
+function landGhost(d: TabDrag, el: HTMLElement | null): void {
+  const ghost = d.ghost
+  const from = ghost.style.transform
+  ghost.classList.remove('free', 'lifted')
+  const done = () => {
+    ghost.remove()
+    if (el) {
+      el.classList.remove('drag-src')
+      // 落定时轻轻“按下去”一下
+      animate(el, [{ transform: 'translateY(-3px)' }, { transform: 'none' }], { spring: 'bouncy' })
+    }
+    if (landing === d.item) landing = null
+  }
+  if (!el || !el.isConnected) {
+    after(animate(ghost, [{ transform: from, opacity: 1 }, { transform: from + ' scale(0.9)', opacity: 0 }], { duration: DUR.sm, fill: 'forwards' }), done)
+    return
+  }
+  // 量最终落点前停掉它身上残留的位移动画，保证量到的是真实位置
+  for (const an of el.getAnimations()) an.cancel()
+  el.style.transform = ''
+  const r = el.getBoundingClientRect()
+  const to = `translate(${r.left}px, ${r.top}px) rotate(0deg)`
+  ghost.style.transform = to
+  after(animate(ghost, [{ transform: from }, { transform: to }], { spring: 'snappy' }), done)
+}
+
+/** 幽灵被“吸入”某个区域（拆分落点、对话输入框） */
+function absorbGhost(d: TabDrag, into: HTMLElement): void {
+  const ghost = d.ghost
+  const from = ghost.style.transform
+  const r = into.getBoundingClientRect()
+  const to = `translate(${r.left + r.width / 2 - d.w / 2}px, ${r.top + r.height / 2 - d.h / 2}px) scale(0.55)`
+  ghost.classList.remove('lifted')
+  after(animate(ghost, [{ transform: from, opacity: 1 }, { transform: to, opacity: 0 }], { duration: DUR.md, easing: EASE.in, fill: 'forwards' }), () => ghost.remove())
+}
+
+/**
+ * 让位平移回到 0。animated 为 true（取消拖动）时平滑回位；
+ * 否则只关掉过渡，平移量留给接下来的重新渲染去清（它会先测量当前视觉位置再做 FLIP，画面不跳）。
+ */
+function resetShifts(d: TabDrag, animated: boolean): void {
+  for (const g of groups) {
+    if (animated) {
+      for (const s of d.slots.get(g) ?? []) s.el.style.transform = ''
+      setTimeout(() => !tabDrag && g.tabsEl.classList.remove('sorting'), SPRING.snappy.duration)
+    } else g.tabsEl.classList.remove('sorting')
+  }
+}
+
+/** 提交之后：没被重新渲染到的标签（极少见）直接清掉平移 */
+function clearShifts(d: TabDrag): void {
+  for (const list of d.slots.values()) for (const s of list) if (s.el.style.transform) s.el.style.transform = ''
+}
+
+function endDrag(cancel: boolean): void {
+  const d = tabDrag
+  if (!d) return
+  tabDrag = null
+  cancelAnimationFrame(d.raf)
+  window.removeEventListener('pointermove', onDragMove)
+  window.removeEventListener('pointerup', onDragUp)
+  window.removeEventListener('pointercancel', onDragCancel)
+  window.removeEventListener('keydown', onDragKey, true)
+  document.body.classList.remove('dragging-tab')
+  d.chatEl?.classList.remove('drop')
+  suppressClickUntil = performance.now() + 80
+  const zoneEl = d.target?.kind === 'body' ? d.target.g.dropEl : null
+  for (const g of groups) if (g.dropEl !== zoneEl) g.dropEl.hidden = true
+  if (zoneEl) {
+    // 落点区域闪一下再消失
+    zoneEl.classList.add('accept')
+    after(animate(zoneEl, [{ opacity: 1 }, { opacity: 0 }], { duration: DUR.md, delay: 60, fill: 'forwards' }), () => {
+      zoneEl.classList.remove('accept')
+      zoneEl.hidden = true
+    })
+  }
+
+  const { from, item } = d
+  const t = cancel ? null : d.target
+  const goHome = () => {
+    resetShifts(d, true)
+    landGhost(d, d.src)
+  }
+  // 源组可能已经没了（极少见）
+  if (!groups.includes(from) || !from.items.includes(item)) {
+    resetShifts(d, false)
+    clearShifts(d)
+    d.src.classList.remove('drag-src')
+    d.ghost.remove()
+    return
+  }
+
+  if (!t) return goHome()
+  try {
+    commitDrop(d, t)
+  } finally {
+    clearShifts(d)
+  }
+}
+
+function commitDrop(d: TabDrag, t: Exclude<DropTarget, null>): void {
+  const { from, item } = d
+  const goHome = () => {
+    resetShifts(d, true)
+    landGhost(d, d.src)
+  }
+
+  if (t.kind === 'chat') {
+    resetShifts(d, true)
+    d.src.classList.remove('drag-src')
+    absorbGhost(d, t.el)
+    if (item.type === 'file') t.el.dispatchEvent(new CustomEvent('tab-drop', { detail: { path: item.doc.path } }))
+    return
+  }
+
+  if (t.kind === 'tabs') {
+    if (t.g === from) {
+      if (t.index === d.srcIdx) return goHome()
+      resetShifts(d, false)
+      landing = item
+      from.items.splice(d.srcIdx, 1)
+      from.items.splice(t.index, 0, item)
+      show(from, item)
+      landGhost(d, from.tabEls.get(item) ?? null)
+      return
+    }
+    resetShifts(d, false)
+    landing = item
+    moveItem(from, item, t.g, t.index)
+    const el = t.g.tabEls.get(item) ?? (t.g.active ? t.g.tabEls.get(t.g.active) : undefined) ?? null
+    landGhost(d, el)
+    return
+  }
+
+  // 拖到编辑区
+  if (t.zone === 'center') {
+    if (t.g === from) {
+      resetShifts(d, true)
+      landGhost(d, d.src)
+      return
+    }
+    resetShifts(d, false)
+    landing = item
+    moveItem(from, item, t.g)
+    landGhost(d, t.g.tabEls.get(item) ?? (t.g.active ? t.g.tabEls.get(t.g.active) : undefined) ?? null)
+    return
+  }
+  if (t.g === from && from.items.length === 1) return goHome()
+  resetShifts(d, false)
+  absorbGhost(d, t.g.dropEl)
+  const ng = createGroup(groups.indexOf(t.g) + (t.zone === 'right' ? 1 : 0), t.g.size / 2)
+  t.g.size /= 2
+  layoutGroups()
+  moveItem(from, item, ng)
 }
 
 /* ---------------- 标签栏渲染 ---------------- */
 
+const flipAnims = new WeakMap<Element, Animation>()
+const inkAnims = new WeakMap<Group, Animation>()
+
+function createTabEl(g: Group, it: Item): HTMLElement {
+  const isFile = it.type === 'file'
+  const close = h(
+    'button',
+    {
+      class: 'tab-close',
+      html: icons.close,
+      onClick: (e: MouseEvent) => {
+        e.stopPropagation()
+        closeItem(g, it)
+      }
+    },
+    h('span', { class: 'tab-dot', title: '未保存' })
+  )
+  const el = h(
+    'div',
+    {
+      class: 'tab' + (!isFile && it.spec.kind ? ` kind-${it.spec.kind}` : ''),
+      role: 'tab',
+      tabindex: '0',
+      onClick: () => performance.now() > suppressClickUntil && show(g, it),
+      onAuxclick: (e: MouseEvent) => e.button === 1 && closeItem(g, it),
+      onKeydown: (e: KeyboardEvent) => e.key === 'Enter' && show(g, it),
+      onPointerdown: (e: PointerEvent) => armDrag(g, it, el, e),
+      onContextmenu: (e: MouseEvent) => {
+        e.preventDefault()
+        showMenu(e.clientX, e.clientY, [
+          { label: '关闭', key: 'Ctrl W', run: () => closeItem(g, it) },
+          { label: '关闭其他', disabled: g.items.length < 2, run: () => closeOthers(g, it) },
+          'sep',
+          { label: '向左移动', key: 'Ctrl Shift PgUp', disabled: g.items.indexOf(it) <= 0, run: () => (show(g, it), moveActiveTab(-1)) },
+          { label: '向右移动', key: 'Ctrl Shift PgDn', disabled: g.items.indexOf(it) >= g.items.length - 1, run: () => (show(g, it), moveActiveTab(1)) },
+          'sep',
+          { label: '向右拆分', key: 'Ctrl \\', run: () => (show(g, it), splitRight(g)) }
+        ])
+      }
+    },
+    !isFile && it.spec.icon ? h('span', { class: 'tab-icon', html: it.spec.icon }) : null,
+    h('span', { class: 'tab-name' }),
+    close
+  )
+  return el
+}
+
+/** 同步标签的状态样式；标题变了返回 true（宽度可能变化） */
+function syncTab(g: Group, it: Item, el: HTMLElement): boolean {
+  const isFile = it.type === 'file'
+  const title = isFile ? basename(it.doc.path) : it.spec.title
+  const on = it === g.active
+  el.classList.toggle('on', on)
+  el.classList.toggle('dirty', isFile && isDirty(it.doc))
+  el.setAttribute('aria-selected', String(on))
+  const tip = isFile ? it.doc.path : (it.spec.path ?? it.spec.title)
+  if (el.title !== tip) el.title = tip
+  const name = el.querySelector('.tab-name')!
+  if (name.textContent === title) return false
+  name.textContent = title
+  el.querySelector('.tab-close')!.setAttribute('aria-label', `关闭 ${title}`)
+  return true
+}
+
+/** 把指示条移到目标位置。距离较远时先“拉长”覆盖两端，再收缩到目标（像液体一样流过去） */
+function moveInk(g: Group, target: { l: number; w: number } | null, anim: boolean): void {
+  const ink = g.ink
+  if (!target) {
+    if (g.inkOn) ink.classList.remove('show')
+    g.inkOn = false
+    return
+  }
+  let fromL = g.inkL
+  let fromW = g.inkW
+  const running = inkAnims.get(g)
+  if (running && running.playState === 'running') {
+    const cs = getComputedStyle(ink)
+    fromL = new DOMMatrixReadOnly(cs.transform === 'none' ? undefined : cs.transform).m41
+    fromW = parseFloat(cs.width) || fromW
+  }
+  running?.cancel()
+  inkAnims.delete(g)
+  const wasOn = g.inkOn
+  ink.style.transform = `translateX(${target.l}px)`
+  ink.style.width = target.w + 'px'
+  ink.classList.add('show')
+  g.inkOn = true
+  g.inkL = target.l
+  g.inkW = target.w
+  if (!wasOn) {
+    animate(ink, [{ transform: `translateX(${target.l}px) scaleX(0.2)` }, { transform: `translateX(${target.l}px)` }], { spring: 'bouncy' })
+    return
+  }
+  if (!anim || !fullMotion() || (Math.abs(fromL - target.l) < 0.5 && Math.abs(fromW - target.w) < 0.5)) return
+  const spanL = Math.min(fromL, target.l)
+  const spanR = Math.max(fromL + fromW, target.l + target.w)
+  const stretch = 110
+  const settle = Math.round(SPRING.snappy.duration * 0.85)
+  const a = ink.animate(
+    [
+      { transform: `translateX(${fromL}px)`, width: fromW + 'px', easing: 'cubic-bezier(0.4, 0, 0.7, 0.4)' },
+      { transform: `translateX(${spanL}px)`, width: spanR - spanL + 'px', offset: stretch / (stretch + settle), easing: SPRING.snappy.easing },
+      { transform: `translateX(${target.l}px)`, width: target.w + 'px' }
+    ],
+    { duration: stretch + settle }
+  )
+  inkAnims.set(g, a)
+}
+
+/** 按当前布局重新放置指示条（ResizeObserver、改名后） */
+function placeInk(g: Group, anim: boolean): void {
+  const el = g.active ? g.tabEls.get(g.active) : undefined
+  if (!el?.isConnected || g.tabsEl.offsetParent === null || el.classList.contains('drag-src')) {
+    if (!el) moveInk(g, null, false)
+    return
+  }
+  moveInk(g, { l: el.offsetLeft, w: el.offsetWidth }, anim)
+}
+
+/** 活动标签被挡住时平滑滚动到可见 */
+function revealTab(g: Group, l: number, w: number): void {
+  const s = g.tabsEl
+  const pad = 24
+  if (l < s.scrollLeft + pad) s.scrollTo({ left: Math.max(0, l - pad), behavior: fullMotion() ? 'smooth' : 'auto' })
+  else if (l + w > s.scrollLeft + s.clientWidth - pad) s.scrollTo({ left: l + w - s.clientWidth + pad, behavior: fullMotion() ? 'smooth' : 'auto' })
+}
+
 function renderGroup(g: Group): void {
   g.el.classList.toggle('empty', g.items.length === 0)
   g.closeEl.hidden = g.items.length > 0 || groups.length < 2
-  g.tabsEl.replaceChildren(
-    ...g.items.map((it) => {
-      const isFile = it.type === 'file'
-      const title = isFile ? basename(it.doc.path) : it.spec.title
-      const dirty = isFile && isDirty(it.doc)
-      const on = it === g.active
-      const el = h(
-        'div',
-        {
-          class: 'tab' + (on ? ' on' : '') + (dirty ? ' dirty' : '') + (!isFile && it.spec.kind ? ` kind-${it.spec.kind}` : ''),
-          role: 'tab',
-          tabindex: '0',
-          draggable: 'true',
-          'aria-selected': String(on),
-          title: isFile ? it.doc.path : (it.spec.path ?? it.spec.title),
-          onClick: () => show(g, it),
-          onAuxclick: (e: MouseEvent) => e.button === 1 && closeItem(g, it),
-          onKeydown: (e: KeyboardEvent) => e.key === 'Enter' && show(g, it),
-          onContextmenu: (e: MouseEvent) => {
-            e.preventDefault()
-            showMenu(e.clientX, e.clientY, [
-              { label: '关闭', key: 'Ctrl W', run: () => closeItem(g, it) },
-              { label: '关闭其他', disabled: g.items.length < 2, run: () => closeOthers(g, it) },
-              'sep',
-              { label: '向右拆分', key: 'Ctrl \\', run: () => (show(g, it), splitRight(g)) }
-            ])
-          },
-          onDragstart: (e: DragEvent) => {
-            drag = { from: g, item: it }
-            e.dataTransfer!.effectAllowed = 'move'
-            e.dataTransfer!.setData('text/plain', title)
-            document.body.classList.add('dragging-tab')
-          },
-          onDragend: () => {
-            drag = null
-            document.body.classList.remove('dragging-tab')
-            for (const x of groups) x.dropEl.hidden = true
-          }
-        },
-        !isFile && it.spec.icon ? h('span', { class: 'tab-icon', html: it.spec.icon }) : null,
-        h('span', { class: 'tab-name' }, title),
-        h(
-          'button',
-          {
-            class: 'tab-close',
-            'aria-label': `关闭 ${title}`,
-            html: icons.close,
-            onClick: (e: MouseEvent) => {
-              e.stopPropagation()
-              closeItem(g, it)
-            }
-          },
-          h('span', { class: 'tab-dot', title: '未保存' })
-        )
-      )
-      return el
+
+  // 顺序和活动项都没变（最常见：输入时刷新“未保存”标记）：只同步样式，不碰布局
+  const same = g.active === g.lastActive && g.items.length === g.lastOrder.length && g.items.every((x, i) => x === g.lastOrder[i])
+  if (same) {
+    let resized = false
+    for (const it of g.items) {
+      const el = g.tabEls.get(it)
+      if (el && syncTab(g, it, el)) resized = true
+    }
+    if (resized) placeInk(g, true)
+    return
+  }
+  const prevActive = g.lastActive
+  g.lastOrder = [...g.items]
+  g.lastActive = g.active
+  const motion = fullMotion() && g.tabsEl.offsetParent !== null
+
+  // 1. 记下现有标签的位置（含正在进行的位移），并停掉上一轮的重排动画
+  const first = new Map<HTMLElement, DOMRect>()
+  if (motion) {
+    for (const el of g.tabEls.values()) if (!el.classList.contains('leaving')) first.set(el, el.getBoundingClientRect())
+    for (const el of first.keys()) {
+      flipAnims.get(el)?.cancel()
+      flipAnims.delete(el)
+    }
+  }
+
+  // 2. 离开的标签：已经被拖走的直接移除，其余播放收起动画
+  const live = new Set(g.items)
+  const leavingNow: HTMLElement[] = []
+  for (const [it, el] of [...g.tabEls]) {
+    if (live.has(it)) continue
+    g.tabEls.delete(it)
+    if (!motion || el.classList.contains('drag-src')) el.remove()
+    else {
+      el.classList.add('leaving')
+      leavingNow.push(el)
+    }
+  }
+  const entering: HTMLElement[] = []
+  const desired = g.items.map((it) => {
+    let el = g.tabEls.get(it)
+    if (!el) {
+      el = createTabEl(g, it)
+      g.tabEls.set(it, el)
+      if (it === landing) el.classList.add('drag-src')
+      else if (motion) entering.push(el)
+    }
+    syncTab(g, it, el)
+    el.style.transform = ''
+    return el
+  })
+
+  // 3. 排列 DOM：离开中的标签留在原位（挂在它前面那个仍存在的标签后面）
+  const desiredSet = new Set(desired)
+  const anchors: [HTMLElement, HTMLElement | null][] = []
+  let prev: HTMLElement | null = null
+  for (const c of Array.from(g.tabsEl.children) as HTMLElement[]) {
+    if (c.classList.contains('leaving')) anchors.push([c, prev])
+    else if (desiredSet.has(c)) prev = c
+  }
+  const order: HTMLElement[] = anchors.filter(([, a]) => a === null).map(([l]) => l)
+  for (const el of desired) {
+    order.push(el)
+    for (const [l, a] of anchors) if (a === el) order.push(l)
+  }
+  let ref: ChildNode | null = g.tabsEl.firstChild
+  for (const el of order) {
+    if (ref === el) {
+      ref = el.nextSibling
+      continue
+    }
+    g.tabsEl.insertBefore(el, ref)
+  }
+
+  // 4. 在最终布局下（不算离开中的标签）测量指示条的目标位置
+  const activeEl = g.active ? g.tabEls.get(g.active) : undefined
+  let inkTarget: { l: number; w: number } | null = null
+  if (activeEl && g.tabsEl.offsetParent !== null) {
+    const leaving = anchors.map(([l]) => l)
+    for (const l of leaving) l.style.display = 'none'
+    inkTarget = { l: activeEl.offsetLeft, w: activeEl.offsetWidth }
+    for (const l of leaving) l.style.display = ''
+  }
+
+  // 5. 进场：宽度从 0 长出来，内容从下方浮起；离场：宽度收到 0
+  for (const el of leavingNow) {
+    const cs = getComputedStyle(el)
+    const a = animate(
+      el,
+      [
+        { width: el.offsetWidth + 'px', paddingLeft: cs.paddingLeft, paddingRight: cs.paddingRight, opacity: 1 },
+        { width: '0px', paddingLeft: '0px', paddingRight: '0px', opacity: 0 }
+      ],
+      { duration: DUR.sm + 40, easing: EASE.inOut, fill: 'forwards' }
+    )
+    after(a, () => {
+      el.remove()
+      placeInk(g, true)
     })
-  )
+  }
+  for (const el of entering) {
+    const cs = getComputedStyle(el)
+    el.classList.add('entering')
+    const a = animate(
+      el,
+      [
+        { width: '0px', paddingLeft: '0px', paddingRight: '0px', opacity: 0 },
+        { width: el.offsetWidth + 'px', paddingLeft: cs.paddingLeft, paddingRight: cs.paddingRight, opacity: 1 }
+      ],
+      { spring: 'soft' }
+    )
+    // 连续打开多个标签时，前面的标签还在“长”，测到的位置会偏；长完后再校准一次指示条
+    after(a, () => {
+      el.classList.remove('entering')
+      placeInk(g, true)
+    })
+    Array.from(el.children).forEach((c, i) => animate(c, [{ opacity: 0, transform: 'translateY(9px)' }, { opacity: 1, transform: 'none' }], { duration: DUR.md, delay: 50 + i * 30 }))
+  }
+
+  // 6. FLIP：位置变了的标签从旧位置滑到新位置
+  if (motion) {
+    for (const [el, a] of first) {
+      // 被拖的标签由幽灵负责飞过去，不能再给它做 FLIP（否则幽灵会量到旧位置）
+      if (!el.isConnected || el.classList.contains('leaving') || el.classList.contains('drag-src')) continue
+      const b = el.getBoundingClientRect()
+      const dx = a.left - b.left
+      if (Math.abs(dx) < 0.5) continue
+      const an = animate(el, [{ transform: `translateX(${dx}px)` }, { transform: 'none' }], { spring: 'snappy' })
+      if (an) flipAnims.set(el, an)
+    }
+  }
+
+  // 7. 指示条和滚动
+  if (activeEl?.classList.contains('drag-src')) {
+    // 幽灵还在飞，指示条直接就位、等它落下
+    moveInk(g, inkTarget, false)
+  } else moveInk(g, inkTarget, prevActive !== null)
+  if (inkTarget && g.active !== prevActive) revealTab(g, inkTarget.l, inkTarget.w)
 }
+
 
 function renderAll(): void {
   groups.forEach(renderGroup)

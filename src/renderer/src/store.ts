@@ -79,6 +79,7 @@ export async function loadSettings(): Promise<void> {
     agentModes: s.agentModes && typeof s.agentModes === 'object' ? { ...s.agentModes } : {},
     agentPrefs: s.agentPrefs && typeof s.agentPrefs === 'object' ? { ...s.agentPrefs } : {},
     agentContext: s.agentContext !== false,
+    motion: s.motion === 'reduced' || s.motion === 'off' ? s.motion : 'full',
     plugins:
       s.plugins && typeof s.plugins === 'object'
         ? Object.fromEntries(Object.entries(s.plugins).filter(([, v]) => typeof v === 'boolean'))

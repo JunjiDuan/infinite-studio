@@ -37,6 +37,8 @@ export interface Settings {
   agentContext?: boolean
   /** 插件 id → 是否启用（未记录视为启用） */
   plugins?: Record<string, boolean>
+  /** 动效强度：完整 / 简约（只淡入淡出）/ 关闭 */
+  motion?: 'full' | 'reduced' | 'off'
 }
 
 export interface DirEntry {

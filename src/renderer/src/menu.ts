@@ -6,7 +6,12 @@ let current: HTMLElement | null = null
 let onCurrentClose: (() => void) | null = null
 
 export function closeMenu(): void {
-  current?.remove()
+  const el = current
+  if (el) {
+    // 先淡出再移除；动效关闭时 transitionend 不会触发，用定时器兜底
+    el.classList.add('leaving')
+    setTimeout(() => el.remove(), 140)
+  }
   current = null
   const cb = onCurrentClose
   onCurrentClose = null

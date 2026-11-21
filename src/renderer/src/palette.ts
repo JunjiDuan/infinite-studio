@@ -84,7 +84,11 @@ export function isPaletteOpen(): boolean {
 }
 
 export function closePalette(): void {
-  backdrop?.remove()
+  const el = backdrop
+  if (el) {
+    el.classList.add('leaving')
+    setTimeout(() => el.remove(), 200)
+  }
   backdrop = null
 }
 
@@ -118,6 +122,9 @@ export async function openPalette(initial = ''): Promise<void> {
   )
   backdrop = h('div', { class: 'palette-backdrop', onMousedown: (e: MouseEvent) => e.target === backdrop && done() }, panel)
   document.body.append(backdrop)
+  // 只有刚打开时列表依次浮现，之后输入过滤不再重播
+  list.classList.add('fresh')
+  setTimeout(() => list.classList.remove('fresh'), 450)
   input.focus()
   input.setSelectionRange(input.value.length, input.value.length)
 

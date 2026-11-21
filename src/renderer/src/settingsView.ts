@@ -4,6 +4,13 @@ import { icons } from './icons'
 import { monaco } from './monaco'
 import { MAX_SIZE, MIN_SIZE, PRESETS, emit, on, persist, sameLook, sanitizeSpace, setSpace, state } from './store'
 import { ACCENTS, FONTS, THEMES, readableAccent } from './theme'
+import { fullMotion, setMotionLevel, viewTransition, type MotionLevel } from './motion'
+
+const MOTION_OPTS: [MotionLevel, string, string][] = [
+  ['full', '完整', '弹簧、位移、拖拽物理感'],
+  ['reduced', '简约', '只保留淡入淡出'],
+  ['off', '关闭', '所有变化立即生效']
+]
 
 let page: HTMLElement | null = null
 let host: HTMLElement
@@ -30,8 +37,12 @@ export function isSettingsOpen(): boolean {
   return page !== null && !page.hidden
 }
 
+let closeTimer: ReturnType<typeof setTimeout> | undefined
+
 export function openSettings(): void {
   if (!page) build()
+  clearTimeout(closeTimer)
+  page!.classList.remove('leaving')
   page!.hidden = false
   sync()
   requestAnimationFrame(() => preview?.layout())
@@ -39,8 +50,13 @@ export function openSettings(): void {
 }
 
 export function closeSettings(): void {
-  if (!page || page.hidden) return
-  page.hidden = true
+  if (!page || page.hidden || page.classList.contains('leaving')) return
+  const el = page
+  el.classList.add('leaving')
+  closeTimer = setTimeout(() => {
+    el.hidden = true
+    el.classList.remove('leaving')
+  }, fullMotion() ? 180 : 0)
   onClose()
 }
 
@@ -52,7 +68,18 @@ function section(title: string, ...body: (Node | null)[]): HTMLElement {
 function option<K extends keyof Space>(key: K, value: Space[K], cls: string, ...children: (Node | string)[]): HTMLButtonElement {
   return h(
     'button',
-    { class: 'opt ' + cls, 'data-k': key, 'data-v': String(value), 'aria-pressed': 'false', onClick: () => setSpace({ [key]: value } as Partial<Space>) },
+    {
+      class: 'opt ' + cls,
+      'data-k': key,
+      'data-v': String(value),
+      'aria-pressed': 'false',
+      onClick: (e: MouseEvent) => {
+        const patch = { [key]: value } as Partial<Space>
+        // 换主题：新配色从点击处圆形扩散开
+        if (key === 'theme' && state.settings.space.theme !== value) viewTransition(() => setSpace(patch), { reveal: { x: e.clientX, y: e.clientY } })
+        else setSpace(patch)
+      }
+    },
     ...children
   )
 }
@@ -174,7 +201,33 @@ function build(): void {
     section('强调色 · 整个界面只有这一种颜色', accents),
     section('代码字体', fonts, h('div', { class: 'size-row' }, h('label', { for: 'font-size' }, '字号'), sizeInput, sizeLabel)),
     section('布局', layouts),
-    section('编辑器', h('label', { class: 'check-row', for: 'word-wrap' }, wrapInput, h('span', {}, '自动换行'), h('span', { class: 'muted' }, 'Alt Z')))
+    section('编辑器', h('label', { class: 'check-row', for: 'word-wrap' }, wrapInput, h('span', {}, '自动换行'), h('span', { class: 'muted' }, 'Alt Z'))),
+    section(
+      '动效',
+      h(
+        'div',
+        { class: 'grid3' },
+        ...MOTION_OPTS.map(([lv, label, sub]) =>
+          h(
+            'button',
+            {
+              class: 'opt motion-opt',
+              'data-motion': lv,
+              'aria-pressed': 'false',
+              onClick: () => {
+                state.settings.motion = lv
+                setMotionLevel(lv)
+                persist()
+                sync()
+              }
+            },
+            h('span', { class: 'opt-label' }, label),
+            h('span', { class: 'opt-sub' }, sub)
+          )
+        )
+      ),
+      h('p', { class: 'muted small' }, '系统开启“减少动态效果”时，完整档会自动降为简约。')
+    )
   )
 
   previewFrame = h('div', { class: 'preview-frame' })
@@ -319,6 +372,7 @@ function sync(): void {
   sizeLabel.textContent = `${s.size}px`
   customColor.value = s.accent.toLowerCase()
   wrapInput.checked = state.settings.wordWrap
+  page.querySelectorAll<HTMLElement>('.motion-opt').forEach((el) => el.setAttribute('aria-pressed', String(el.dataset.motion === (state.settings.motion ?? 'full'))))
   const isCustom = !ACCENTS.some((a) => a.hex === s.accent)
   customColor.parentElement!.classList.toggle('on', isCustom)
 

@@ -328,7 +328,12 @@ class ChatView implements ChatHost {
           }
         },
         onDragleave: () => this.boxEl.classList.remove('drop'),
-        onDrop: (e: DragEvent) => this.onDrop(e)
+        onDrop: (e: DragEvent) => this.onDrop(e),
+        // 编辑器标签拖进来：作为 @引用插入
+        'onTab-drop': (e: CustomEvent<{ path: string }>) => {
+          this.insertMention(e.detail.path)
+          this.input.focus()
+        }
       },
       this.popupEl,
       this.attachEl,

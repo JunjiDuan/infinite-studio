@@ -8,6 +8,7 @@ import '@fontsource/ibm-plex-mono/600.css'
 import '@fontsource/space-mono/400.css'
 import '@fontsource/space-mono/700.css'
 import './styles.css'
+import './motion.css'
 
 import type { ThemeId } from '../../shared/types'
 import { registerCommands } from './commands'
@@ -26,6 +27,7 @@ import {
   getEditor,
   hasItems,
   initEditor,
+  moveActiveTab,
   openFile,
   problemCount,
   recentFile,
@@ -46,6 +48,7 @@ import { closePalette, invalidateFiles, isPaletteOpen, openPalette } from './pal
 import { closeSettings, initSettings, isSettingsOpen, openSettings } from './settingsView'
 import { PRESETS, type SideView, emit, isFocus, isRailVisible, isSidebarVisible, loadSettings, on, persist, setSpace, state } from './store'
 import { THEMES, applyCssVars } from './theme'
+import { collapse, installRipples, setMotionLevel, viewTransition, type MotionLevel } from './motion'
 import { debugRequest, initLsp, isProbe, lspStatus, refreshProbe, restartLsp, setLspRoot } from './lsp'
 import { createPanel, newTerminal, togglePanel } from './panel'
 import { initPreview, zoomPreviewAt } from './preview'
@@ -204,9 +207,11 @@ const railFiles = h('button', { class: 'rail-btn', 'aria-label': '文件 (Ctrl B
 const railSearch = h('button', { class: 'rail-btn', 'aria-label': '在文件中搜索 (Ctrl Shift F)', title: '搜索 Ctrl Shift F', html: icons.search, onClick: () => showSideView('search', true) })
 const railScm = h('button', { class: 'rail-btn', 'aria-label': '源代码管理 (Ctrl Shift G)', title: '源代码管理 Ctrl Shift G', html: icons.git, onClick: () => showSideView('scm', true) })
 const railPlugins = h('button', { class: 'rail-btn', 'aria-label': '插件', title: '插件', html: icons.plugin, onClick: () => showSideView('plugins', true) })
+const railInk = h('span', { class: 'rail-ink', 'aria-hidden': 'true' })
 const rail = h(
   'nav',
   { class: 'rail', 'aria-label': '活动栏' },
+  railInk,
   railFiles,
   railSearch,
   railScm,
@@ -223,7 +228,8 @@ const sideSash = h('div', { class: 'side-sash', role: 'separator', 'aria-orienta
 const emptyHint = h('div', { class: 'empty-hint' })
 const welcome = h('div', { class: 'welcome' })
 const editorWrap = h('div', { class: 'editor-wrap' }, emptyHint)
-const editorArea = h('main', { class: 'editor-area' }, editorWrap, createPanel())
+const panelEl = createPanel()
+const editorArea = h('main', { class: 'editor-area' }, editorWrap, panelEl)
 
 const stBranch = h('span', { class: 'st-item' })
 const stProblems = h('span', { class: 'st-item' })
@@ -268,7 +274,13 @@ function renderThemeDots(): void {
     ...(Object.keys(THEMES) as ThemeId[]).map((id) =>
       h(
         'button',
-        { class: 'theme-dot' + (id === cur ? ' on' : ''), 'aria-label': THEMES[id].label, 'aria-pressed': String(id === cur), title: THEMES[id].label, onClick: () => setSpace({ theme: id }) },
+        {
+          class: 'theme-dot' + (id === cur ? ' on' : ''),
+          'aria-label': THEMES[id].label,
+          'aria-pressed': String(id === cur),
+          title: THEMES[id].label,
+          onClick: (e: MouseEvent) => switchTheme(id, e)
+        },
         h('span', { style: { background: THEMES[id].swatch } })
       )
     )
@@ -315,8 +327,8 @@ function renderWelcome(): void {
             'div',
             { class: 'recents' },
             h('h2', {}, '最近打开'),
-            ...recents.map((p) =>
-              h('button', { class: 'recent', title: p, onClick: () => openFolder(p) }, h('span', { class: 'ic', html: icons.folder }), h('span', { class: 'r-name' }, basename(p)), h('span', { class: 'r-path' }, p))
+            ...recents.map((p, i) =>
+              h('button', { class: 'recent', title: p, style: { '--i': String(i) }, onClick: () => openFolder(p) }, h('span', { class: 'ic', html: icons.folder }), h('span', { class: 'r-name' }, basename(p)), h('span', { class: 'r-path' }, p))
             )
           )
         : null
@@ -349,20 +361,74 @@ function renderStatus(): void {
   stSpace.replaceChildren(h('span', { class: 'dot' }), `空间 · ${state.settings.space.name}`)
 }
 
+/** 上一次布局的状态：只有真正变化时才播放展开 / 收起动画 */
+let shown = { side: false, panel: false, focus: false, welcome: true, booted: false }
+/** 正在拖动侧栏分隔条：这时显示 / 隐藏不做动画 */
+let sashDragging = false
+
 function applyLayout(): void {
   const welcomeMode = !state.root && !hasItems()
-  app.classList.toggle('focus', isFocus() && !welcomeMode)
-  app.classList.toggle('no-rail', !isRailVisible() && !welcomeMode)
-  app.classList.toggle('no-side', !isSidebarVisible())
-  app.classList.toggle('welcome-mode', welcomeMode)
-  app.classList.toggle('panel-open', state.panelOpen)
-  sidebar.dataset.view = state.sideView
-  railFiles.classList.toggle('on', isSidebarVisible() && state.sideView === 'files')
-  railSearch.classList.toggle('on', isSidebarVisible() && state.sideView === 'search')
-  railScm.classList.toggle('on', isSidebarVisible() && state.sideView === 'scm')
-  railPlugins.classList.toggle('on', isSidebarVisible() && state.sideView === 'plugins')
+  const focus = isFocus() && !welcomeMode
+  const side = isSidebarVisible()
+  const panel = state.panelOpen
+  // 整体模式切换（专注、欢迎页）时不叠加局部动画
+  const anim = shown.booted && !sashDragging && focus === shown.focus && welcomeMode === shown.welcome
   sidebar.style.width = `${state.settings.sidebarWidth ?? SIDE_DEFAULT}px`
+  sidebar.style.setProperty('--side-w', sidebar.style.width)
+  // 收起：要在隐藏之前测量尺寸
+  if (anim && shown.side && !side) collapse(sidebar, 'width', false)
+  if (anim && shown.panel && !panel) collapse(panelEl, 'height', false)
+  app.classList.toggle('focus', focus)
+  app.classList.toggle('no-rail', !isRailVisible() && !welcomeMode)
+  app.classList.toggle('no-side', !side)
+  app.classList.toggle('welcome-mode', welcomeMode)
+  app.classList.toggle('panel-open', panel)
+  sidebar.dataset.view = state.sideView
+  railFiles.classList.toggle('on', side && state.sideView === 'files')
+  railSearch.classList.toggle('on', side && state.sideView === 'search')
+  railScm.classList.toggle('on', side && state.sideView === 'scm')
+  railPlugins.classList.toggle('on', side && state.sideView === 'plugins')
+  if (anim && !shown.side && side) collapse(sidebar, 'width', true)
+  if (anim && !shown.panel && panel) collapse(panelEl, 'height', true)
+  shown = { side, panel, focus, welcome: welcomeMode, booted: shown.booted }
+  placeRailInk()
   applyEditorOptions()
+}
+
+/** 活动栏左侧的指示条滑到当前视图的按钮旁边 */
+function placeRailInk(): void {
+  const on = [railFiles, railSearch, railScm, railPlugins].find((b) => b.classList.contains('on'))
+  if (!on || !on.offsetParent) {
+    railInk.classList.remove('show')
+    return
+  }
+  const y = on.offsetTop
+  if (!railInk.classList.contains('show')) {
+    // 从隐藏到出现：不滑动，直接在目标位置从短变长
+    railInk.style.transition = 'none'
+    railInk.style.transform = `translateY(${y + 12}px)`
+    railInk.style.height = '16px'
+    void railInk.offsetWidth
+    railInk.style.transition = ''
+  }
+  railInk.classList.add('show')
+  railInk.style.transform = `translateY(${y}px)`
+  railInk.style.height = `${on.offsetHeight}px`
+}
+
+/** 切换主题：新主题从点击位置以圆形扩散铺满整个窗口 */
+function switchTheme(id: ThemeId, e?: MouseEvent): void {
+  if (state.settings.space.theme === id) return
+  viewTransition(() => setSpace({ theme: id }), e ? { reveal: { x: e.clientX, y: e.clientY } } : {})
+}
+
+const MOTION_LABELS: Record<MotionLevel, string> = { full: '完整', reduced: '简约', off: '关闭' }
+function setMotion(l: MotionLevel): void {
+  state.settings.motion = l
+  setMotionLevel(l)
+  persist()
+  emit('space')
+  toast(`动效：${MOTION_LABELS[l]}`)
 }
 
 function applySpace(): void {
@@ -493,6 +559,7 @@ sideSash.addEventListener('mousedown', (e) => {
   const max = () => Math.max(SIDE_MIN, Math.min(800, body.clientWidth - 320))
   sideSash.classList.add('on')
   document.body.classList.add('resizing-h')
+  sashDragging = true
   const move = (ev: MouseEvent) => {
     const w = startW + ev.clientX - startX
     const show = w >= SIDE_MIN / 2 && canShowSidebar()
@@ -507,6 +574,7 @@ sideSash.addEventListener('mousedown', (e) => {
     }
   }
   const up = () => {
+    sashDragging = false
     sideSash.classList.remove('on')
     document.body.classList.remove('resizing-h')
     window.removeEventListener('mousemove', move)
@@ -530,8 +598,13 @@ function showFilesThen(fn: () => void): void {
 }
 
 function toggleFocus(): void {
-  state.focusOverride = !isFocus()
-  emit('layout')
+  viewTransition(
+    () => {
+      state.focusOverride = !isFocus()
+      emit('layout')
+    },
+    { kind: 'focus' }
+  )
   getEditor()?.focus()
 }
 
@@ -590,8 +663,16 @@ registerCommands(() => [
     id: 'theme.' + id,
     title: `切换主题：${THEMES[id].label}`,
     hint: state.settings.space.theme === id ? '当前' : '',
-    run: () => setSpace({ theme: id })
+    run: () => switchTheme(id)
   })),
+  ...(['full', 'reduced', 'off'] as MotionLevel[]).map((l) => ({
+    id: 'motion.' + l,
+    title: `动效强度：${MOTION_LABELS[l]}`,
+    hint: (state.settings.motion ?? 'full') === l ? '当前' : '',
+    run: () => setMotion(l)
+  })),
+  { id: 'editor.moveTabLeft', title: '向左移动标签', key: 'Ctrl Shift PgUp', run: () => moveActiveTab(-1) },
+  { id: 'editor.moveTabRight', title: '向右移动标签', key: 'Ctrl Shift PgDn', run: () => moveActiveTab(1) },
   ...[...PRESETS, ...state.settings.savedSpaces].map((s) => ({
     id: 'space.' + s.name,
     title: `切换空间：${s.name}`,
@@ -660,6 +741,8 @@ window.addEventListener(
       /* 预览已处理 */
     }
     else if (ctrl && k === 'tab') cycleTab(e.shiftKey ? -1 : 1)
+    else if (ctrl && e.shiftKey && k === 'pageup') moveActiveTab(-1)
+    else if (ctrl && e.shiftKey && k === 'pagedown') moveActiveTab(1)
     else if (ctrl && !e.shiftKey && k === '\\') splitRight()
     else if (ctrl && e.altKey && k === 'arrowright') focusNextGroup(1)
     else if (ctrl && e.altKey && k === 'arrowleft') focusNextGroup(-1)
@@ -718,6 +801,10 @@ async function mentionToTerminalClaude(): Promise<void> {
 
 async function boot(): Promise<void> {
   await loadSettings()
+  setMotionLevel(state.settings.motion ?? 'full')
+  installRipples()
+  app.classList.add('booting')
+  setTimeout(() => app.classList.remove('booting'), 900)
   initEditor(editorWrap)
   initPreview()
   setTrailing(agentIcons)
@@ -732,6 +819,7 @@ async function boot(): Promise<void> {
   renderEmptyHint()
   renderWelcome()
   applyLayout()
+  shown.booted = true
   const last = state.settings.recentFolders[0]
   if (last) await openFolder(last)
   document.fonts.ready.then(() => monaco.editor.remeasureFonts())
