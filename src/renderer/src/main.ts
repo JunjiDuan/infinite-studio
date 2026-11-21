@@ -24,6 +24,7 @@ import {
   getEditor,
   initEditor,
   isDirty,
+  openFile,
   problemCount,
   reloadFromDisk,
   saveActive,
@@ -36,7 +37,7 @@ import { closePalette, invalidateFiles, isPaletteOpen, openPalette } from './pal
 import { closeSettings, initSettings, isSettingsOpen, openSettings } from './settingsView'
 import { PRESETS, emit, isFocus, isRailVisible, isSidebarVisible, loadSettings, on, persist, setSpace, state } from './store'
 import { THEMES, applyCssVars } from './theme'
-import { initLsp, lspStatus, restartLsp, setLspRoot } from './lsp'
+import { debugRequest, initLsp, lspStatus, restartLsp, setLspRoot } from './lsp'
 import { createPanel, newTerminal, togglePanel } from './panel'
 import { createSearchView, focusSearch, resetSearch } from './search'
 import { addTreeMenuItems, beginCreate, createTree, invalidatePaths, render as renderTree, setTreeRoot } from './tree'
@@ -565,7 +566,7 @@ if (import.meta.env.DEV || localStorage.getItem('debug') === '1') {
     monaco,
     getEditor,
     state,
-    openFile: (p: string) => import('./editor').then((m) => m.openFile(p)),
-    lsp: (server: string, method: string, params: unknown) => import('./lsp').then((m) => m.debugRequest(server, method, params))
+    openFile,
+    lsp: debugRequest
   }
 }

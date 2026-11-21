@@ -34,11 +34,16 @@ function firstOnPath(candidates: [string, string[]][]): Launch | null {
   return null
 }
 
-/** TypeScript 7 原生编译器自带 LSP，随应用一起打包 */
+/**
+ * TypeScript 7 原生编译器自带 LSP，随应用一起打包。
+ * 它要从可执行文件旁边读取 lib.*.d.ts，所以打包时整个目录作为 extraResources 原样复制到 resources/typescript-native
+ * （electron-builder 会过滤掉 node_modules 里的 .d.ts，不能走 asar）。
+ */
 function bundledTypeScript(): Launch | null {
-  const exe = path
-    .join(app.getAppPath(), 'node_modules', '@typescript', `typescript-${process.platform}-${process.arch}`, 'lib', process.platform === 'win32' ? 'tsc.exe' : 'tsc')
-    .replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`)
+  const exeName = process.platform === 'win32' ? 'tsc.exe' : 'tsc'
+  const exe = app.isPackaged
+    ? path.join(process.resourcesPath, 'typescript-native', exeName)
+    : path.join(app.getAppPath(), 'node_modules', '@typescript', `typescript-${process.platform}-${process.arch}`, 'lib', exeName)
   return existsSync(exe) ? { cmd: exe, args: ['--lsp', '--stdio'], shell: false } : null
 }
 
