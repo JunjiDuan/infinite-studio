@@ -3,6 +3,7 @@ import { existsSync, promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { Settings, Space } from '../shared/types'
 import { registerFsIpc } from './fsService'
+import { registerSearchIpc } from './search'
 
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json')
 
@@ -119,6 +120,7 @@ function registerIpc(): void {
   })
 
   registerFsIpc()
+  registerSearchIpc()
 }
 
 Menu.setApplicationMenu(null)

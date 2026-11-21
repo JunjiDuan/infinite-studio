@@ -55,7 +55,9 @@ export const state = {
   /** Ctrl . 临时切换专注；null 表示跟随布局 */
   focusOverride: null as boolean | null,
   /** Ctrl B 临时切换文件栏；null 表示跟随布局 */
-  sidebarOverride: null as boolean | null
+  sidebarOverride: null as boolean | null,
+  /** 侧栏当前显示的视图 */
+  sideView: 'files' as 'files' | 'search'
 }
 
 export async function loadSettings(): Promise<void> {

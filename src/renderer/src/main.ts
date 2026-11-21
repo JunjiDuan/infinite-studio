@@ -36,6 +36,7 @@ import { closePalette, invalidateFiles, isPaletteOpen, openPalette } from './pal
 import { closeSettings, initSettings, isSettingsOpen, openSettings } from './settingsView'
 import { PRESETS, emit, isFocus, isRailVisible, isSidebarVisible, loadSettings, on, persist, setSpace, state } from './store'
 import { THEMES, applyCssVars } from './theme'
+import { createSearchView, focusSearch, resetSearch } from './search'
 import { beginCreate, createTree, invalidatePaths, render as renderTree, setTreeRoot } from './tree'
 
 /* ---------------- 界面骨架 ---------------- */
@@ -64,18 +65,19 @@ const titlebar = h(
   )
 )
 
-const railFiles = h('button', { class: 'rail-btn', 'aria-label': '显示或隐藏文件栏 (Ctrl B)', title: '文件栏 Ctrl B', html: icons.files, onClick: () => toggleSidebar() })
+const railFiles = h('button', { class: 'rail-btn', 'aria-label': '文件 (Ctrl B)', title: '文件 Ctrl B', html: icons.files, onClick: () => showSideView('files', true) })
+const railSearch = h('button', { class: 'rail-btn', 'aria-label': '在文件中搜索 (Ctrl Shift F)', title: '搜索 Ctrl Shift F', html: icons.search, onClick: () => showSideView('search', true) })
 const rail = h(
   'nav',
   { class: 'rail', 'aria-label': '活动栏' },
   railFiles,
-  h('button', { class: 'rail-btn', 'aria-label': '搜索文件 (Ctrl K)', title: '搜索 Ctrl K', html: icons.search, onClick: () => openPalette() }),
+  railSearch,
   h('button', { class: 'rail-btn', 'aria-label': '专注模式 (Ctrl .)', title: '专注模式 Ctrl .', html: icons.focus, onClick: () => toggleFocus() }),
   h('span', { class: 'grow' }),
   h('button', { class: 'rail-btn', 'aria-label': '个性化设置 (Ctrl ,)', title: '个性化 Ctrl ,', html: icons.sliders, onClick: () => toggleSettings() })
 )
 
-const sidebar = h('aside', { class: 'sidebar', 'aria-label': '侧栏' }, createTree())
+const sidebar = h('aside', { class: 'sidebar', 'aria-label': '侧栏' }, createTree(), createSearchView())
 const tabBar = h('div', { class: 'tabs', role: 'tablist', 'aria-label': '打开的文件' })
 const editorHost = h('div', { class: 'editor-host' })
 const emptyHint = h('div', { class: 'empty-hint' })
@@ -194,7 +196,8 @@ function renderEmptyHint(): void {
       'div',
       { class: 'hint-keys' },
       h('div', {}, h('span', {}, '搜索文件或命令'), h('kbd', {}, 'Ctrl K')),
-      h('div', {}, h('span', {}, '显示 / 隐藏文件栏'), h('kbd', {}, 'Ctrl B')),
+      h('div', {}, h('span', {}, '在文件中搜索'), h('kbd', {}, 'Ctrl Shift F')),
+      h('div', {}, h('span', {}, '显示 / 隐藏侧栏'), h('kbd', {}, 'Ctrl B')),
       h('div', {}, h('span', {}, '专注模式'), h('kbd', {}, 'Ctrl .')),
       h('div', {}, h('span', {}, '个性化'), h('kbd', {}, 'Ctrl ,'))
     )
@@ -253,7 +256,9 @@ function applyLayout(): void {
   app.classList.toggle('no-rail', !isRailVisible() && !welcomeMode)
   app.classList.toggle('no-side', !isSidebarVisible())
   app.classList.toggle('welcome-mode', welcomeMode)
-  railFiles.classList.toggle('on', isSidebarVisible())
+  sidebar.dataset.view = state.sideView
+  railFiles.classList.toggle('on', isSidebarVisible() && state.sideView === 'files')
+  railSearch.classList.toggle('on', isSidebarVisible() && state.sideView === 'search')
   applyEditorOptions()
 }
 
@@ -287,6 +292,7 @@ async function openFolder(path: string): Promise<void> {
   const bound = state.settings.bindings[path]
   if (bound) setSpace({ ...bound })
   await setTreeRoot(path)
+  resetSearch()
   void window.api.fs.watch(path)
   emit('root')
 }
@@ -325,9 +331,28 @@ function toggleSidebar(): void {
   emit('layout')
 }
 
+/**
+ * 切到侧栏的某个视图。toggle 为 true 时，再点一次当前视图会收起侧栏（活动栏按钮的行为）。
+ */
+function showSideView(view: 'files' | 'search', toggle = false): void {
+  if (!state.root) {
+    if (view === 'search') toast('先打开一个文件夹')
+    return
+  }
+  if (toggle && isSidebarVisible() && state.sideView === view) {
+    state.sidebarOverride = false
+  } else {
+    if (isFocus()) state.focusOverride = false
+    state.sideView = view
+    state.sidebarOverride = true
+  }
+  emit('layout')
+  if (view === 'search' && isSidebarVisible()) focusSearch()
+}
+
 /** 先确保文件栏可见，再执行（比如从命令面板新建文件） */
 function showFilesThen(fn: () => void): void {
-  if (!isSidebarVisible()) toggleSidebar()
+  showSideView('files')
   fn()
 }
 
@@ -374,7 +399,8 @@ registerCommands(() => [
   { id: 'file.save', title: '保存', key: 'Ctrl S', run: saveActive },
   { id: 'file.saveAll', title: '全部保存', run: saveAll },
   { id: 'file.close', title: '关闭当前标签', key: 'Ctrl W', run: () => closeTab() },
-  { id: 'view.sidebar', title: '显示 / 隐藏文件栏', key: 'Ctrl B', run: toggleSidebar },
+  { id: 'view.sidebar', title: '显示 / 隐藏侧栏', key: 'Ctrl B', run: toggleSidebar },
+  { id: 'view.search', title: '在文件中搜索', key: 'Ctrl Shift F', run: () => showSideView('search') },
   { id: 'view.focus', title: '专注模式', key: 'Ctrl .', run: toggleFocus },
   { id: 'view.settings', title: '打开个性化设置', key: 'Ctrl ,', run: openSettings },
   { id: 'view.wrap', title: '切换自动换行', key: 'Alt Z', run: toggleWrap },
@@ -414,6 +440,7 @@ window.addEventListener(
     if (ctrl && !e.shiftKey && k === 'k') openPalette()
     else if (ctrl && !e.shiftKey && k === 'p') openPalette()
     else if (ctrl && e.shiftKey && k === 'p') openPalette('>')
+    else if (ctrl && e.shiftKey && k === 'f') showSideView('search')
     else if (ctrl && k === 's') void saveActive()
     else if (ctrl && k === 'o') void pickFolder()
     else if (ctrl && k === 'w') closeTab()

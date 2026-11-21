@@ -31,6 +31,10 @@ const api: Api = {
     watch: (root) => ipcRenderer.invoke('fs:watch', root),
     onChanged: (cb) => subscribe('fs:changed', cb)
   },
+  search: {
+    run: (id, root, query, opts) => ipcRenderer.invoke('search:run', id, root, query, opts),
+    replace: (query, opts, replacement, files) => ipcRenderer.invoke('search:replace', query, opts, replacement, files)
+  },
   settings: {
     load: () => ipcRenderer.invoke('settings:load'),
     save: (s) => ipcRenderer.invoke('settings:save', s)

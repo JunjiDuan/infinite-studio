@@ -19,6 +19,7 @@ export const icons = {
   winClose: svg('<path d="M4 4l8 8M12 4l-8 8"/>', 14, 1.2),
   newFile: svg('<path d="M3.5 2.5h5l3 3v8h-8z"/><path d="M8.5 2.5v3h3M7.5 8v4M5.5 10h4"/>', 14, 1.4),
   newFolder: svg('<path d="M2 4.5h4l1.5 1.5H14v6.5H2z"/><path d="M8 7.5v3.5M6.25 9.25h3.5"/>', 14, 1.4),
+  replaceAll: svg('<path d="M2.5 4h6M2.5 7h4"/><path d="M9.5 9.5h4l-1.5-1.5M13.5 12.5h-4l1.5 1.5"/>', 14, 1.4),
   collapse: svg('<path d="M4.5 6l3.5-3 3.5 3M4.5 10l3.5 3 3.5-3"/>', 14, 1.4),
   trash: svg('<path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.7 8.5h5.6l.7-8.5"/>', 12, 1.4)
 }
