@@ -37,7 +37,25 @@ export interface Settings {
   plugins?: Record<string, boolean>
   /** 界面语言 */
   locale?: 'zh' | 'en'
+  /** 项目路径 → 资源管理器里展开的文件夹（相对路径） */
+  treeExpanded?: Record<string, string[]>
 }
+
+export interface AppInfo {
+  name: string
+  version: string
+  electron: string
+  chrome: string
+  node: string
+  v8: string
+  os: string
+  homepage: string
+}
+
+export type UpdateResult =
+  | { status: 'available' | 'latest'; current: string; latest: string; url: string; notes?: string; date?: string }
+  | { status: 'none'; current: string; url: string }
+  | { status: 'error'; current: string; message: string }
 
 export interface DirEntry {
   name: string
@@ -249,6 +267,10 @@ export interface Api {
     reload(): void
     /** 新开一个空白 IDE 窗口 */
     newWindow(): void
+  }
+  app: {
+    info(): Promise<AppInfo>
+    checkUpdate(): Promise<UpdateResult>
   }
   fs: {
     openFolderDialog(): Promise<string | null>

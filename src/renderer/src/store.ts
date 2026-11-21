@@ -89,6 +89,14 @@ export async function loadSettings(): Promise<void> {
     plugins:
       s.plugins && typeof s.plugins === 'object'
         ? Object.fromEntries(Object.entries(s.plugins).filter(([, v]) => typeof v === 'boolean'))
+        : {},
+    treeExpanded:
+      s.treeExpanded && typeof s.treeExpanded === 'object'
+        ? Object.fromEntries(
+            Object.entries(s.treeExpanded)
+              .filter(([, v]) => Array.isArray(v))
+              .map(([k, v]) => [k, (v as unknown[]).filter((x): x is string => typeof x === 'string').slice(0, 500)])
+          )
         : {}
   }
 }

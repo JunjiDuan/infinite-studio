@@ -19,6 +19,10 @@ const api: Api = {
     reload: () => ipcRenderer.send('win:reload'),
     newWindow: () => ipcRenderer.send('win:new')
   },
+  app: {
+    info: () => ipcRenderer.invoke('app:info'),
+    checkUpdate: () => ipcRenderer.invoke('app:checkUpdate')
+  },
   fs: {
     openFolderDialog: () => ipcRenderer.invoke('fs:openFolderDialog'),
     readDir: (dir) => ipcRenderer.invoke('fs:readDir', dir),

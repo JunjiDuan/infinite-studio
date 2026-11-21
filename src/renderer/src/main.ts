@@ -14,6 +14,7 @@ import type { ThemeId } from '../../shared/types'
 import { registerCommands } from './commands'
 import { basename, h, toast } from './dom'
 import { showMenu, type MenuItem } from './menu'
+import { checkForUpdates, openAbout, openPrivacy } from './help'
 import { ideConnected, initIde, sendAtMention } from './ide'
 import {
   activeTab,
@@ -63,7 +64,7 @@ import { getLocale, t } from './i18n'
 
 const themeDots = h('div', { class: 'theme-dots', role: 'group', 'aria-label': t('切换主题') })
 
-/* ---------------- 菜单栏（文件 / 编辑） ---------------- */
+/* ---------------- 菜单栏（文件 / 编辑 / 选择 / 帮助） ---------------- */
 
 type MenuDef = { id: string; label: string; items: () => MenuItem[] }
 
@@ -117,6 +118,40 @@ const MENUS: MenuDef[] = [
         { label: t('格式化文档'), key: 'Shift Alt F', disabled: off, run: () => runEditorAction('editor.action.formatDocument') }
       ]
     }
+  },
+  {
+    id: 'selection',
+    label: t('选择'),
+    items: () => {
+      const off = !hasEditor()
+      const act = (label: string, key: string, id: string): MenuItem => ({ label, key, disabled: off, run: () => runEditorAction(id) })
+      return [
+        act(t('全选'), 'Ctrl A', 'editor.action.selectAll'),
+        act(t('扩大选区'), 'Shift Alt →', 'editor.action.smartSelect.expand'),
+        act(t('缩小选区'), 'Shift Alt ←', 'editor.action.smartSelect.shrink'),
+        'sep',
+        act(t('向上复制行'), 'Shift Alt ↑', 'editor.action.copyLinesUpAction'),
+        act(t('向下复制行'), 'Shift Alt ↓', 'editor.action.copyLinesDownAction'),
+        act(t('向上移动行'), 'Alt ↑', 'editor.action.moveLinesUpAction'),
+        act(t('向下移动行'), 'Alt ↓', 'editor.action.moveLinesDownAction'),
+        'sep',
+        act(t('在上方添加光标'), 'Ctrl Alt ↑', 'editor.action.insertCursorAbove'),
+        act(t('在下方添加光标'), 'Ctrl Alt ↓', 'editor.action.insertCursorBelow'),
+        act(t('在行尾添加光标'), 'Shift Alt I', 'editor.action.insertCursorAtEndOfEachLineSelected'),
+        act(t('添加下一个匹配项'), 'Ctrl D', 'editor.action.addSelectionToNextFindMatch'),
+        act(t('选择所有匹配项'), 'Ctrl Shift L', 'editor.action.selectHighlights')
+      ]
+    }
+  },
+  {
+    id: 'help',
+    label: t('帮助'),
+    items: () => [
+      { label: t('隐私声明'), run: openPrivacy },
+      { label: t('检查更新…'), run: () => void checkForUpdates() },
+      'sep',
+      { label: t('关于'), run: () => void openAbout() }
+    ]
   }
 ]
 

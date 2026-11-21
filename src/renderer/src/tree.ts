@@ -3,7 +3,7 @@ import { activeTab, closeUnder, isDirty, isUnder, openFile, renamePath, samePath
 import { basename, h, parentDir, relative, toast } from './dom'
 import { icons } from './icons'
 import { showMenu, type MenuItem } from './menu'
-import { state } from './store'
+import { persist, state } from './store'
 import { t } from './i18n'
 
 const cache = new Map<string, DirEntry[]>()
@@ -40,7 +40,10 @@ export function createTree(): HTMLElement {
         showMenu(e.clientX, e.clientY, menuFor(state.root, true))
       }
     },
-    onKeydown: onTreeKey
+    onKeydown: onTreeKey,
+    onScroll: () => {
+      if (state.root) scrollTops.set(state.root, listEl.scrollTop)
+    }
   })
   projectHead = h(
     'div',
@@ -80,15 +83,71 @@ function setProjectOpen(open: boolean): void {
   listEl.hidden = !open
 }
 
-async function load(dir: string, force = false): Promise<DirEntry[]> {
-  if (force || !cache.has(dir)) {
-    try {
-      cache.set(dir, await window.api.fs.readDir(dir))
-    } catch {
-      cache.set(dir, [])
+function sameList(a: DirEntry[] | undefined, b: DirEntry[]): boolean {
+  return !!a && a.length === b.length && a.every((x, i) => x.path === b[i].path && x.isDir === b[i].isDir)
+}
+
+/** 读取目录；返回内容是否和缓存里的不一样。目录读不了（被删、没权限）时返回 null */
+async function load(dir: string, force = false): Promise<boolean | null> {
+  if (!force && cache.has(dir)) return false
+  let list: DirEntry[]
+  try {
+    list = await window.api.fs.readDir(dir)
+  } catch {
+    const had = cache.get(dir)
+    cache.set(dir, [])
+    return had && had.length ? true : null
+  }
+  if (sameList(cache.get(dir), list)) return false
+  cache.set(dir, list)
+  return true
+}
+
+/* ---------- 展开状态按项目持久化 ---------- */
+
+const MAX_SAVED_ROOTS = 30
+
+function saveExpanded(): void {
+  const root = state.root
+  if (!root) return
+  const all = { ...(state.settings.treeExpanded ?? {}) }
+  delete all[root]
+  const list = [...expanded].filter((d) => isUnder(d, root) && !samePath(d, root)).map((d) => relative(root, d)).filter(Boolean)
+  // 最近用过的放最后，超出上限时丢掉最早的
+  if (list.length) all[root] = list
+  const keys = Object.keys(all)
+  for (const k of keys.slice(0, Math.max(0, keys.length - MAX_SAVED_ROOTS))) delete all[k]
+  state.settings.treeExpanded = all
+  persist()
+}
+
+/** 恢复上次展开的文件夹；已不存在的跳过 */
+async function restoreExpanded(root: string): Promise<void> {
+  const saved = state.settings.treeExpanded?.[root]
+  if (!saved?.length) return
+  const sep = root.includes('\\') ? '\\' : '/'
+  const dirs = saved
+    .filter((rel) => typeof rel === 'string' && rel && !rel.split(/[\\/]/).includes('..'))
+    .map((rel) => root.replace(/[\\/]+$/, '') + sep + rel.split(/[\\/]/).join(sep))
+    .sort((a, b) => a.length - b.length)
+  let dropped = false
+  for (const d of dirs) {
+    if (state.root !== root) return
+    // 只恢复父目录仍然展开的（父目录被收起时子目录本来就看不到）
+    const parent = parentDir(d)
+    const atRoot = samePath(parent.replace(/[\\/]+$/, ''), root.replace(/[\\/]+$/, ''))
+    const parentKey = atRoot ? root : parent
+    if ((!atRoot && !expanded.has(parent)) || !(cache.get(parentKey) ?? []).some((e) => e.isDir && samePath(e.path, d))) {
+      dropped = true
+      continue
+    }
+    expanded.add(d)
+    if ((await load(d)) === null) {
+      expanded.delete(d)
+      dropped = true
     }
   }
-  return cache.get(dir)!
+  if (dropped) saveExpanded()
 }
 
 export async function setTreeRoot(root: string | null): Promise<void> {
@@ -96,21 +155,30 @@ export async function setTreeRoot(root: string | null): Promise<void> {
   expanded.clear()
   selected = null
   editing = null
+  lastKey = ''
   if (!root) {
     listEl.replaceChildren()
     return
   }
   titleEl.textContent = basename(root).toUpperCase()
   await load(root)
-  render()
+  await restoreExpanded(root)
+  if (state.root !== root) return
+  render(true)
+  const top = scrollTops.get(root)
+  if (top) listEl.scrollTop = top
 }
+
+/** 每个项目的滚动位置（本次运行内） */
+const scrollTops = new Map<string, number>()
 
 export async function refreshTree(): Promise<void> {
   if (!state.root) return
   const dirs = [state.root, ...expanded]
   cache.clear()
-  for (const d of dirs) await load(d)
-  render()
+  for (const d of dirs) if ((await load(d)) === null) expanded.delete(d)
+  render(true)
+  saveExpanded()
 }
 
 /** 文件监听回调：只重新读取已加载过、且受影响的目录 */
@@ -122,9 +190,20 @@ export async function invalidatePaths(paths: string[]): Promise<void> {
     }
   }
   if (!dirs.size) return
-  for (const d of dirs) await load(d, true)
+  let changed = false
+  for (const d of dirs) if ((await load(d, true)) !== false) changed = true
+  // 目录内容没变（比如只是文件内容被保存）就不用重画
+  if (!changed) return
   // 被删掉的展开目录顺手清掉
-  for (const d of [...expanded]) if (![...cache.values()].some((list) => list.some((e) => samePath(e.path, d)))) expanded.delete(d)
+  let pruned = false
+  for (const d of [...expanded]) {
+    if (![...cache.values()].some((list) => list.some((e) => samePath(e.path, d)))) {
+      expanded.delete(d)
+      cache.delete(d)
+      pruned = true
+    }
+  }
+  if (pruned) saveExpanded()
   render()
 }
 
@@ -138,12 +217,15 @@ export async function reveal(path: string): Promise<void> {
     chain.unshift(d)
     d = parentDir(d)
   }
+  let grew = false
   for (const c of chain) {
+    if (!expanded.has(c)) grew = true
     expanded.add(c)
     await load(c)
   }
   selected = path
   render()
+  if (grew) saveExpanded()
   listEl.querySelector('.tree-row.active, .tree-row.selected')?.scrollIntoView({ block: 'nearest' })
 }
 
@@ -156,11 +238,13 @@ async function toggle(dir: string): Promise<void> {
   }
   render()
   justOpened = null
+  saveExpanded()
 }
 
 function collapseAll(): void {
   expanded.clear()
   render()
+  saveExpanded()
 }
 
 function entryOf(path: string): DirEntry | undefined {
@@ -183,9 +267,10 @@ export async function beginCreate(mode: 'file' | 'dir', dir?: string): Promise<v
   const d = dir ?? targetDir()
   if (!d || !state.root) return
   setProjectOpen(true)
-  if (!samePath(d, state.root)) {
+  if (!samePath(d, state.root) && !expanded.has(d)) {
     expanded.add(d)
     await load(d)
+    saveExpanded()
   }
   editing = { mode, dir: d }
   render()
@@ -211,6 +296,7 @@ export async function trashPath(path?: string): Promise<void> {
     closeUnder(p)
     if (selected && isUnder(selected, p)) selected = null
     await invalidatePaths([p])
+    render()
     toast(t('已移到回收站：{0}', basename(p)))
   } catch (err) {
     toast(t('删除失败：') + String(err))
@@ -246,16 +332,20 @@ async function commitEdit(value: string): Promise<void> {
         }
       }
       selected = to
+      saveExpanded()
       await invalidatePaths([ed.path, to])
+      render()
     } else if (ed.mode === 'file') {
       const p = await window.api.fs.createFile(ed.dir, name)
       selected = p
       await invalidatePaths([p])
+      render()
       await openFile(p)
     } else {
       const p = await window.api.fs.createDir(ed.dir, name)
       selected = p
       await invalidatePaths([p])
+      render()
     }
   } catch (e) {
     toast(String(e).replace(/^Error: (Error invoking remote method '[^']+': )?(Error: )?/, ''))
@@ -324,8 +414,56 @@ function onTreeKey(e: KeyboardEvent): void {
   e.preventDefault()
 }
 
-export function render(): void {
+/** 上一次整棵重建时的结构签名；结构没变时只更新高亮，不重建 DOM（避免每次按键 / 切标签都整棵重载） */
+let lastKey = ''
+let lastRoot: string | null = null
+
+function structureKey(): string {
+  const parts: string[] = [state.root ?? '']
+  const ed = editing
+  if (ed) parts.push(ed.mode === 'rename' ? `r:${ed.path}` : `${ed.mode}:${ed.dir}`)
+  const walk = (dir: string) => {
+    for (const e of cache.get(dir) ?? []) {
+      const open = e.isDir && expanded.has(e.path)
+      parts.push((e.isDir ? (open ? '+' : 'd') : 'f') + e.path)
+      if (open) walk(e.path)
+    }
+  }
+  if (state.root) walk(state.root)
+  return parts.join('\n')
+}
+
+/** 只同步当前文件 / 选中项的高亮 */
+function syncMarks(): void {
+  const activePath = activeTab()?.path
+  for (const row of listEl.querySelectorAll<HTMLElement>('.tree-row[data-path]')) {
+    const p = row.dataset.path!
+    const isActive = !!activePath && samePath(p, activePath)
+    const isSel = !!selected && samePath(p, selected)
+    row.classList.toggle('active', isActive)
+    row.classList.toggle('selected', isSel)
+    row.setAttribute('aria-selected', String(isSel))
+  }
+}
+
+/** force：强制整棵重建（换项目、手动刷新） */
+export function render(force = false): void {
   if (!state.root || !listEl) return
+  const key = structureKey()
+  if (!force && !justOpened && key === lastKey && lastRoot === state.root && listEl.childElementCount) {
+    syncMarks()
+    return
+  }
+  lastKey = key
+  lastRoot = state.root
+  const scroll = listEl.scrollTop
+  rebuild()
+  listEl.scrollTop = scroll
+}
+
+function rebuild(): void {
+  const root = state.root
+  if (!root) return
   const activePath = activeTab()?.path
   const rows: HTMLElement[] = []
   const ed = editing
@@ -347,6 +485,7 @@ export function render(): void {
             {
               class: 'tree-row' + (e.isDir ? ' dir' : '') + (open ? ' open' : '') + (isActive ? ' active' : '') + (isSel ? ' selected' : ''),
               role: 'treeitem',
+              'data-path': e.path,
               'aria-expanded': e.isDir ? String(open) : null,
               'aria-selected': String(isSel),
               title: e.path,
@@ -380,7 +519,7 @@ export function render(): void {
     }
     if (justOpened !== null && samePath(dir, justOpened)) enterIdx = -1
   }
-  walk(state.root, 0)
+  walk(root, 0)
   if (rows.length === 0) rows.push(h('div', { class: 'tree-empty' }, t('空文件夹')))
   listEl.replaceChildren(...rows)
 }

@@ -8,6 +8,7 @@ import { registerSearchIpc } from './search'
 import { registerLspIpc } from './lsp'
 import { registerTerminalIpc } from './terminal'
 import { registerAccountIpc } from './account'
+import { registerAppInfoIpc } from './appInfo'
 import { registerPluginIpc } from './plugins'
 import { registerDebugIpc } from './debug'
 import { registerAgentIpc } from './agents'
@@ -131,6 +132,7 @@ function registerIpc(): void {
   registerTerminalIpc()
   registerLspIpc()
   registerAccountIpc()
+  registerAppInfoIpc()
   registerPluginIpc()
   registerDebugIpc()
   registerAgentIpc()
