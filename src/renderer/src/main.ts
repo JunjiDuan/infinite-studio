@@ -50,6 +50,7 @@ import { closeSettings, initSettings, isSettingsOpen, openSettings, switchLocale
 import { type SideView, emit, isFocus, isRailVisible, isSidebarVisible, loadSettings, on, persist, setSpace, state } from './store'
 import { THEMES, applyCssVars } from './theme'
 import { collapse, installRipples, viewTransition } from './motion'
+import { createSysmonView, setSysmonVisible } from './sysmon'
 import { debugRequest, initLsp, isProbe, lspStatus, refreshProbe, restartLsp, setLspRoot } from './lsp'
 import { createPanel, newTerminal, togglePanel } from './panel'
 import { initPreview, zoomPreviewAt } from './preview'
@@ -220,6 +221,7 @@ onScmCount((n) => {
   railScm.setAttribute('aria-label', n ? t('源代码管理 (Ctrl Shift G)') + ' · ' + n : t('源代码管理 (Ctrl Shift G)'))
 })
 const railDebug = h('button', { class: 'rail-btn', 'aria-label': t('运行和调试 (Ctrl Shift D)'), title: t('运行和调试 Ctrl Shift D'), html: icons.bug, onClick: () => showSideView('debug', true) })
+const railMonitor = h('button', { class: 'rail-btn', 'aria-label': t('系统监视器'), title: t('系统监视器'), html: icons.activity, onClick: () => showSideView('monitor', true) })
 const railPlugins = h('button', { class: 'rail-btn', 'aria-label': t('插件'), title: t('插件'), html: icons.plugin, onClick: () => showSideView('plugins', true) })
 const railInk = h('span', { class: 'rail-ink', 'aria-hidden': 'true' })
 const gearBtn: HTMLButtonElement = h('button', {
@@ -259,6 +261,7 @@ const rail = h(
   railSearch,
   railScm,
   railDebug,
+  railMonitor,
   h('button', { class: 'rail-btn', 'aria-label': t('终端 (Ctrl `)'), title: t('终端 Ctrl `'), html: icons.terminal, onClick: () => togglePanel() }),
   h('button', { class: 'rail-btn', 'aria-label': t('专注模式 (Ctrl .)'), title: t('专注模式 Ctrl .'), html: icons.focus, onClick: () => toggleFocus() }),
   h('span', { class: 'grow' }),
@@ -267,7 +270,7 @@ const rail = h(
   gearBtn
 )
 
-const sidebar = h('aside', { class: 'sidebar', 'aria-label': t('侧栏') }, createTree(), createSearchView(), createScmView(), createDebugView(() => showSideView('plugins'), () => showSideView('debug')), createPluginsView())
+const sidebar = h('aside', { class: 'sidebar', 'aria-label': t('侧栏') }, createTree(), createSearchView(), createScmView(), createDebugView(() => showSideView('plugins'), () => showSideView('debug')), createSysmonView(), createPluginsView())
 const sideSash = h('div', { class: 'side-sash', role: 'separator', 'aria-orientation': 'vertical', 'aria-label': t('拖动调整侧栏宽度，拖到最窄会隐藏'), title: t('拖动调整宽度 · 双击恢复默认') })
 const emptyHint = h('div', { class: 'empty-hint' })
 const welcome = h('div', { class: 'welcome' })
@@ -441,6 +444,8 @@ function applyLayout(): void {
   railScm.classList.toggle('on', side && state.sideView === 'scm')
   railPlugins.classList.toggle('on', side && state.sideView === 'plugins')
   railDebug.classList.toggle('on', side && state.sideView === 'debug')
+  railMonitor.classList.toggle('on', side && state.sideView === 'monitor')
+  setSysmonVisible(side && state.sideView === 'monitor')
   if (anim && !shown.side && side) collapse(sidebar, 'width', true)
   if (anim && !shown.panel && panel) collapse(panelEl, 'height', true)
   shown = { side, panel, focus, welcome: welcomeMode, booted: shown.booted }
@@ -450,7 +455,7 @@ function applyLayout(): void {
 
 /** 活动栏左侧的指示条滑到当前视图的按钮旁边 */
 function placeRailInk(): void {
-  const on = [railFiles, railSearch, railScm, railDebug, railPlugins].find((b) => b.classList.contains('on'))
+  const on = [railFiles, railSearch, railScm, railDebug, railMonitor, railPlugins].find((b) => b.classList.contains('on'))
   if (!on || !on.offsetParent) {
     railInk.classList.remove('show')
     return
@@ -568,7 +573,7 @@ function toggleSidebar(): void {
  * 切到侧栏的某个视图。toggle 为 true 时，再点一次当前视图会收起侧栏（活动栏按钮的行为）。
  */
 function showSideView(view: SideView, toggle = false): void {
-  if (!state.root && view !== 'plugins' && view !== 'debug') {
+  if (!state.root && view !== 'plugins' && view !== 'debug' && view !== 'monitor') {
     if (view === 'search') toast(t('先打开一个文件夹'))
     return
   }
@@ -594,7 +599,7 @@ const SIDE_DEFAULT = 240
 const SIDE_MIN = 170
 
 /** 能否通过拖动把侧栏拉出来（没打开文件夹时只有插件视图可以） */
-const canShowSidebar = (): boolean => !!state.root || state.sideView === 'plugins'
+const canShowSidebar = (): boolean => !!state.root || state.sideView === 'plugins' || state.sideView === 'monitor'
 
 // 拖动分隔条调整侧栏宽度；拖得比最小宽度的一半还窄就隐藏，隐藏后从左边缘往右拖又能拉出来
 sideSash.addEventListener('mousedown', (e) => {
@@ -725,6 +730,7 @@ registerCommands(() => [
   { id: 'editor.outline', title: t('转到文件中的符号'), key: 'Ctrl Shift O', run: () => runEditorAction('editor.action.quickOutline') },
   { id: 'lsp.restart', title: t('重启语言服务'), run: restartLsp },
   { id: 'debug.view', title: t('运行和调试'), key: 'Ctrl Shift D', run: () => showSideView('debug') },
+  { id: 'view.monitor', title: t('系统监视器'), run: () => showSideView('monitor') },
   { id: 'debug.run', title: t('运行当前文件'), key: 'Ctrl F5', run: runActiveFile },
   { id: 'debug.start', title: debugActive() ? t('调试：继续') : t('调试当前文件'), key: 'F5', run: debugOrContinue },
   ...(debugActive()

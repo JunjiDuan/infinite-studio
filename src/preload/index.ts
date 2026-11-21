@@ -86,6 +86,16 @@ const api: Api = {
     onMessage: (cb) => subscribe('debug:message', cb),
     onExit: (cb) => subscribe('debug:exit', cb)
   },
+  sysmon: {
+    subscribe: (cb) => {
+      const off = subscribe('sysmon:sample', cb)
+      ipcRenderer.send('sysmon:subscribe')
+      return () => {
+        off()
+        ipcRenderer.send('sysmon:unsubscribe')
+      }
+    }
+  },
   agent: {
     start: (req) => ipcRenderer.invoke('agent:start', req),
     write: (runId, msg) => ipcRenderer.send('agent:write', runId, msg),

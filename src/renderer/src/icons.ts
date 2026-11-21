@@ -77,6 +77,7 @@ export const icons = {
   fetch: svg('<path d="M8 2.5v7M5 7l3 3 3-3"/><path d="M2.5 11v2.5h11V11"/>', 14, 1.4),
   cloudUp: svg('<path d="M4.5 12.5H4a2.75 2.75 0 0 1-.4-5.47A4 4 0 0 1 11.4 5.6 3.25 3.25 0 0 1 12 12.5h-.5"/><path d="M8 13.5v-5M6 10.5l2-2 2 2"/>', 14, 1.3),
   branch: svg('<circle cx="4.5" cy="3.5" r="1.5"/><circle cx="4.5" cy="12.5" r="1.5"/><circle cx="11.5" cy="5.5" r="1.5"/><path d="M4.5 5v6M11.5 7c0 2.5-3 2.5-6.2 4.6"/>', 14, 1.3),
+  activity: svg('<path d="M1.5 8.5h2.75l1.75-4.5 3 8.5 2-5.5 1 1.5h2.5"/>', 18, 1.4),
   target: svg('<circle cx="8" cy="8" r="5.5"/><circle cx="8" cy="8" r="2.25"/>', 14, 1.4),
   file: svg('<path d="M3.5 2.5h5l3 3v8h-8z"/><path d="M8.5 2.5v3h3"/>', 14, 1.3)
 }

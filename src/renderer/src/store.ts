@@ -48,7 +48,7 @@ export function emit(topic: Topic): void {
   subs.get(topic)?.forEach((fn) => fn())
 }
 
-export type SideView = 'files' | 'search' | 'scm' | 'plugins' | 'debug'
+export type SideView = 'files' | 'search' | 'scm' | 'plugins' | 'debug' | 'monitor'
 
 export const state = {
   settings: {
@@ -126,8 +126,8 @@ export function isFocus(): boolean {
 
 export function isSidebarVisible(): boolean {
   if (isFocus()) return false
-  // 没打开文件夹时，只有插件视图可以单独打开
-  if (!state.root) return state.sideView === 'plugins' && state.sidebarOverride === true
+  // 没打开文件夹时，只有插件和系统监视器视图可以单独打开
+  if (!state.root) return (state.sideView === 'plugins' || state.sideView === 'monitor') && state.sidebarOverride === true
   return state.sidebarOverride ?? true
 }
 

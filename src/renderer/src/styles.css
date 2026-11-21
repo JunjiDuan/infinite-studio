@@ -511,7 +511,8 @@ kbd {
 .sidebar[data-view='search'] .side-view:not([data-view='search']),
 .sidebar[data-view='scm'] .side-view:not([data-view='scm']),
 .sidebar[data-view='plugins'] .side-view:not([data-view='plugins']),
-.sidebar[data-view='debug'] .side-view:not([data-view='debug']) {
+.sidebar[data-view='debug'] .side-view:not([data-view='debug']),
+.sidebar[data-view='monitor'] .side-view:not([data-view='monitor']) {
   display: none;
 }
 
@@ -1241,7 +1242,8 @@ button.st-item:hover {
   display: none;
 }
 /* 没打开文件夹时也能管理插件 */
-#app.welcome-mode:not(.no-side) .sidebar[data-view='plugins'] {
+#app.welcome-mode:not(.no-side) .sidebar[data-view='plugins'],
+#app.welcome-mode:not(.no-side) .sidebar[data-view='monitor'] {
   display: flex;
 }
 .welcome-inner {
@@ -5198,4 +5200,265 @@ a.tool-sum:hover {
 }
 .panel-view[hidden] {
   display: none;
+}
+
+/* ---------------- 系统监视器 ---------------- */
+.sm-actions {
+  opacity: 1;
+}
+.sm-actions .icon-btn.on {
+  color: var(--accent);
+}
+.sm-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-bottom: 14px;
+}
+.sm-empty {
+  padding: 8px 18px;
+  font-size: 12px;
+}
+.sm-note {
+  padding: 6px 18px 0;
+  font-size: 11px;
+}
+.sm-sec + .sm-sec {
+  border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
+}
+.sm-head {
+  height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 14px 0 6px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+.sm-head:hover {
+  color: var(--text);
+}
+.sm-head:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+.sm-head .chev {
+  display: flex;
+  transform: rotate(90deg);
+  transition: transform 0.12s;
+}
+.sm-sec.collapsed .chev {
+  transform: none;
+}
+.sm-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sm-big {
+  flex-shrink: 0;
+  color: var(--text);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+.sm-body {
+  padding: 0 14px 10px 22px;
+}
+.sm-sec.collapsed .sm-body {
+  display: none;
+}
+.sm-sub {
+  display: block;
+  margin: -2px 0 6px;
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sm-spark {
+  position: relative;
+  height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  overflow: hidden;
+  cursor: crosshair;
+}
+.sm-spark svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.sm-spark-grid {
+  stroke: var(--line);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  opacity: 0.6;
+}
+.sm-spark-area {
+  fill: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+.sm-spark-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.sm-spark-cross {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--muted);
+  pointer-events: none;
+}
+.sm-spark-tip {
+  position: absolute;
+  top: 3px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-size: 10.5px;
+  white-space: nowrap;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+.sm-detail > * {
+  margin-top: 8px;
+}
+.sm-cores {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(14px, 1fr));
+  gap: 2px;
+}
+.sm-core {
+  position: relative;
+  height: 18px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--line) 70%, transparent);
+  overflow: hidden;
+}
+.sm-core-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--accent);
+  opacity: 0.85;
+  transition: height 0.3s ease;
+}
+.sm-kv {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 10px;
+  margin: 0;
+  font-size: 11.5px;
+}
+.sm-kv dt {
+  color: var(--muted);
+  white-space: nowrap;
+}
+.sm-kv dd {
+  margin: 0;
+  text-align: right;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sm-group > * + * {
+  margin-top: 5px;
+}
+.sm-label {
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sm-bar-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11.5px;
+  margin-bottom: 3px;
+}
+.sm-k {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sm-v {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.sm-meter {
+  height: 4px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--line) 80%, transparent);
+  overflow: hidden;
+}
+.sm-meter-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+.sm-procs {
+  max-height: 220px;
+  overflow: auto;
+}
+.sm-proc {
+  display: grid;
+  grid-template-columns: 1fr 48px 62px;
+  gap: 6px;
+  font-size: 11.5px;
+  line-height: 20px;
+}
+.sm-proc-head {
+  color: var(--muted);
+  font-size: 10.5px;
+}
+.sm-proc-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sm-proc-cpu,
+.sm-proc-mem {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.sm-proc:not(.sm-proc-head) .sm-proc-cpu,
+.sm-proc:not(.sm-proc-head) .sm-proc-mem {
+  color: var(--muted);
+}
+@media (prefers-reduced-motion: reduce) {
+  .sm-core-fill,
+  .sm-meter-fill {
+    transition: none;
+  }
+}
+.sm-engines {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 12px;
+}
+.sm-engines .sm-bar-top {
+  font-size: 11px;
+}
+.sm-k {
+  font-weight: 400;
 }

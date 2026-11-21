@@ -159,6 +159,84 @@ export interface DeviceCode {
   url: string
 }
 
+/* ---------------- 系统监视器 ---------------- */
+
+export interface SysGpu {
+  id: string
+  name: string
+  /** 只做计算的设备（NPU） */
+  npu: boolean
+  /** 总占用：最忙的一类引擎，和任务管理器一致；null 表示读不到 */
+  util: number | null
+  /** 各类引擎的占用（3D、Copy、VideoDecode、Compute、Neural…） */
+  engines: Record<string, number>
+  dedicatedUsed: number | null
+  dedicatedTotal: number
+  sharedUsed: number | null
+  sharedTotal: number
+  temp: number | null
+}
+
+export interface SysDisk {
+  name: string
+  /** 活动时间百分比 */
+  active: number | null
+  read: number | null
+  write: number | null
+  volumes: { mount: string; total: number; free: number }[]
+}
+
+export interface SysNet {
+  name: string
+  rx: number
+  tx: number
+  bandwidth: number
+}
+
+export interface SysProc {
+  type: string
+  name: string
+  pid: number
+  cpu: number
+  mem: number
+}
+
+export interface SysSample {
+  t: number
+  os: { platform: string; release: string; arch: string; host: string; uptime: number }
+  cpu: {
+    model: string
+    logical: number
+    /** 基准频率 MHz */
+    baseMHz: number
+    /** 当前频率 MHz；读不到为 null */
+    curMHz: number | null
+    usage: number
+    cores: number[]
+    processes: number | null
+    threads: number | null
+    handles: number | null
+    temp: number | null
+    load: number[] | null
+  }
+  mem: {
+    total: number
+    free: number
+    committed: number | null
+    commitLimit: number | null
+    standby: number | null
+    modified: number | null
+    paged: number | null
+    nonpaged: number | null
+    pagefile: number | null
+  }
+  gpus: SysGpu[]
+  disks: SysDisk[]
+  nets: SysNet[]
+  /** 本 IDE 自己的进程 */
+  app: { cpu: number; mem: number; procs: SysProc[] }
+}
+
 export interface Api {
   platform: string
   /** 设置里选的界面语言；没选过为 null */
@@ -254,6 +332,10 @@ export interface Api {
     stop(session: number): void
     onMessage(cb: (session: number, msg: unknown) => void): () => void
     onExit(cb: (session: number, code: number) => void): () => void
+  }
+  sysmon: {
+    /** 开始接收采样（视图打开时调用），返回取消函数 */
+    subscribe(cb: (s: SysSample) => void): () => void
   }
   agent: {
     /** 启动对话进程，返回运行 id；进程输出的每行 JSON 通过 onEvent 推送 */

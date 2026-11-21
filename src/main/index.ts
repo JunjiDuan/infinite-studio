@@ -11,6 +11,7 @@ import { registerAccountIpc } from './account'
 import { registerPluginIpc } from './plugins'
 import { registerDebugIpc } from './debug'
 import { registerAgentIpc } from './agents'
+import { registerSysmonIpc } from './sysmon'
 import { registerIdeIpc, startIdeServer } from './ide'
 import { getSavedLocale, setMainLocale } from './i18n'
 
@@ -133,6 +134,7 @@ function registerIpc(): void {
   registerPluginIpc()
   registerDebugIpc()
   registerAgentIpc()
+  registerSysmonIpc()
   registerIdeIpc()
 }
 
