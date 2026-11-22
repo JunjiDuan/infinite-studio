@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>HTML</title>
+    <link rel="stylesheet" href="preview.css" />
+  </head>
+  <body>
+    <div id="bar"></div>
+    <div id="main" data-mode="preview">
+      <div id="srcPane">
+        <div id="srcScroll">
+          <div id="srcInner">
+            <pre id="hl" aria-hidden="true"></pre>
+            <textarea id="src" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="soft"></textarea>
+          </div>
+        </div>
+      </div>
+      <div id="viewPane">
+        <div id="stage">
+          <div id="frameBox"><div id="device"></div></div>
+          <div id="size" hidden></div>
+          <div id="empty">正在生成预览…</div>
+        </div>
+        <div id="console" hidden>
+          <div class="con-head">
+            <span class="con-title">Console</span>
+            <span class="sp"></span>
+            <button type="button" id="conClear" class="tb" title="Clear" aria-label="Clear"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.5" /><path d="M6 18L18 6" /></svg></button>
+            <button type="button" id="conClose" class="tb" title="Close" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
+          </div>
+          <div id="logList"></div>
+        </div>
+      </div>
+    </div>
+    <div id="menu" class="pop" hidden></div>
+    <script src="studio.js"></script>
+    <script src="highlight.js"></script>
+    <script src="build.js"></script>
+    <script src="boot.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

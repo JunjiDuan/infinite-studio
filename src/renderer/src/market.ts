@@ -124,6 +124,13 @@ function info(e: Entry): { name: string; publisher: string; description: string;
   return (e.local ?? e.remote)!
 }
 
+/** 插件声明的额外权限（联网等），显示在卡片上 */
+function permHint(e: Entry): HTMLElement | null {
+  const perms = e.remote?.permissions ?? e.local?.permissions ?? []
+  const names = perms.map((p) => (p === 'network' ? t('联网') : p === 'eval' ? t('动态执行代码') : '')).filter(Boolean)
+  return names.length ? h('p', { class: 'plg-hint muted', title: t('插件页面可以加载网络资源，用于显示网页内容') }, t('需要权限：{0}', names.join(t('、')))) : null
+}
+
 function matches(e: Entry, q: string): boolean {
   if (!q) return true
   const i = info(e)
@@ -179,6 +186,7 @@ function card(e: Entry): HTMLElement {
         : null
     ),
     h('p', { class: 'plg-desc' }, i.description),
+    permHint(e),
     update ? h('p', { class: 'plg-hint muted' }, t('有新版本 v{0}', update.version)) : null,
     h('div', { class: 'plg-actions' }, ...actions)
   )
@@ -253,6 +261,8 @@ interface PluginEditor {
   stamp: string
   pending: Map<number, (v: unknown) => void>
   seq: number
+  /** 插件要求监视的相对文件（pathKey），变化时发 assetChanged */
+  watch?: Set<string>
   close: () => void
 }
 
@@ -401,7 +411,7 @@ async function onMessage(ed: PluginEditor, m: Record<string, unknown>): Promise<
     }
     case 'readAsset': {
       const p = typeof m.href === 'string' ? resolveRelative(ed.path, m.href) : null
-      const mime = p ? IMAGE_MIME[(p.match(/\.[^.\\/]+$/)?.[0] ?? '').toLowerCase()] : undefined
+      const mime = p ? ASSET_MIME[(p.match(/\.[^.\\/]+$/)?.[0] ?? '').toLowerCase()] : undefined
       let value: { data: ArrayBuffer; mime: string } | null = null
       if (p && mime) {
         const r = await window.api.fs.readBinary(p).catch(() => null)
@@ -410,11 +420,45 @@ async function onMessage(ed: PluginEditor, m: Record<string, unknown>): Promise<
       post(ed, { type: 'response', id: m.id, value }, value ? [value.data] : [])
       break
     }
+    case 'watch': {
+      // 插件用到的相对文件（网页引用的 CSS / JS 等）：它们变了就通知插件
+      const list = Array.isArray(m.hrefs) ? m.hrefs.slice(0, 2000) : []
+      ed.watch = new Set(list.map((x) => (typeof x === 'string' ? resolveRelative(ed.path, x) : null)).filter((x): x is string => !!x).map(pathKey))
+      break
+    }
   }
 }
 
-/** 插件能读取的图片（Markdown 里的相对路径图片） */
-const IMAGE_MIME: Record<string, string> = {
+/** 插件能读取的文件（Markdown 里的图片、网页引用的样式 / 脚本 / 字体 / 媒体） */
+const ASSET_MIME: Record<string, string> = {
+  '.css': 'text/css',
+  '.js': 'text/javascript',
+  '.mjs': 'text/javascript',
+  '.cjs': 'text/javascript',
+  '.json': 'application/json',
+  '.map': 'application/json',
+  '.html': 'text/html',
+  '.htm': 'text/html',
+  '.xml': 'application/xml',
+  '.txt': 'text/plain',
+  '.csv': 'text/csv',
+  '.md': 'text/markdown',
+  '.wasm': 'application/wasm',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf',
+  '.otf': 'font/otf',
+  '.eot': 'application/vnd.ms-fontobject',
+  '.mp3': 'audio/mpeg',
+  '.wav': 'audio/wav',
+  '.ogg': 'audio/ogg',
+  '.m4a': 'audio/mp4',
+  '.flac': 'audio/flac',
+  '.mp4': 'video/mp4',
+  '.webm': 'video/webm',
+  '.ogv': 'video/ogg',
+  '.vtt': 'text/vtt',
+  '.pdf': 'application/pdf',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
@@ -528,6 +572,7 @@ export async function initMarket(): Promise<void> {
   // 磁盘上的文件被别的程序改了：没修改过的重新加载，修改过的只提示
   window.api.fs.onChanged((paths) => {
     for (const ed of editors) {
+      if (ed.ready && ed.watch?.size && paths.some((p) => ed.watch!.has(pathKey(p)))) post(ed, { type: 'assetChanged' })
       if (!ed.ready || !paths.some((p) => samePath(p, ed.path))) continue
       void (async () => {
         const before = ed.stamp

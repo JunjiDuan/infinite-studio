@@ -164,7 +164,15 @@ export interface PluginManifest {
     /** 新文件的初始内容（文本） */
     template?: string
   }
+  /**
+   * 额外权限（默认都没有）：
+   *   network  页面可以加载 http(s) 资源（例如网页预览要用 CDN 上的脚本和样式）
+   *   eval     页面可以用 eval / new Function（预览的网页里有些库要用）
+   */
+  permissions?: PluginPermission[]
 }
+
+export type PluginPermission = 'network' | 'eval'
 
 /** registry.json 里的一项 */
 export interface RemotePlugin {
@@ -176,6 +184,8 @@ export interface RemotePlugin {
   category: PluginCategory
   homepage?: string
   minStudio?: string
+  /** 插件需要的额外权限，安装前显示在卡片上 */
+  permissions?: PluginPermission[]
   /** 插件包（zip）的下载地址，依次尝试 */
   urls: string[]
   sha256: string

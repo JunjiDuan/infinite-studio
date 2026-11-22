@@ -12,13 +12,15 @@
  *   studio.openExternal(url)                  用系统浏览器打开 https 链接
  *   studio.openText()                         用 IDE 的文本编辑器打开当前文件
  *   studio.openLink(href)                     打开相对于当前文件的链接（只限工作区内）
- *   studio.readAsset(href)                    读取相对于当前文件的图片 → Promise<Blob | null>（只限工作区内）
+ *   studio.readAsset(href)                    读取相对于当前文件的图片 / 样式 / 脚本 / 字体等 → Promise<Blob | null>（只限工作区内）
+ *   studio.watchAssets([href...])             监视这些相对文件，任何一个在磁盘上变了就调用 onAssetChanged
+ *   studio.onAssetChanged(() => {...})
  *   studio.locale                             'zh' | 'en'
  */
 ;(function () {
   'use strict'
   var parentOrigin = '*'
-  var handlers = { load: null, save: null, theme: [], saved: [] }
+  var handlers = { load: null, save: null, theme: [], saved: [], asset: [] }
   var seq = 0
   var pending = {}
   var dirty = false
@@ -86,6 +88,11 @@
       case 'saved':
         dirty = false
         handlers.saved.forEach(function (fn) {
+          fn()
+        })
+        break
+      case 'assetChanged':
+        handlers.asset.forEach(function (fn) {
           fn()
         })
         break
@@ -166,6 +173,12 @@
       return request({ type: 'readAsset', href: String(href) }).then(function (v) {
         return v && v.data ? new Blob([v.data], { type: v.mime || '' }) : null
       })
+    },
+    watchAssets: function (hrefs) {
+      send({ type: 'watch', hrefs: Array.prototype.slice.call(hrefs || []).map(String) })
+    },
+    onAssetChanged: function (fn) {
+      handlers.asset.push(fn)
     },
     /** 中英文：t('中文', 'English') */
     t: function (zh, en) {

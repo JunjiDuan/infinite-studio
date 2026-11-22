@@ -2,6 +2,26 @@
   "schema": 1,
   "plugins": [
     {
+      "id": "html-preview",
+      "name": "HTML 预览器",
+      "version": "1.0.0",
+      "publisher": "Infinite Studio",
+      "description": "打开 .html 文件时直接显示成网页：本地的 CSS、JS、图片、字体自动加载，脚本照常运行。可切换预览 / 分栏 / 源码，分栏时边写边刷新；桌面、平板、手机尺寸预览，内置控制台显示 console 输出和报错；引用的文件改动后自动刷新，可导出单文件 HTML。",
+      "category": "productivity",
+      "homepage": "https://github.com/JunjiDuan/infinite-studio/tree/main/marketplace/plugins/html-preview",
+      "minStudio": "0.1.0",
+      "permissions": [
+        "network",
+        "eval"
+      ],
+      "urls": [
+        "https://cdn.jsdelivr.net/gh/JunjiDuan/infinite-studio@main/marketplace/packages/html-preview-1.0.0.zip",
+        "https://raw.githubusercontent.com/JunjiDuan/infinite-studio/main/marketplace/packages/html-preview-1.0.0.zip"
+      ],
+      "sha256": "904c2c44ac3c5f55d12ca9e307e5c857373b77caaa5221a438d2765a3ed9c7ee",
+      "size": 35146
+    },
+    {
       "id": "markdown",
       "name": "Markdown 美化",
       "version": "1.0.0",
@@ -50,5 +70,5 @@
       "size": 82253
     }
   ],
-  "updated": "2026-11-22T17:23:05.896Z"
+  "updated": "2026-11-22T17:49:10.651Z"
 }

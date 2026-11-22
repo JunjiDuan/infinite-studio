@@ -6,6 +6,7 @@ Infinite Studio（无界工作室）的官方插件。IDE 的插件面板里，�
 
 | 插件 | 说明 |
 | --- | --- |
+| [HTML 预览器](plugins/html-preview) | 打开 `.html` 文件时直接显示成网页：本地 CSS / JS / 图片 / 字体自动加载，脚本照常运行。预览 / 分栏 / 源码，边写边刷新；桌面 / 平板 / 手机尺寸；控制台；引用文件改动后自动刷新；导出单文件 HTML |
 | [Markdown 美化](plugins/markdown) | 打开 `.md` 文件。阅读 / 分栏 / 源码三种模式：标题编号、提示块、代码高亮与复制、任务进度、大纲与阅读进度，分栏滚动同步；四套主题，导出 HTML |
 | [思维导图](plugins/mindmap) | 打开 `.mind` 文件。用键盘快速建主题，拖拽调整结构，可折叠分支，导出 PNG / SVG / Markdown |
 | [演示文稿](plugins/pptx) | 打开和编辑 `.pptx`：按原样式显示（主题、母版、表格、图表、SmartArt），改文字和格式，移动 / 缩放 / 旋转形状，插入文本框、形状、图片、表格，增删 / 复制 / 排序幻灯片，备注，放映 |
@@ -51,6 +52,7 @@ marketplace/
 | `editor.extensions` | 由这个插件打开的文件扩展名 |
 | `editor.binary` | `true`：文件按二进制读写（PDF、PPTX 等），页面收到的是 `ArrayBuffer` |
 | `newFile` | 可选。在插件卡片和命令面板里加一个“新建…”命令 |
+| `permissions` | 可选。`["network"]`：页面可以加载 http(s) 资源；`["eval"]`：页面可以用 `eval` / `new Function`。会显示在插件卡片上，没有必要不要声明 |
 
 ### 页面里的 SDK
 
@@ -71,7 +73,9 @@ studio.toast('已完成')
 studio.t('中文', 'English')               // 跟随 IDE 界面语言
 studio.openText()                         // 用 IDE 的文本编辑器打开当前文件
 studio.openLink('docs/a.md')              // 打开相对于当前文件的链接（只限工作区内）
-studio.readAsset('img/a.png')             // 读取相对于当前文件的图片 → Promise<Blob | null>（只限工作区内）
+studio.readAsset('img/a.png')             // 读取相对于当前文件的图片、样式、脚本、字体、音视频 → Promise<Blob | null>（只限工作区内）
+studio.watchAssets(['css/a.css'])         // 监视这些相对文件
+studio.onAssetChanged(() => {})           // 被监视的文件在磁盘上变了
 ```
 
 快捷键：Ctrl S 由 SDK 处理。页面里没处理的 Ctrl 组合键（命令面板、关闭标签等）会转给 IDE。如果插件自己要用某个组合键，请在 `document` 或元素上监听并调用 `preventDefault()`。
@@ -79,7 +83,8 @@ studio.readAsset('img/a.png')             // 读取相对于当前文件的图�
 ### 安全限制
 
 - 插件页面和 IDE 不同源，拿不到 IDE 的任何接口，只能通过 SDK 读写**当前打开的文件**。
-- 页面的 CSP 禁止联网：所有脚本、样式、字体、wasm 都要打进插件包。
+- 页面的 CSP 禁止联网：所有脚本、样式、字体、wasm 都要打进插件包（声明了 `network` 权限的除外）。
+- 页面里可以再嵌 iframe（`srcdoc`、`blob:`、`data:`），它继承插件页面的 CSP。HTML 预览器就是这样显示网页的：预览框不带 `allow-same-origin`，拿不到插件页面的 SDK。
 
 ## 发布
 

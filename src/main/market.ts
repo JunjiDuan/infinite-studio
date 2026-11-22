@@ -56,15 +56,44 @@ function validRemote(p: unknown): p is RemotePlugin {
 
 let memo: { at: number; list: RemotePlugin[] } | null = null
 
+/**
+ * main 分支最新的提交号。按提交号取文件（raw / jsDelivr）内容永远不变，CDN 缓存不会给出旧列表；
+ * 按分支名取时，raw 会缓存几分钟、jsDelivr 会缓存很久，刚发布的插件可能看不到。
+ * 拿不到（GitHub API 限流、网络不通）时返回 null，退回按分支名取。
+ */
+async function latestCommit(): Promise<string | null> {
+  try {
+    const r = await net.fetch(`https://api.github.com/repos/${MARKET_REPO}/commits/main`, {
+      headers: { accept: 'application/vnd.github.sha', 'user-agent': 'InfiniteStudio' },
+      signal: AbortSignal.timeout(8000),
+      cache: 'no-store'
+    })
+    if (!r.ok) return null
+    const sha = (await r.text()).trim()
+    return /^[0-9a-f]{40}$/.test(sha) ? sha : null
+  } catch {
+    return null
+  }
+}
+
+/** 分支地址 → 同一文件在某个提交下的地址（raw 的 /main/ 和 jsDelivr 的 @main/） */
+function atCommit(url: string, sha: string): string {
+  return url.replace(`/${MARKET_REPO}/main/`, `/${MARKET_REPO}/${sha}/`).replace(`/${MARKET_REPO}@main/`, `/${MARKET_REPO}@${sha}/`)
+}
+
 async function fetchRegistry(force: boolean): Promise<RemotePlugin[]> {
   if (!force && memo && Date.now() - memo.at < 10 * 60 * 1000) return memo.list
   let lastErr: unknown = null
-  for (const url of REGISTRY_URLS) {
+  const sha = await latestCommit()
+  const urls = sha ? [...REGISTRY_URLS.map((u) => atCommit(u, sha)), ...REGISTRY_URLS] : REGISTRY_URLS
+  for (const url of urls) {
     try {
       const r = await net.fetch(url + `?t=${Date.now()}`, { signal: AbortSignal.timeout(15000), cache: 'no-store' })
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
       const data = (await r.json()) as { plugins?: unknown[] }
       const list = (data.plugins ?? []).filter(validRemote)
+      // 插件包也先按提交号下载：jsDelivr 的 @main 可能还停在旧提交上，新包会 404
+      if (sha) for (const p of list) p.urls = [...new Set([...p.urls.map((u) => atCommit(u, sha)), ...p.urls])]
       memo = { at: Date.now(), list }
       await fs.mkdir(pluginsDir(), { recursive: true })
       await fs.writeFile(registryCache(), JSON.stringify(data), 'utf8').catch(() => undefined)
@@ -92,6 +121,7 @@ function validManifest(m: unknown): m is PluginManifest {
     x.editor.extensions = x.editor.extensions.filter((e) => typeof e === 'string' && /^\.[\w.-]+$/.test(e)).map((e) => e.toLowerCase())
   }
   if (x.newFile && (typeof x.newFile.label !== 'string' || typeof x.newFile.extension !== 'string' || !/^\.[\w.-]+$/.test(x.newFile.extension))) delete x.newFile
+  x.permissions = Array.isArray(x.permissions) ? x.permissions.filter((p) => p === 'network' || p === 'eval') : []
   x.publisher = String(x.publisher ?? '')
   x.description = String(x.description ?? '')
   x.category = 'productivity'
@@ -231,6 +261,7 @@ async function install(id: string, send: (got: number, total: number) => void): 
       }
       await fs.rm(target, { recursive: true, force: true })
       await fs.rename(staging, target)
+      permCache.delete(manifest.id)
     } catch (e) {
       await fs.rm(staging, { recursive: true, force: true }).catch(() => undefined)
       throw e
@@ -266,19 +297,40 @@ const MIME: Record<string, string> = {
   '.bcmap': 'application/octet-stream'
 }
 
-/** 插件页面只能加载自己包里的资源，不能联网 */
-const PLUGIN_CSP = [
-  "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob:",
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
-  "font-src 'self' data:",
-  "media-src 'self' data: blob:",
-  "connect-src 'self' data: blob:",
-  "worker-src 'self' blob:",
-  "frame-src 'none'",
-  "object-src 'none'"
-].join('; ')
+/**
+ * 插件页面只能加载自己包里的资源，不能联网。
+ * 页面里可以再嵌一层 iframe（srcdoc / blob / data，例如网页预览），它继承这里的限制。
+ * 声明了 network 权限的插件可以加载 http(s) 资源，声明了 eval 的可以用 eval / new Function。
+ */
+function pluginCsp(perms: readonly string[] = []): string {
+  const net = perms.includes('network') ? ' https: http:' : ''
+  const evl = perms.includes('eval') ? " 'unsafe-eval'" : ''
+  return [
+    "default-src 'self'",
+    `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'${evl} blob: data:${net}`,
+    `style-src 'self' 'unsafe-inline' data: blob:${net}`,
+    `img-src 'self' data: blob:${net}`,
+    `font-src 'self' data: blob:${net}`,
+    `media-src 'self' data: blob:${net}`,
+    `connect-src 'self' data: blob:${net}`,
+    "worker-src 'self' blob: data:",
+    `frame-src 'self' blob: data:${net}`,
+    "object-src 'none'",
+    "form-action 'none'"
+  ].join('; ')
+}
+
+/** 插件 id → 权限（页面请求时按 manifest 计算 CSP；安装 / 卸载后清掉） */
+const permCache = new Map<string, string[]>()
+
+async function pluginPerms(id: string): Promise<string[]> {
+  let p = permCache.get(id)
+  if (!p) {
+    p = (await readManifest(path.join(pluginsDir(), id)))?.permissions ?? []
+    permCache.set(id, p)
+  }
+  return p
+}
 
 /** 必须在 app ready 之前调用 */
 export function registerPluginScheme(): void {
@@ -299,7 +351,7 @@ function serve(): void {
       return new Response(data, {
         headers: {
           'content-type': MIME[path.extname(file).toLowerCase()] ?? 'application/octet-stream',
-          'content-security-policy': PLUGIN_CSP,
+          'content-security-policy': pluginCsp(await pluginPerms(id)),
           'cache-control': 'no-cache'
         }
       })
@@ -334,6 +386,7 @@ export function registerMarketIpc(): void {
     wrap(async () => {
       if (!ID_RE.test(String(id))) throw new Error(tm('未知插件：{0}', id))
       await fs.rm(path.join(pluginsDir(), id), { recursive: true, force: true })
+      permCache.delete(id)
     })
   )
   // 插件页面导出文件（PNG、Markdown 等）：弹出另存为对话框
