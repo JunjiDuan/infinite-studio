@@ -2,7 +2,7 @@ import type { FontId, Space, ThemeId } from '../../shared/types'
 import { h, toast } from './dom'
 import { icons } from './icons'
 import { monaco } from './monaco'
-import { MAX_SIZE, MIN_SIZE, emit, on, persist, setSpace, state } from './store'
+import { MAX_SIZE, MIN_SIZE, emit, on, persist, saveSettings, setSpace, state } from './store'
 import { ACCENTS, FONTS, THEMES, readableAccent } from './theme'
 import { viewTransition } from './motion'
 import { refreshAgentContext } from './chat'
@@ -44,7 +44,7 @@ export async function switchLocale(l: Locale): Promise<void> {
   if (anyDirty() && !confirm(t('有未保存的修改。切换语言需要重新加载窗口，未保存的修改会丢失。仍然切换吗？'))) return
   saveLocale(l)
   state.settings.locale = l
-  await window.api.settings.save(state.settings).catch(() => {})
+  await saveSettings().catch(() => {})
   window.api.win.reload()
 }
 

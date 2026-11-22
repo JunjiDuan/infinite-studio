@@ -49,6 +49,24 @@ function checkPaths(paths: unknown): string[] {
   return paths as string[]
 }
 
+/**
+ * 打开的文件夹在仓库里的前缀（例如打开 repo/frontend 时为 "frontend/"，就是仓库根目录时为 ""）。
+ * git status / show --name-status 输出的路径总是相对仓库根目录，界面拿它们和打开的文件夹拼路径，
+ * 所以要先换算成相对打开的文件夹。
+ */
+async function repoPrefix(root: string): Promise<string> {
+  try {
+    return (await git(root, ['rev-parse', '--show-prefix'])).trim()
+  } catch {
+    return ''
+  }
+}
+
+/** 相对仓库根目录的路径 → 相对打开的文件夹（在文件夹外面时以 ../ 开头） */
+function fromRepo(p: string, prefix: string): string {
+  return prefix ? path.posix.relative(prefix.replace(/\/+$/, ''), p) : p
+}
+
 async function hasCommits(root: string): Promise<boolean> {
   try {
     await git(root, ['rev-parse', '--verify', '-q', 'HEAD'])
@@ -59,7 +77,7 @@ async function hasCommits(root: string): Promise<boolean> {
 }
 
 /** 解析 git status --porcelain=v2 -z --branch */
-function parseStatus(out: string): Omit<Extract<GitStatus, { ok: true }>, 'ok' | 'hasCommits'> {
+function parseStatus(out: string, prefix = ''): Omit<Extract<GitStatus, { ok: true }>, 'ok' | 'hasCommits'> {
   const res = { branch: null as string | null, detached: false, upstream: null as string | null, ahead: 0, behind: 0, staged: [] as GitFile[], changes: [] as GitFile[], conflicts: [] as GitFile[] }
   const parts = out.split('\0')
   for (let i = 0; i < parts.length; i++) {
@@ -84,14 +102,15 @@ function parseStatus(out: string): Omit<Extract<GitStatus, { ok: true }>, 'ok' |
       const f = line.split(' ')
       const xy = f[1]
       // 1 XY sub mH mI mW hH hI path；2 XY sub mH mI mW hH hI Xscore path\0origPath
-      const p = f.slice(kind === '1' ? 8 : 9).join(' ')
-      const from = kind === '2' ? parts[++i] : undefined
+      const p = fromRepo(f.slice(kind === '1' ? 8 : 9).join(' '), prefix)
+      const orig = kind === '2' ? parts[++i] : undefined
+      const from = orig === undefined ? undefined : fromRepo(orig, prefix)
       if (xy[0] !== '.') res.staged.push({ path: p, status: xy[0], from: xy[0] === 'R' || xy[0] === 'C' ? from : undefined })
       if (xy[1] !== '.') res.changes.push({ path: p, status: xy[1] })
     } else if (kind === 'u') {
-      res.conflicts.push({ path: line.split(' ').slice(10).join(' '), status: '!' })
+      res.conflicts.push({ path: fromRepo(line.split(' ').slice(10).join(' '), prefix), status: '!' })
     } else if (kind === '?') {
-      res.changes.push({ path: line.slice(2), status: 'U' })
+      res.changes.push({ path: fromRepo(line.slice(2), prefix), status: 'U' })
     }
   }
   const byPath = (a: GitFile, b: GitFile) => a.path.localeCompare(b.path)
@@ -184,12 +203,12 @@ export function registerGitIpc(): void {
 
   ipcMain.handle('git:changes', async (_e, root: string, hash: string): Promise<GitChange[]> => {
     if (!/^[0-9a-f]{7,40}$/i.test(hash)) throw new Error(tm('无效的提交'))
-    const out = await git(root, ['show', '--name-status', '--format=', '-M', '--first-parent', hash])
+    const [out, prefix] = await Promise.all([git(root, ['show', '--name-status', '--format=', '-M', '--first-parent', hash]), repoPrefix(root)])
     return out
       .split('\n')
       .filter(Boolean)
       .map((line) => {
-        const [status, ...paths] = line.split('\t')
+        const [status, ...paths] = line.split('\t').map((x, i) => (i ? fromRepo(x, prefix) : x))
         return { status: status[0], path: paths[paths.length - 1], from: paths.length > 1 ? paths[0] : undefined }
       })
   })
@@ -197,8 +216,9 @@ export function registerGitIpc(): void {
   ipcMain.handle('git:status', async (_e, root: string): Promise<GitStatus> => {
     if (!existsSync(root)) return { ok: false, reason: 'error', message: tm('找不到文件夹 {0}', root) }
     try {
-      const out = await git(root, ['--no-optional-locks', 'status', '--porcelain=v2', '-z', '--branch', '--untracked-files=all'])
-      return { ok: true, hasCommits: await hasCommits(root), ...parseStatus(out) }
+      // 只列打开的文件夹里的改动（打开的是仓库的子文件夹时，外面的改动不显示）
+      const out = await git(root, ['--no-optional-locks', 'status', '--porcelain=v2', '-z', '--branch', '--untracked-files=all', '--', '.'])
+      return { ok: true, hasCommits: await hasCommits(root), ...parseStatus(out, await repoPrefix(root)) }
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code === 'ENOENT') return { ok: false, reason: 'no-git' }
       const msg = String((e as { stderr?: string }).stderr ?? '')
@@ -217,7 +237,8 @@ export function registerGitIpc(): void {
 
   ipcMain.handle('git:stage', async (_e, root: string, paths: string[] | null) => {
     try {
-      if (paths === null) await git(root, ['add', '-A'])
+      // “全部”只针对打开的文件夹（和列表里显示的一致）
+      if (paths === null) await git(root, ['add', '-A', '--', '.'])
       else await inChunks(root, ['add', '-A'], checkPaths(paths))
     } catch (e) {
       throw gitError(e)
@@ -228,7 +249,7 @@ export function registerGitIpc(): void {
     try {
       const head = await hasCommits(root)
       if (paths === null) {
-        if (head) await git(root, ['reset', '-q'])
+        if (head) await git(root, ['reset', '-q', 'HEAD', '--', '.'])
         else await git(root, ['rm', '-r', '-q', '--cached', '.'])
       } else if (head) await inChunks(root, ['reset', '-q', 'HEAD'], checkPaths(paths))
       else await inChunks(root, ['rm', '-r', '-q', '--cached'], checkPaths(paths))
@@ -241,9 +262,12 @@ export function registerGitIpc(): void {
   ipcMain.handle('git:discard', async (_e, root: string, tracked: string[], untracked: string[]) => {
     try {
       if (tracked.length) await inChunks(root, ['checkout', '-q'], checkPaths(tracked))
+      const base = path.resolve(root)
       for (const p of checkPaths(untracked)) {
-        const full = path.resolve(root, p)
-        if (!full.startsWith(path.resolve(root))) continue
+        const full = path.resolve(base, p)
+        // 必须在打开的文件夹里面：只比前缀的话 C:\proj2 也会被当成在 C:\proj 下面
+        const rel = path.relative(base, full)
+        if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) continue
         await shell.trashItem(full)
       }
     } catch (e) {
@@ -276,7 +300,8 @@ export function registerGitIpc(): void {
   ipcMain.handle('git:show', async (_e, root: string, ref: string, file: string): Promise<string> => {
     if (!/^(HEAD|:|[0-9a-f]{7,40}\^?)$/i.test(ref) || file.startsWith('-')) throw new Error('invalid ref')
     try {
-      return await git(root, ['show', ref === ':' ? `:${file}` : `${ref}:${file}`])
+      // ./ 开头表示相对当前目录（打开的是仓库的子文件夹时，file 是相对这个子文件夹的）
+      return await git(root, ['show', ref === ':' ? `:./${file}` : `${ref}:./${file}`])
     } catch {
       return ''
     }

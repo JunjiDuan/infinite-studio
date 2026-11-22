@@ -1,5 +1,5 @@
 import { app, ipcMain, type WebContents } from 'electron'
-import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
+import { execFile, execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import type { LspServerInfo } from '../shared/types'
@@ -90,6 +90,7 @@ interface Session {
   proc: ChildProcess
   wc: WebContents
   stderr: string
+  onDestroyed: () => void
 }
 
 const sessions = new Map<number, Session>()
@@ -99,7 +100,12 @@ function killSession(id: number): void {
   const s = sessions.get(id)
   if (!s) return
   sessions.delete(id)
-  if (s.proc.exitCode === null) s.proc.kill()
+  if (!s.wc.isDestroyed()) s.wc.off('destroyed', s.onDestroyed)
+  if (s.proc.exitCode !== null) return
+  // Windows 上通过 .cmd 包装（shell: true）启动的语言服务，proc 只是外面那层 cmd.exe，
+  // 直接 kill 只杀掉 cmd.exe，真正的语言服务（node 等）会留在后台；用 taskkill /T 连子进程一起结束
+  if (process.platform === 'win32' && s.proc.pid) execFile('taskkill', ['/pid', String(s.proc.pid), '/T', '/F'], { windowsHide: true }, () => {})
+  else s.proc.kill()
 }
 
 export function registerLspIpc(): void {
@@ -117,7 +123,7 @@ export function registerLspIpc(): void {
     const proc = spawn(launch.cmd, launch.args, { cwd: root, env, shell: launch.shell, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] })
     const id = nextId++
     const wc = e.sender
-    const session: Session = { proc, wc, stderr: '' }
+    const session: Session = { proc, wc, stderr: '', onDestroyed: () => killSession(id) }
     sessions.set(id, session)
     const framer = new Framer((msg) => {
       if (!wc.isDestroyed()) wc.send('lsp:message', id, msg)
@@ -129,7 +135,9 @@ export function registerLspIpc(): void {
     const exited = (code: number | null) => {
       if (!sessions.has(id)) return
       sessions.delete(id)
-      if (!wc.isDestroyed()) wc.send('lsp:exit', id, code ?? -1, session.stderr)
+      if (wc.isDestroyed()) return
+      wc.off('destroyed', session.onDestroyed)
+      wc.send('lsp:exit', id, code ?? -1, session.stderr)
     }
     proc.on('exit', exited)
     proc.on('error', (err) => {
@@ -139,7 +147,7 @@ export function registerLspIpc(): void {
     proc.stdin!.on('error', () => {
       /* 进程已退出时写入会报 EPIPE，忽略 */
     })
-    wc.once('destroyed', () => killSession(id))
+    wc.once('destroyed', session.onDestroyed)
     return id
   })
 

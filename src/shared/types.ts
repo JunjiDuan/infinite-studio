@@ -59,8 +59,16 @@ export interface DirEntry {
   isDir: boolean
 }
 
+export type TextEncodingName = 'utf8' | 'gbk'
+
+/** 文本文件的编码信息：保存时按原编码写回 */
+export interface TextEncodingInfo {
+  encoding: TextEncodingName
+  bom: boolean
+}
+
 export type ReadResult =
-  | { ok: true; content: string }
+  | ({ ok: true; content: string; /** 不是有效的 UTF-8 / GBK，无效字节已替换成 U+FFFD */ lossy?: boolean } & TextEncodingInfo)
   | { ok: false; reason: 'binary' | 'too-large' | 'missing' | 'error'; message?: string }
 
 export type BinaryResult =
@@ -272,7 +280,8 @@ export interface Api {
     openFolderDialog(): Promise<string | null>
     readDir(dir: string): Promise<DirEntry[]>
     readFile(path: string): Promise<ReadResult>
-    writeFile(path: string, content: string): Promise<void>
+    /** enc 不传时按 UTF-8（无 BOM）写 */
+    writeFile(path: string, content: string, enc?: TextEncodingInfo): Promise<void>
     /** 读二进制内容（文档 / 图片 / 音视频预览用） */
     readBinary(path: string): Promise<BinaryResult>
     writeBinary(path: string, data: Uint8Array): Promise<void>
@@ -336,7 +345,8 @@ export interface Api {
   }
   settings: {
     load(): Promise<Settings | null>
-    save(s: Settings): Promise<void>
+    /** 只传改动过的顶层字段，主进程合并进磁盘上的设置（多个窗口不会互相覆盖） */
+    save(patch: Partial<Settings>): Promise<void>
   }
   /** 插件市场：从 GitHub 插件仓库安装的插件 */
   market: {

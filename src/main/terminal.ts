@@ -42,13 +42,16 @@ function loadPty(): typeof import('@lydell/node-pty') {
 }
 
 export function registerTerminalIpc(): void {
-  ipcMain.handle('term:create', (e, opts: { cwd?: string; cols: number; rows: number }) => {
+  ipcMain.handle('term:create', async (e, opts: { cwd?: string; cols: number; rows: number }) => {
     const pty = loadPty()
     const shell = pickShell()
     const env: Record<string, string> = {}
     // 不要把宿主注入的变量（ELECTRON_RUN_AS_NODE、CLAUDECODE 等）带进用户的 shell：
-    // 否则在终端里运行 claude 会被当成嵌套会话，或者连到 VS Code 的 IDE 服务
-    for (const [k, v] of Object.entries(childEnv(ideTerminalEnv()))) if (v !== undefined) env[k] = v
+    // 否则在终端里运行 claude 会被当成嵌套会话，或者连到 VS Code 的 IDE 服务。
+    // CLAUDE_CODE_SSE_PORT 指向这个窗口自己的 IDE 服务
+    const wc = e.sender
+    for (const [k, v] of Object.entries(childEnv(await ideTerminalEnv(wc)))) if (v !== undefined) env[k] = v
+    if (wc.isDestroyed()) throw new Error('window closed')
     env.TERM_PROGRAM = 'InfiniteStudio'
     env.COLORTERM = 'truecolor'
     const proc = pty.spawn(shell.file, shell.args, {
@@ -59,22 +62,25 @@ export function registerTerminalIpc(): void {
       env
     })
     const id = nextId++
-    const wc = e.sender
+    const onDestroyed = () => {
+      const t = terms.get(id)
+      if (t) {
+        t.pty.kill()
+        terms.delete(id)
+      }
+    }
     terms.set(id, { pty: proc, wc })
     proc.onData((data) => {
       if (!wc.isDestroyed()) wc.send('term:data', id, data)
     })
     proc.onExit(({ exitCode }) => {
       terms.delete(id)
-      if (!wc.isDestroyed()) wc.send('term:exit', id, exitCode)
+      if (wc.isDestroyed()) return
+      // 终端结束了就摘掉窗口上的回调，开关很多次终端也不会越积越多
+      wc.off('destroyed', onDestroyed)
+      wc.send('term:exit', id, exitCode)
     })
-    wc.once('destroyed', () => {
-      const t = terms.get(id)
-      if (t) {
-        t.pty.kill()
-        terms.delete(id)
-      }
-    })
+    wc.once('destroyed', onDestroyed)
     return { id, shell: shell.file.replace(/\.exe$/i, '') }
   })
 

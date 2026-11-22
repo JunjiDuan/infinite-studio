@@ -15,7 +15,7 @@ import { registerDebugIpc } from './debug'
 import { registerJupyterIpc } from './jupyter'
 import { registerAgentIpc } from './agents'
 import { registerSysmonIpc } from './sysmon'
-import { registerIdeIpc, startIdeServer } from './ide'
+import { registerIdeIpc } from './ide'
 import { getSavedLocale, setMainLocale } from './i18n'
 
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json')
@@ -120,12 +120,27 @@ function registerIpc(): void {
   ipcMain.handle('settings:load', () => readSettings())
   // 界面语言要在页面脚本执行前就知道（界面是启动时一次性搭好的），所以用同步消息
   ipcMain.on('app:locale', (e) => (e.returnValue = getSavedLocale()))
-  ipcMain.handle('settings:save', async (_e, s: Settings) => {
-    await fs.mkdir(path.dirname(settingsFile()), { recursive: true })
-    const tmp = settingsFile() + '.tmp'
-    await fs.writeFile(tmp, JSON.stringify(s, null, 2), 'utf8')
-    await fs.rename(tmp, settingsFile())
-    setMainLocale(s?.locale)
+  // 窗口只发改动过的字段，这里合并进磁盘上的设置：多个窗口各改各的，不会用自己手里的旧副本覆盖别的窗口的修改。
+  // 所有保存排成一队执行，读-合并-写之间不会被另一个窗口插进来
+  let saving: Promise<void> = Promise.resolve()
+  let tmpSeq = 0
+  ipcMain.handle('settings:save', (_e, patch: Partial<Settings>) => {
+    const job = saving.then(async () => {
+      if (!patch || typeof patch !== 'object') return
+      const merged = { ...((await readSettings()) ?? {}), ...patch } as Settings
+      await fs.mkdir(path.dirname(settingsFile()), { recursive: true })
+      const tmp = `${settingsFile()}.${process.pid}.${++tmpSeq}.tmp`
+      try {
+        await fs.writeFile(tmp, JSON.stringify(merged, null, 2), 'utf8')
+        await fs.rename(tmp, settingsFile())
+      } catch (e) {
+        await fs.rm(tmp, { force: true }).catch(() => undefined)
+        throw e
+      }
+      setMainLocale(merged.locale)
+    })
+    saving = job.catch(() => undefined)
+    return job
   })
 
   registerFsIpc()
@@ -150,8 +165,8 @@ registerPluginScheme()
 app.whenReady().then(() => {
   app.setAppUserModelId('studio.infinite.ide')
   registerIpc()
-  // 先开 IDE 桥接服务：终端创建时要用到它的端口
-  void startIdeServer().finally(() => createWindow())
+  // IDE 桥接服务每个窗口一个，窗口登记或第一次开终端时创建
+  void createWindow()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })

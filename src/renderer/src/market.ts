@@ -3,6 +3,7 @@
  * 插件的编辑器页面放在 iframe 里（studio-plugin://<id>/ 协议，和 IDE 不同源），只能通过 postMessage 和 IDE 通信。
  */
 import { PLUGIN_API, type PluginManifest, type PluginPermission, type RemotePlugin } from '../../shared/plugins'
+import type { TextEncodingInfo } from '../../shared/types'
 import type { Command } from './commands'
 import { basename, h, toast } from './dom'
 import { activeTab, closeView, isUnder, normPath, openFile, openView, pathKey, registerPreviewer, revealView, samePath, updateView, type ViewSpec } from './editor'
@@ -282,6 +283,8 @@ interface PluginEditor {
   ready: boolean
   /** 上次读到 / 写入的内容的指纹，用来忽略自己保存引起的文件变化 */
   stamp: string
+  /** 文本文件原来的编码，保存时按它写回 */
+  enc?: TextEncodingInfo
   pending: Map<number, (v: unknown) => void>
   seq: number
   /** 插件要求监视的文件：pathKey → 插件给的原路径，变化时发 assetChanged */
@@ -324,6 +327,7 @@ async function readContent(ed: PluginEditor): Promise<string | ArrayBuffer | nul
   const r = await window.api.fs.readFile(ed.path)
   if (!r.ok) return null
   ed.stamp = fingerprint(r.content)
+  ed.enc = { encoding: r.encoding, bom: r.bom }
   return r.content
 }
 
@@ -369,7 +373,7 @@ async function saveEditor(ed: PluginEditor): Promise<boolean> {
   try {
     const content = await request(ed, 'getContent')
     if (typeof content === 'string') {
-      await window.api.fs.writeFile(ed.path, content)
+      await window.api.fs.writeFile(ed.path, content, ed.enc)
       ed.stamp = fingerprint(content)
     } else if (content instanceof ArrayBuffer || ArrayBuffer.isView(content)) {
       const bytes = content instanceof ArrayBuffer ? new Uint8Array(content) : new Uint8Array(content.buffer, content.byteOffset, content.byteLength)
@@ -554,13 +558,21 @@ function resolveRelative(file: string, href: string, url = true): string | null 
       parts.pop()
     } else parts.push(seg)
   }
-  const out = normPath([head, ...parts].join(sep) || sep)
+  // 只剩盘符 / 根时补上分隔符（"C:" → "C:\"）
+  const out = normPath(parts.length ? [head, ...parts].join(sep) : head + sep)
   return isUnder(out, base) ? out : null
 }
 
 /** 插件能访问的范围：工作区；没打开工作区（或文件不在工作区里）时为当前文件所在目录 */
 function pluginBase(file: string): string {
-  return state.root && isUnder(file, state.root) ? state.root : file.replace(/[\\/][^\\/]*$/, '')
+  return state.root && isUnder(file, state.root) ? state.root : dirOf(file)
+}
+
+/** 所在目录；在磁盘根目录时保留分隔符（"C:" 在 Windows 上表示 C 盘的当前目录，不是根目录） */
+function dirOf(p: string): string {
+  const d = p.replace(/[\\/][^\\/]*$/, '')
+  if (/^[a-zA-Z]:$/.test(d)) return d + '\\'
+  return d || '/'
 }
 
 /** 绝对路径 → 插件看到的路径（以 / 开头，相对于插件能访问的范围） */
@@ -668,7 +680,7 @@ async function call(ed: PluginEditor, method: string, a: unknown[]): Promise<[un
     case 'fs.write': {
       const p = writablePath(ed, a[0])
       const data = toBytes(a[1])
-      await window.api.market.mkdirp(p.replace(/[\\/][^\\/]*$/, ''))
+      await window.api.market.mkdirp(dirOf(p))
       if (typeof data === 'string') await window.api.fs.writeFile(p, data)
       else await window.api.fs.writeBinary(p, data)
       return [true, []]
@@ -878,6 +890,10 @@ function openPluginEditor(manifest: PluginManifest, path: string): void {
     onClose: () => {
       window.removeEventListener('message', onMsg)
       editors.delete(ed)
+    },
+    // 文件改名 / 移动后，保存要写到新路径（否则会在旧位置重新建出一个文件）
+    onRename: (p) => {
+      ed.path = p
     }
   }
   ed.close = () => {

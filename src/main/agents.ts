@@ -123,6 +123,14 @@ function claudeArgs(req: AgentStart): string[] {
   ]
 }
 
+/** 窗口关闭时调用 fn；返回的函数把回调摘掉（进程结束时调用，免得窗口上的回调越积越多） */
+function whenClosed(wc: WebContents, fn: () => void): () => void {
+  wc.once('destroyed', fn)
+  return () => {
+    if (!wc.isDestroyed()) wc.off('destroyed', fn)
+  }
+}
+
 function kill(r: Run): void {
   const pid = r.proc.pid
   if (!pid || r.proc.exitCode !== null) return
@@ -188,9 +196,10 @@ async function start(wc: WebContents, req: AgentStart): Promise<number> {
   })
   proc.on('close', (code) => {
     runs.delete(id)
+    detach()
     send('agent:exit', code ?? -1, stderr.trim())
   })
-  wc.once('destroyed', () => {
+  const detach = whenClosed(wc, () => {
     const r = runs.get(id)
     if (r) kill(r)
   })
@@ -456,10 +465,11 @@ async function claudeLogin(wc: WebContents, method: ClaudeLoginMethod): Promise<
   })
   proc.on('close', (code) => {
     logins.delete(id)
+    detach()
     const tail = out.trim().split('\n').slice(-3).join('\n')
     send({ type: 'exit', ok: code === 0, message: code === 0 ? undefined : tail || tm('登录失败（{0}）', code) })
   })
-  wc.once('destroyed', () => killLogin(id))
+  const detach = whenClosed(wc, () => killLogin(id))
   return id
 }
 
@@ -525,10 +535,11 @@ async function kimiLogin(wc: WebContents): Promise<number> {
   })
   proc.on('close', (code) => {
     logins.delete(id)
+    detach()
     const tail = out.trim().split('\n').slice(-3).join('\n')
     send({ type: 'exit', ok: code === 0, message: code === 0 ? undefined : tail || tm('登录失败（{0}）', code) })
   })
-  wc.once('destroyed', () => killLogin(id))
+  const detach = whenClosed(wc, () => killLogin(id))
   return id
 }
 

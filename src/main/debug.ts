@@ -54,6 +54,7 @@ class ProcessAdapter implements Adapter {
 interface Session {
   adapter: Adapter
   wc: WebContents
+  onDestroyed: () => void
 }
 
 const sessions = new Map<number, Session>()
@@ -118,6 +119,7 @@ function kill(id: number): void {
   const s = sessions.get(id)
   if (!s) return
   sessions.delete(id)
+  if (!s.wc.isDestroyed()) s.wc.off('destroyed', s.onDestroyed)
   s.adapter.kill()
 }
 
@@ -128,16 +130,19 @@ export function registerDebugIpc(): void {
       if ('error' in r) return { ok: false, error: r.error, output: r.output }
       const id = nextId++
       const wc = e.sender
-      sessions.set(id, { adapter: r.adapter, wc })
+      const onDestroyed = () => kill(id)
+      sessions.set(id, { adapter: r.adapter, wc, onDestroyed })
       r.adapter.onMessage = (m) => {
         if (!wc.isDestroyed()) wc.send('debug:message', id, m)
       }
       r.adapter.onExit = (code) => {
         if (!sessions.has(id)) return
         sessions.delete(id)
-        if (!wc.isDestroyed()) wc.send('debug:exit', id, code)
+        if (wc.isDestroyed()) return
+        wc.off('destroyed', onDestroyed)
+        wc.send('debug:exit', id, code)
       }
-      wc.once('destroyed', () => kill(id))
+      wc.once('destroyed', onDestroyed)
       return { ok: true, id, adapterId: r.adapterId, launch: r.launch }
     } catch (err) {
       return { ok: false, error: String((err as Error)?.message ?? err) }

@@ -6,6 +6,7 @@ import { emit, isFocus, state } from './store'
 import { FONTS } from './theme'
 import { DUR, EASE, SPRING, after, animate } from './motion'
 import { t } from './i18n'
+import type { TextEncodingInfo } from '../../shared/types'
 
 /**
  * 编辑器分成若干“组”，左右排列，组之间的分隔条可以拖动。
@@ -20,6 +21,10 @@ export interface Tab {
   savedVersion: number
   /** 监听模型内容变化（后台标签被重命名等操作修改时，也要刷新未保存标记） */
   sub?: monaco.IDisposable
+  /** 文件原来的编码（UTF-8 / UTF-8 BOM / GBK），保存时按它写回 */
+  enc?: TextEncodingInfo
+  /** 文件里有无效字节（既不是 UTF-8 也不是 GBK），保存会把它们换成 U+FFFD */
+  lossy?: boolean
 }
 
 /** 自定义视图标签 */
@@ -38,6 +43,8 @@ export interface ViewSpec {
   onShow?: () => void
   /** 对应磁盘上的文件（文档预览等）：文件被删除时关闭标签，改名时跟着改 */
   path?: string
+  /** 文件（或它所在的文件夹）改名 / 移动后调用，视图自己记着的路径要跟着换 */
+  onRename?: (path: string) => void
   /** 可编辑的视图（如 Notebook）：是否有未保存的修改 */
   dirty?: () => boolean
   /** 可编辑的视图：保存（Ctrl S / 全部保存） */
@@ -603,8 +610,15 @@ export async function openFile(rawPath: string, o: OpenOptions = {}): Promise<Ta
     const uri = monaco.Uri.file(path)
     // 模型可能已被语言服务预先创建（比如“查看定义”时），直接复用
     let model = monaco.editor.getModel(uri)
+    // 模型已存在时也要读一次：要知道文件的编码，保存时按原编码写回
+    const r = await window.api.fs.readFile(path)
+    let enc: TextEncodingInfo | undefined
+    let lossy = false
+    if (r.ok) {
+      enc = { encoding: r.encoding, bom: r.bom }
+      lossy = !!r.lossy
+    }
     if (!model) {
-      const r = await window.api.fs.readFile(path)
       if (!r.ok) {
         if (r.reason === 'binary' && activate && previewer(path, true)) return null
         toast(
@@ -612,11 +626,14 @@ export async function openFile(rawPath: string, o: OpenOptions = {}): Promise<Ta
         )
         return null
       }
-      // 读文件期间可能已被别处打开
       if (findTab(path)) return openFile(path, o)
       model = monaco.editor.getModel(uri) ?? monaco.editor.createModel(r.content, languageFor(path), uri)
     }
-    doc = { path, model, savedVersion: model.getAlternativeVersionId() }
+    // 读文件期间可能已被别处打开
+    if (findTab(path)) return openFile(path, o)
+    if (activate && enc?.encoding === 'gbk') toast(t('“{0}” 是 GBK 编码，保存时会保持 GBK', basename(path)))
+    if (lossy) toast(t('“{0}” 包含无法识别的字符编码，显示可能有乱码；保存会把这些字节替换掉', basename(path)))
+    doc = { path, model, savedVersion: model.getAlternativeVersionId(), enc, lossy }
     track(doc)
     tabs.push(doc)
     fire('opened', doc)
@@ -1588,8 +1605,18 @@ export function renderEditorTabs(): void {
 
 export async function saveTab(tab: Tab, quiet = false): Promise<boolean> {
   const content = tab.model.getValue(monaco.editor.EndOfLinePreference.TextDefined)
+  if (tab.lossy && !confirm(t('“{0}” 的编码无法识别，打开时无效的字节已被替换。保存会永久改变这些字节，仍然保存吗？', basename(tab.path)))) return false
   try {
-    await window.api.fs.writeFile(tab.path, content)
+    try {
+      await window.api.fs.writeFile(tab.path, content, tab.enc)
+    } catch (e) {
+      // GBK 表示不了新输入的字符（例如 emoji）：问一下是否改成 UTF-8 保存，原文件此时没有被改动
+      if (tab.enc?.encoding !== 'gbk' || !/GBK/.test(String(e))) throw e
+      if (!confirm(t('“{0}” 是 GBK 编码，但内容里有 GBK 无法表示的字符。改用 UTF-8 编码保存吗？', basename(tab.path)))) return false
+      tab.enc = { encoding: 'utf8', bom: false }
+      await window.api.fs.writeFile(tab.path, content, tab.enc)
+    }
+    tab.lossy = false
     tab.savedVersion = tab.model.getAlternativeVersionId()
     fire('saved', tab)
     emit('tabs')
@@ -1648,9 +1675,12 @@ export function renamePath(from: string, to: string): void {
     for (const it of g.items) {
       const spec = it.type === 'view' ? it.spec : null
       if (!spec?.path || !isUnder(spec.path, from)) continue
+      const oldKey = pathKey(spec.path)
       spec.path = normPath(to + spec.path.slice(from.length))
       spec.title = basename(spec.path)
-      if (spec.key) spec.key = spec.key.slice(0, spec.key.indexOf(':')) + ':' + pathKey(spec.path)
+      // key 的结尾是路径（"preview:<路径>"、"market:<插件>:<路径>"），只换掉路径这一段
+      if (spec.key?.endsWith(oldKey)) spec.key = spec.key.slice(0, spec.key.length - oldKey.length) + pathKey(spec.path)
+      spec.onRename?.(spec.path)
     }
   updateTitle()
   emit('tabs')
@@ -1668,6 +1698,7 @@ export async function reloadFromDisk(path: string): Promise<void> {
     if (r.reason === 'missing') toast(t('“{0}” 已在磁盘上被删除', basename(tab.path)))
     return
   }
+  const enc = { encoding: r.encoding, bom: r.bom }
   const current = tab.model.getValue(monaco.editor.EndOfLinePreference.TextDefined)
   if (r.content === current) return
   if (isDirty(tab)) {
@@ -1676,6 +1707,8 @@ export async function reloadFromDisk(path: string): Promise<void> {
   }
   tab.model.pushEditOperations([], [{ range: tab.model.getFullModelRange(), text: r.content }], () => null)
   tab.savedVersion = tab.model.getAlternativeVersionId()
+  tab.enc = enc
+  tab.lossy = !!r.lossy
   emit('tabs')
 }
 

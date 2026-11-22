@@ -1,8 +1,9 @@
 import { BrowserWindow, dialog, ipcMain, shell, type WebContents } from 'electron'
 import { promises as fs, watch, type FSWatcher } from 'node:fs'
 import path from 'node:path'
-import type { BinaryResult, DirEntry, ReadResult } from '../shared/types'
+import type { BinaryResult, DirEntry, ReadResult, TextEncodingInfo } from '../shared/types'
 import { tm } from './i18n'
+import { decodeText, encodeText } from './textCodec'
 
 export const MAX_FILE_BYTES = 5 * 1024 * 1024
 /** 预览（PDF、Office、图片、音视频）一次读入内存的上限 */
@@ -26,6 +27,16 @@ function assertName(name: string): void {
   if (!name || name === '.' || name === '..' || /[\\/:*?"<>|]/.test(name)) throw new Error(tm('非法文件名：{0}', name))
 }
 
+/** 两个路径是否指向磁盘上的同一个文件 */
+async function sameFile(a: string, b: string): Promise<boolean> {
+  try {
+    const [x, y] = await Promise.all([fs.stat(a, { bigint: true }), fs.stat(b, { bigint: true })])
+    return x.dev === y.dev && x.ino === y.ino
+  } catch {
+    return false
+  }
+}
+
 async function exists(p: string): Promise<boolean> {
   try {
     await fs.access(p)
@@ -37,7 +48,7 @@ async function exists(p: string): Promise<boolean> {
 
 /* ---------- 文件监听：每个窗口一个递归 watcher ---------- */
 
-const watchers = new Map<number, { watcher: FSWatcher; timer?: ReturnType<typeof setTimeout>; pending: Set<string> }>()
+const watchers = new Map<number, { watcher: FSWatcher; timer?: ReturnType<typeof setTimeout>; pending: Set<string>; onDestroyed: () => void }>()
 
 function stopWatch(wc: WebContents): void {
   const w = watchers.get(wc.id)
@@ -45,6 +56,8 @@ function stopWatch(wc: WebContents): void {
   clearTimeout(w.timer)
   w.watcher.close()
   watchers.delete(wc.id)
+  // 每次换文件夹都会重新监听：把上一次挂的 destroyed 回调摘掉，免得越积越多
+  if (!wc.isDestroyed()) wc.off('destroyed', w.onDestroyed)
 }
 
 function startWatch(wc: WebContents, root: string): void {
@@ -56,7 +69,7 @@ function startWatch(wc: WebContents, root: string): void {
     console.warn('无法监听文件夹', root, err)
     return
   }
-  const entry = { watcher, pending: new Set<string>(), timer: undefined as ReturnType<typeof setTimeout> | undefined }
+  const entry = { watcher, pending: new Set<string>(), timer: undefined as ReturnType<typeof setTimeout> | undefined, onDestroyed: () => stopWatch(wc) }
   watcher.on('change', (_event, filename) => {
     if (!filename) return
     const rel = filename.toString()
@@ -72,7 +85,7 @@ function startWatch(wc: WebContents, root: string): void {
   })
   watcher.on('error', (err) => console.warn('文件监听出错', err))
   watchers.set(wc.id, entry)
-  wc.once('destroyed', () => stopWatch(wc))
+  wc.once('destroyed', entry.onDestroyed)
 }
 
 export function registerFsIpc(): void {
@@ -97,9 +110,9 @@ export function registerFsIpc(): void {
       if (stat.size > MAX_FILE_BYTES) return { ok: false, reason: 'too-large' }
       const buf = await fs.readFile(file)
       if (buf.subarray(0, 8000).includes(0)) return { ok: false, reason: 'binary' }
-      let text = buf.toString('utf8')
-      if (text.charCodeAt(0) === 0xfeff) text = text.slice(1)
-      return { ok: true, content: text }
+      // 识别 UTF-8 / UTF-8 BOM / GBK，保存时按原编码写回
+      const d = decodeText(buf)
+      return { ok: true, content: d.text, encoding: d.encoding, bom: d.bom, ...(d.lossy ? { lossy: true } : {}) }
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code
       return { ok: false, reason: code === 'ENOENT' ? 'missing' : 'error', message: String(err) }
@@ -124,8 +137,9 @@ export function registerFsIpc(): void {
     return shell.openPath(p)
   })
 
-  ipcMain.handle('fs:writeFile', async (_e, file: string, content: string) => {
-    await fs.writeFile(file, content, 'utf8')
+  ipcMain.handle('fs:writeFile', async (_e, file: string, content: string, enc?: TextEncodingInfo) => {
+    // 先编码再写：GBK 表示不了的字符会在这里报错，原文件保持不变
+    await fs.writeFile(file, encodeText(String(content), { encoding: enc?.encoding, bom: !!enc?.bom }))
   })
 
   ipcMain.handle('fs:writeBinary', async (_e, file: string, data: Uint8Array) => {
@@ -181,8 +195,9 @@ export function registerFsIpc(): void {
   ipcMain.handle('fs:rename', async (_e, from: string, newName: string) => {
     assertName(newName)
     const to = path.join(path.dirname(from), newName)
-    // 只改大小写时目标“存在”其实是同一个文件，允许
-    if (to.toLowerCase() !== from.toLowerCase() && (await exists(to))) throw new Error(tm('已存在同名文件：{0}', newName))
+    // 目标已存在时只允许它就是源文件本身（不区分大小写的文件系统上只改大小写）；
+    // 区分大小写的文件系统上 a 和 A 是两个文件，rename 会直接覆盖掉 A
+    if (to !== from && (await exists(to)) && !(await sameFile(from, to))) throw new Error(tm('已存在同名文件：{0}', newName))
     await fs.rename(from, to)
     return to
   })

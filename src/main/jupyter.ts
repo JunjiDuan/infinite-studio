@@ -282,13 +282,17 @@ export function registerJupyterIpc(): void {
     proc.on('error', (err) => {
       stderr += String(err)
     })
+    // 窗口关闭或重新加载：关掉它的所有内核
+    const onDestroyed = () => stop(id)
     proc.on('exit', (code) => {
       clearTimeout(k.killTimer)
       kernels.delete(id)
-      if (!wc.isDestroyed()) wc.send('jupyter:exit', id, code ?? -1, stderr)
+      if (wc.isDestroyed()) return
+      // 内核结束了就摘掉窗口上的回调，重启很多次内核也不会越积越多
+      wc.off('destroyed', onDestroyed)
+      wc.send('jupyter:exit', id, code ?? -1, stderr)
     })
-    // 窗口关闭或重新加载：关掉它的所有内核
-    wc.once('destroyed', () => stop(id))
+    wc.once('destroyed', onDestroyed)
     return { ok: true, session: id, python }
   })
 

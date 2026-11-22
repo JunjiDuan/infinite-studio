@@ -51,9 +51,45 @@ export const state = {
   panelOpen: false
 }
 
+/** 上次保存（或启动时读到）的各个顶层字段，用来算出这次改了哪些 */
+let savedSnapshot: Record<string, string> = {}
+
+function snapshot(s: Settings): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [k, v] of Object.entries(s)) if (v !== undefined) out[k] = JSON.stringify(v)
+  return out
+}
+
+/**
+ * 只保存这个窗口改过的字段：主进程把它们合并进磁盘上的设置。
+ * 每个窗口手里都有一份启动时读到的设置，整份写回会把别的窗口刚改的设置（主题、最近打开的文件夹等）冲掉。
+ */
+export function saveSettings(): Promise<void> {
+  const now = snapshot(state.settings)
+  const patch: Record<string, unknown> = {}
+  for (const k of new Set([...Object.keys(now), ...Object.keys(savedSnapshot)])) {
+    if (now[k] === savedSnapshot[k]) continue
+    // 删掉的字段传 null：JSON 里 undefined 会被丢掉，主进程就合并不到
+    patch[k] = k in now ? (state.settings as unknown as Record<string, unknown>)[k] : null
+  }
+  if (!Object.keys(patch).length) return Promise.resolve()
+  const prev = savedSnapshot
+  savedSnapshot = now
+  return window.api.settings.save(patch as Partial<Settings>).catch((e) => {
+    // 没存上：下次保存时再把这些字段带上
+    savedSnapshot = prev
+    throw e
+  })
+}
+
 export async function loadSettings(): Promise<void> {
   const s = await window.api.settings.load()
-  if (!s) return
+  if (!s) {
+    // 还没有设置文件（第一次启动）：以默认值为基准，之后只保存改过的字段。
+    // 不能留空，否则第一次保存会把所有字段都带上，覆盖别的窗口刚存的设置
+    savedSnapshot = snapshot(state.settings)
+    return
+  }
   state.settings = {
     space: sanitizeSpace(s.space),
     recentFolders: Array.isArray(s.recentFolders) ? s.recentFolders.filter((x) => typeof x === 'string').slice(0, 8) : [],
@@ -78,13 +114,14 @@ export async function loadSettings(): Promise<void> {
           )
         : {}
   }
+  savedSnapshot = snapshot(state.settings)
 }
 
 let saveTimer: ReturnType<typeof setTimeout> | undefined
 export function persist(): void {
   clearTimeout(saveTimer)
   saveTimer = setTimeout(() => {
-    window.api.settings.save(state.settings).catch((e) => console.error('保存设置失败', e))
+    saveSettings().catch((e) => console.error('保存设置失败', e))
   }, 300)
 }
 

@@ -459,6 +459,10 @@ export const EN: Record<string, string> = {
   '已保存 {0} 个文件': 'Saved {0} file(s)',
   '没有需要保存的文件': 'Nothing to save',
   '“{0}” 已在磁盘上被删除': '"{0}" was deleted on disk',
+  '“{0}” 是 GBK 编码，保存时会保持 GBK': '"{0}" is GBK-encoded and will be saved as GBK',
+  '“{0}” 包含无法识别的字符编码，显示可能有乱码；保存会把这些字节替换掉': '"{0}" has an unrecognized encoding and may show garbled text; saving will replace the invalid bytes',
+  '“{0}” 的编码无法识别，打开时无效的字节已被替换。保存会永久改变这些字节，仍然保存吗？': 'The encoding of "{0}" is not recognized and its invalid bytes were replaced when it was opened. Saving will permanently change those bytes. Save anyway?',
+  '“{0}” 是 GBK 编码，但内容里有 GBK 无法表示的字符。改用 UTF-8 编码保存吗？': '"{0}" is GBK-encoded but now contains characters GBK cannot represent. Save it as UTF-8 instead?',
   '“{0}” 在磁盘上被修改了，保存会覆盖它': '"{0}" changed on disk; saving will overwrite it',
 
   /* ---------- IDE 桥接 / LSP ---------- */

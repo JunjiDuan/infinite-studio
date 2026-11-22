@@ -880,10 +880,20 @@ function askBranchName(): void {
 
 /* ---------------- 对比视图 ---------------- */
 
-/** git 输出的是 / 分隔的相对路径，按 root 的写法拼成完整路径 */
+/**
+ * git 输出的是 / 分隔、相对打开的文件夹的路径，按 root 的写法拼成完整路径。
+ * 打开的是仓库的子文件夹时，提交里文件夹外面的文件以 ../ 开头，这里把 .. 消掉。
+ */
 function joinPath(root: string, rel: string): string {
   const sep = root.includes('\\') ? '\\' : '/'
-  return root.replace(/[\\/]+$/, '') + sep + rel.split('/').join(sep)
+  const parts = root.replace(/[\\/]+$/, '').split(/[\\/]/)
+  for (const seg of rel.split('/')) {
+    if (!seg || seg === '.') continue
+    if (seg === '..') {
+      if (parts.length > 1) parts.pop()
+    } else parts.push(seg)
+  }
+  return parts.join(sep) || sep
 }
 
 async function readWorking(root: string, rel: string): Promise<string> {

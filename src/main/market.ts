@@ -183,7 +183,8 @@ export function unzip(buf: Buffer): { name: string; data: Buffer }[] {
     if (total > MAX_UNPACKED) throw new Error(tm('插件包解压后太大'))
     const start = local + 30 + buf.readUInt16LE(local + 26) + buf.readUInt16LE(local + 28)
     const raw = buf.subarray(start, start + csize)
-    const data = method === 0 ? Buffer.from(raw) : method === 8 ? inflateRawSync(raw, { maxOutputLength: usize }) : null
+    // 空文件不用解压：maxOutputLength 不能是 0（别的打包工具会把空文件也标成 deflate）
+    const data = method === 0 ? Buffer.from(raw) : method === 8 ? (usize === 0 ? Buffer.alloc(0) : inflateRawSync(raw, { maxOutputLength: usize })) : null
     if (!data) throw new Error(tm('插件包使用了不支持的压缩方式'))
     out.push({ name, data })
   }
