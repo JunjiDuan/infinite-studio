@@ -5,8 +5,9 @@ import { randomUUID } from 'node:crypto'
 import os from 'node:os'
 import path from 'node:path'
 import readline from 'node:readline'
+import zlib from 'node:zlib'
 import { PLUGINS } from '../shared/plugins'
-import { CLAUDE_MODES, type AgentStart, type ClaudeLoginMethod, type LoginEvent, type SessionInfo } from '../shared/agents'
+import { ACP_ARGS, CLAUDE_MODES, type AgentStart, type ClaudeLoginMethod, type LoginEvent, type SessionInfo } from '../shared/agents'
 import { resolveLaunch } from './plugins'
 import { PANEL_MCP_SERVER, PANEL_TOOLS } from '../shared/ide'
 import { dailyUsage } from './usage'
@@ -18,12 +19,15 @@ import { tm } from './i18n'
  *
  * - Claude Code：每个对话一个 `claude -p --input-format stream-json` 常驻进程
  * - Codex：每个对话一个 `codex app-server` 常驻进程（JSON-RPC）
+ * - Kimi Code / DeepSeek Harness：每个对话一个 ACP 服务进程（`kimi acp` / `dsh --profile acp`，JSON-RPC）
  */
 
 interface Run {
   proc: ChildProcess
   wc: WebContents
   plugin: string
+  /** 进程的工作目录（ACP 要求绝对路径，界面没打开文件夹时由这里补上） */
+  cwd: string
 }
 
 const runs = new Map<number, Run>()
@@ -67,6 +71,22 @@ const CODEX_METHODS = new Set([
   'account/rateLimits/read',
   'skills/list',
   'fuzzyFileSearch'
+])
+
+/** 界面可以调用的 ACP 方法 */
+const ACP_METHODS = new Set([
+  'initialize',
+  'authenticate',
+  'logout',
+  'session/new',
+  'session/load',
+  'session/resume',
+  'session/list',
+  'session/close',
+  'session/prompt',
+  'session/set_mode',
+  'session/set_model',
+  'session/set_config_option'
 ])
 
 function claudeArgs(req: AgentStart): string[] {
@@ -113,9 +133,9 @@ function kill(r: Run): void {
 async function start(wc: WebContents, req: AgentStart): Promise<number> {
   const def = PLUGINS.find((p) => p.id === req.plugin)
   if (!def) throw new Error(tm('未知插件'))
-  const args = req.plugin === 'claude' ? claudeArgs(req) : req.plugin === 'codex' ? ['app-server'] : null
+  const args = req.plugin === 'claude' ? claudeArgs(req) : req.plugin === 'codex' ? ['app-server'] : (ACP_ARGS[req.plugin] ?? null)
   if (!args) throw new Error(tm('未知插件：{0}', req.plugin))
-  const launch = await resolveLaunch(def.command)
+  const launch = await resolveLaunch(def.command, { systemNode: def.systemNode })
   if (!launch) throw new Error(tm('没有找到 {0} 命令行工具，请先在插件页安装', def.name))
 
   let cwd = os.homedir()
@@ -131,7 +151,7 @@ async function start(wc: WebContents, req: AgentStart): Promise<number> {
 
   const proc = spawn(launch.file, [...launch.pre, ...args], { cwd, env, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] })
   const id = nextId++
-  const run: Run = { proc, wc, plugin: req.plugin }
+  const run: Run = { proc, wc, plugin: req.plugin, cwd }
   runs.set(id, run)
   const send = (ch: string, ...a: unknown[]) => {
     if (!wc.isDestroyed()) wc.send(ch, id, ...a)
@@ -195,6 +215,14 @@ function allowed(plugin: string, msg: Record<string, unknown>): boolean {
     // 请求
     if (typeof msg.method === 'string') return CODEX_METHODS.has(msg.method) && (typeof msg.id === 'number' || typeof msg.id === 'string')
     // 对服务器请求（授权等）的回复
+    return msg.id !== undefined && ('result' in msg || 'error' in msg)
+  }
+  if (ACP_ARGS[plugin]) {
+    if (msg.jsonrpc !== '2.0') return false
+    // 通知：取消当前轮次
+    if (msg.method === 'session/cancel' && msg.id === undefined) return true
+    if (typeof msg.method === 'string') return ACP_METHODS.has(msg.method) && (typeof msg.id === 'number' || typeof msg.id === 'string')
+    // 对 agent 请求（授权等）的回复
     return msg.id !== undefined && ('result' in msg || 'error' in msg)
   }
   return false
@@ -439,7 +467,7 @@ function killLogin(id: number): void {
   const r = logins.get(id)
   if (!r) return
   logins.delete(id)
-  kill({ proc: r.proc, wc: r.wc, plugin: 'claude' })
+  kill({ proc: r.proc, wc: r.wc, plugin: 'claude', cwd: '' })
 }
 
 function claudeLogout(): Promise<void> {
@@ -454,7 +482,298 @@ function claudeLogout(): Promise<void> {
   })
 }
 
+/* ---------------- Kimi 登录（kimi login，设备码） ---------------- */
+
+async function kimiLogin(wc: WebContents): Promise<number> {
+  const def = PLUGINS.find((p) => p.id === 'kimi')!
+  const launch = await resolveLaunch(def.command)
+  if (!launch) throw new Error(tm('没有找到 {0} 命令行工具，请先在插件页安装', def.name))
+  for (const [id, r] of logins) if (r.wc === wc) killLogin(id)
+  const proc = spawn(launch.file, [...launch.pre, 'login'], { cwd: os.homedir(), env: launch.env, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] })
+  const id = nextLoginId++
+  logins.set(id, { proc, wc })
+  const send = (ev: LoginEvent) => {
+    if (!wc.isDestroyed()) wc.send('agent:login', id, ev)
+  }
+  let out = ''
+  let urlSent = false
+  let codeSent = false
+  const onData = (d: Buffer) => {
+    const text = stripAnsi(d.toString('utf8'))
+    out = (out + text).slice(-8000)
+    if (!urlSent) {
+      const m = out.match(/https:\/\/\S+/)
+      if (m && /\s/.test(out.slice((m.index ?? 0) + m[0].length, (m.index ?? 0) + m[0].length + 1))) {
+        urlSent = true
+        send({ type: 'url', url: m[0] })
+      }
+    }
+    if (!codeSent) {
+      const c = out.match(/enter code:\s*([A-Z0-9-]{4,})/i) ?? out.match(/user_code=([A-Z0-9-]{4,})/i)
+      if (c) {
+        codeSent = true
+        send({ type: 'code', code: c[1] })
+      }
+    }
+    send({ type: 'output', text })
+  }
+  proc.stdout!.on('data', onData)
+  proc.stderr!.on('data', onData)
+  proc.stdin!.on('error', () => {})
+  proc.on('error', (e) => {
+    out += String(e)
+  })
+  proc.on('close', (code) => {
+    logins.delete(id)
+    const tail = out.trim().split('\n').slice(-3).join('\n')
+    send({ type: 'exit', ok: code === 0, message: code === 0 ? undefined : tail || tm('登录失败（{0}）', code) })
+  })
+  wc.once('destroyed', () => killLogin(id))
+  return id
+}
+
+/* ---------------- DeepSeek API Key（~/.dsh/.credentials.yaml 的 refs.DEEPSEEK_API_KEY） ---------------- */
+
+const DSH_KEY = 'DEEPSEEK_API_KEY'
+
+function dshHome(): string {
+  return process.env.DSH_HOME || path.join(os.homedir(), '.dsh')
+}
+
+function credFile(): string {
+  return path.join(dshHome(), '.credentials.yaml')
+}
+
+/** YAML 标量 → 字符串（只处理 refs 里会出现的单行写法） */
+function yamlScalar(raw: string): string {
+  const v = raw.replace(/\s+#.*$/, '').trim()
+  if (v.startsWith('"')) {
+    try {
+      return JSON.parse(v)
+    } catch {
+      return v.slice(1, -1)
+    }
+  }
+  if (v.startsWith("'")) return v.slice(1, -1).replace(/''/g, "'")
+  return v
+}
+
+/** 在凭据文件文本里设置（value 为 null 时删除）refs 下的一个键，其余内容和注释原样保留 */
+function setRef(text: string, key: string, value: string | null): string {
+  const lines = text.split(/\r?\n/)
+  const entry = (indent: string) => `${indent}${key}: ${JSON.stringify(value)}`
+  let r = lines.findIndex((l) => /^refs:\s*(\{\s*\})?\s*(#.*)?$/.test(l))
+  if (r >= 0 && /\{\s*\}/.test(lines[r])) lines[r] = 'refs:'
+  if (r < 0) {
+    if (value === null) return text
+    const body = text.trimEnd()
+    return `${body ? body + '\n\n' : 'version: 1\n\n'}refs:\n${entry('  ')}\n`
+  }
+  // refs 段：之后缩进的行和空行
+  let end = r + 1
+  while (end < lines.length && (lines[end].trim() === '' || /^\s/.test(lines[end]))) end++
+  let indent = '  '
+  let at = -1
+  for (let i = r + 1; i < end; i++) {
+    const m = lines[i].match(/^(\s+)([^\s:#][^:]*?)\s*:/)
+    if (!m) continue
+    indent = m[1]
+    if (m[2] === key || m[2] === `"${key}"` || m[2] === `'${key}'`) {
+      at = i
+      break
+    }
+  }
+  if (at >= 0) {
+    // 连同多行值（更深缩进的续行）一起去掉
+    let stop = at + 1
+    while (stop < end && (lines[stop].trim() === '' ? stop + 1 < end && lines[stop + 1].startsWith(indent + ' ') : lines[stop].startsWith(indent + ' '))) stop++
+    lines.splice(at, stop - at, ...(value === null ? [] : [entry(indent)]))
+  } else if (value !== null) lines.splice(r + 1, 0, entry(indent))
+  return lines.join('\n')
+}
+
+async function deepseekKeyStatus(): Promise<{ configured: boolean; masked?: string; source?: 'file' | 'env' }> {
+  const text = await fs.readFile(credFile(), 'utf8').catch(() => '')
+  const m = text.match(new RegExp(`^\\s+["']?${DSH_KEY}["']?\\s*:\\s*(.+)$`, 'm'))
+  const v = m ? yamlScalar(m[1]) : ''
+  const mask = (k: string) => (k.length > 12 ? `${k.slice(0, 5)}…${k.slice(-4)}` : '••••')
+  if (v) return { configured: true, masked: mask(v), source: 'file' }
+  const env = process.env[DSH_KEY]
+  if (env) return { configured: true, masked: mask(env), source: 'env' }
+  const dotenv = await fs.readFile(path.join(dshHome(), '.env'), 'utf8').catch(() => '')
+  const e = dotenv.match(new RegExp(`^\\s*${DSH_KEY}\\s*=\\s*(.+)$`, 'm'))
+  if (e) return { configured: true, masked: mask(yamlScalar(e[1])), source: 'env' }
+  return { configured: false }
+}
+
+async function setDeepseekKey(key: string | null): Promise<void> {
+  if (key !== null) {
+    key = String(key).trim()
+    if (!key || key.length > 512 || /[\r\n]/.test(key)) throw new Error(tm('API Key 格式不正确'))
+  }
+  const file = credFile()
+  const text = await fs.readFile(file, 'utf8').catch((e: NodeJS.ErrnoException) => {
+    if (e.code === 'ENOENT') return ''
+    throw e
+  })
+  const next = setRef(text, DSH_KEY, key)
+  if (next === text) return
+  await fs.mkdir(path.dirname(file), { recursive: true })
+  await fs.writeFile(file, next, { encoding: 'utf8', mode: 0o600 })
+}
+
+/* ---------------- DeepSeek 历史会话（session/resume 不回放，读本地日志） ---------------- */
+
+/** 日志是若干个 zstd 帧拼起来的 JSONL */
+function zstdFrames(buf: Buffer): string {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const z = zlib as any
+  if (typeof z.zstdDecompressSync !== 'function') throw new Error(tm('当前运行环境不支持读取 zstd 日志'))
+  const magic = Buffer.from([0x28, 0xb5, 0x2f, 0xfd])
+  const starts: number[] = []
+  for (let i = buf.indexOf(magic); i >= 0; i = buf.indexOf(magic, i + 1)) starts.push(i)
+  let out = ''
+  for (let k = 0; k < starts.length; k++) {
+    try {
+      out += z.zstdDecompressSync(buf.subarray(starts[k], starts[k + 1] ?? buf.length)).toString('utf8')
+    } catch {
+      /* 帧内容里碰巧出现魔数时切错了：跳过，下一段会接上 */
+    }
+  }
+  return out
+}
+
+async function deepseekLogFile(id: string): Promise<string> {
+  const base = path.join(dshHome(), 'sessions')
+  for (const dir of await fs.readdir(base).catch(() => [] as string[])) {
+    const d = path.join(base, dir, id)
+    const names = await fs.readdir(d).catch(() => [] as string[])
+    const f = names.filter((n) => /^session\.v\d+\.jsonl(\.zstd)?$/.test(n)).sort().pop()
+    if (f) return path.join(d, f)
+  }
+  throw new Error(tm('找不到这个会话'))
+}
+
+const textOf = (content: unknown): string =>
+  Array.isArray(content)
+    ? content
+        .filter((b) => b && b.type === 'text' && typeof b.text === 'string')
+        .map((b) => b.text as string)
+        .join('\n')
+    : ''
+
+/** 把 DeepSeek Harness 的会话日志转换成 ACP session/update（和实时事件同一套处理） */
+async function deepseekTranscript(id: string): Promise<Record<string, unknown>[]> {
+  if (!SAFE_ID.test(id)) throw new Error('无效的会话 id')
+  const file = await deepseekLogFile(id)
+  const buf = await fs.readFile(file)
+  const text = file.endsWith('.zstd') ? zstdFrames(buf) : buf.toString('utf8')
+  const out: Record<string, unknown>[] = []
+  const clipText = (s: string) => (s.length > 20_000 ? s.slice(0, 20_000) + '\n…' : s)
+  for (const line of text.split('\n')) {
+    if (!line.startsWith('{')) continue
+    let e: { type?: string; time?: number; data?: Record<string, unknown> }
+    try {
+      e = JSON.parse(line)
+    } catch {
+      continue
+    }
+    const d = e.data ?? {}
+    switch (e.type) {
+      case 'user/message': {
+        const src = d.source as { kind?: string } | undefined
+        if (d.role !== 'user' || src?.kind !== 'user') break
+        const s = textOf(d.content)
+        if (!s || s.startsWith('<system-reminder>')) break
+        out.push({ sessionUpdate: 'user_message_chunk', messageId: d.id, time: e.time, content: { type: 'text', text: s } })
+        break
+      }
+      case 'assistant/message': {
+        const msg = d.message as { id?: string; content?: { type: string; text?: string }[] } | undefined
+        for (const b of msg?.content ?? []) {
+          if (b.type === 'reasoning' && b.text) out.push({ sessionUpdate: 'agent_thought_chunk', messageId: msg?.id, content: { type: 'text', text: b.text } })
+          else if (b.type === 'text' && b.text) out.push({ sessionUpdate: 'agent_message_chunk', messageId: msg?.id, content: { type: 'text', text: b.text } })
+        }
+        break
+      }
+      case 'tool/call': {
+        let input: unknown = d.arguments
+        try {
+          input = JSON.parse(String(d.arguments))
+        } catch {
+          /* 保留原文 */
+        }
+        out.push({ sessionUpdate: 'tool_call', toolCallId: d.callId, title: d.name, kind: 'other', status: 'in_progress', rawInput: input })
+        break
+      }
+      case 'tool/result': {
+        const msg = d.message as { toolCallId?: string; content?: unknown; isError?: boolean } | undefined
+        if (!msg?.toolCallId) break
+        const s = textOf(msg.content)
+        out.push({
+          sessionUpdate: 'tool_call_update',
+          toolCallId: msg.toolCallId,
+          status: msg.isError ? 'failed' : 'completed',
+          content: s ? [{ type: 'content', content: { type: 'text', text: clipText(s) } }] : []
+        })
+        break
+      }
+      case 'turn/end': {
+        const reason = d.reason as { kind?: string; error?: { message?: string } } | undefined
+        if (reason?.kind === 'error' && reason.error?.message) out.push({ sessionUpdate: '_error', text: reason.error.message })
+        break
+      }
+    }
+  }
+  return out.slice(-3000)
+}
+
+/** DeepSeek 的 session/list 只有 id 和目录：从本地日志补上标题（没有用户消息的空会话不返回）和更新时间 */
+async function deepseekSessionMeta(ids: string[]): Promise<Record<string, { title: string; updatedAt: number }>> {
+  const out: Record<string, { title: string; updatedAt: number }> = {}
+  await Promise.all(
+    ids
+      .filter((id) => typeof id === 'string' && SAFE_ID.test(id))
+      .slice(0, 300)
+      .map(async (id) => {
+        try {
+          const file = await deepseekLogFile(id)
+          const st = await fs.stat(file)
+          const buf = await fs.readFile(file)
+          const text = file.endsWith('.zstd') ? zstdFrames(buf) : buf.toString('utf8')
+          let title = ''
+          let first = ''
+          for (const line of text.split('\n')) {
+            if (line.includes('"type":"session/title"')) {
+              try {
+                title = String(JSON.parse(line).data?.title ?? '') || title
+              } catch {
+                /* ignore */
+              }
+            } else if (!first && line.includes('"type":"user/message"') && line.includes('"kind":"user"')) {
+              try {
+                const s = textOf(JSON.parse(line).data?.content)
+                if (s && !s.startsWith('<system-reminder>')) first = s
+              } catch {
+                /* ignore */
+              }
+            }
+          }
+          if (!first && !title) return
+          out[id] = { title: (title || first).replace(/\s+/g, ' ').trim().slice(0, 120), updatedAt: st.mtimeMs }
+        } catch {
+          /* 找不到日志的会话不显示 */
+        }
+      })
+  )
+  return out
+}
+
 export function registerAgentIpc(): void {
+  ipcMain.handle('agent:deepseekSessionMeta', (_e, ids: string[]) => deepseekSessionMeta(Array.isArray(ids) ? ids : []))
+  ipcMain.handle('agent:kimiLogin', (e) => kimiLogin(e.sender))
+  ipcMain.handle('agent:deepseekKeyStatus', () => deepseekKeyStatus())
+  ipcMain.handle('agent:setDeepseekKey', (_e, key: string | null) => setDeepseekKey(typeof key === 'string' ? key : null))
   ipcMain.handle('agent:claudeLogin', (e, method: ClaudeLoginMethod) => claudeLogin(e.sender, method === 'console' ? 'console' : 'claudeai'))
   ipcMain.on('agent:loginWrite', (e, id: number, text: string) => {
     const r = logins.get(id)
@@ -474,6 +793,8 @@ export function registerAgentIpc(): void {
     const r = runs.get(runId)
     if (!r || r.wc !== e.sender || r.proc.exitCode !== null) return
     if (!allowed(r.plugin, msg)) return
+    const params = msg.params as Record<string, unknown> | undefined
+    if (ACP_ARGS[r.plugin] && params && typeof params === 'object' && 'cwd' in params && !params.cwd) msg = { ...msg, params: { ...params, cwd: r.cwd } }
     if (r.proc.stdin?.writable) r.proc.stdin.write(JSON.stringify(msg) + '\n', 'utf8')
   })
 
@@ -486,6 +807,7 @@ export function registerAgentIpc(): void {
   const dirOf = (cwd: unknown) => (typeof cwd === 'string' && cwd ? cwd : os.homedir())
   ipcMain.handle('agent:sessions', (_e, plugin: string, cwd: string | null) => (plugin === 'claude' ? claudeSessions(dirOf(cwd)) : []))
   ipcMain.handle('agent:transcript', (_e, plugin: string, cwd: string | null, id: string) => {
+    if (plugin === 'deepseek') return deepseekTranscript(String(id))
     if (plugin !== 'claude') throw new Error('不支持')
     return claudeTranscript(dirOf(cwd), id)
   })

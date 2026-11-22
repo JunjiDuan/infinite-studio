@@ -363,7 +363,7 @@ export interface Api {
     stop(runId: number): void
     /** 本地历史会话（Claude） */
     sessions(plugin: string, cwd: string | null): Promise<SessionInfo[]>
-    /** 读取一个历史会话的消息（Claude） */
+    /** 读取一个历史会话的消息（Claude；DeepSeek 返回转换好的 ACP session/update） */
     transcript(plugin: string, cwd: string | null, id: string): Promise<Record<string, unknown>[]>
     /** 把粘贴的图片存成临时文件，返回路径（Codex） */
     saveImage(dataUrl: string): Promise<string>
@@ -377,6 +377,14 @@ export interface Api {
     onLogin(cb: (loginId: number, ev: LoginEvent) => void): () => void
     /** Claude：`claude auth logout` */
     claudeLogout(): Promise<void>
+    /** Kimi：运行 `kimi login`（设备码），返回登录流程 id；进度通过 onLogin 推送 */
+    kimiLogin(): Promise<number>
+    /** DeepSeek：是否配置了 API Key（只返回掩码） */
+    deepseekKeyStatus(): Promise<{ configured: boolean; masked?: string; source?: 'file' | 'env' }>
+    /** DeepSeek：保存 API Key 到 ~/.dsh/.credentials.yaml；null 删除 */
+    setDeepseekKey(key: string | null): Promise<void>
+    /** DeepSeek：从本地日志读会话标题和更新时间（空会话不返回） */
+    deepseekSessionMeta(ids: string[]): Promise<Record<string, { title: string; updatedAt: number }>>
     /** 按天汇总本地会话记录里的 token 消耗 */
     dailyUsage(plugin: string): Promise<DailyUsage>
   }

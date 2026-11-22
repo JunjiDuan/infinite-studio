@@ -101,7 +101,7 @@ export interface Launch {
  * npm 生成的 .cmd 包装脚本里要么直接调用 .exe，要么用 node 跑一个 JS 入口。
  * 后者用 Electron 自带的 Node（ELECTRON_RUN_AS_NODE=1）执行，用户机器上不需要额外的 node。
  */
-export async function resolveLaunch(command: string): Promise<Launch | null> {
+export async function resolveLaunch(command: string, opts: { systemNode?: boolean } = {}): Promise<Launch | null> {
   const file = await locate(command)
   if (!file) return null
   if (!/\.cmd$/i.test(file)) return { file, pre: [], env: childEnv() }
@@ -114,6 +114,13 @@ export async function resolveLaunch(command: string): Promise<Launch | null> {
   if (js) {
     const pre = [path.join(dir, js[1])]
     if (isWin) pre.unshift('--require', await hideHook())
+    // 有的工具（DeepSeek Harness）会检查运行时，拒绝在 Electron 里运行：用本机安装的 node
+    if (opts.systemNode) {
+      const node = path.join(dir, 'node.exe')
+      const sys = (await fs.access(node).then(() => node, () => null)) ?? (await locate('node'))
+      if (!sys) throw new Error(tm('没有找到 Node.js，{0} 需要本机安装的 Node.js', command))
+      return { file: sys, pre, env: childEnv() }
+    }
     return { file: process.execPath, pre, env: childEnv({ ELECTRON_RUN_AS_NODE: '1' }) }
   }
   return null
@@ -129,7 +136,7 @@ async function detect(id: string): Promise<PluginStatus> {
   }
   const file = await locate(def.command)
   if (!file) return { installed: false }
-  const l = await resolveLaunch(def.command)
+  const l = await resolveLaunch(def.command, { systemNode: def.systemNode }).catch(() => null)
   const out = l ? await run(l.file, [...l.pre, '--version'], l.env) : null
   const version = out?.match(/\d+\.\d+\.\d+[\w.-]*/)?.[0]
   return { installed: true, version, launch: isWin ? path.basename(file) : def.command }

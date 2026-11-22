@@ -12,6 +12,12 @@ export interface PluginDef {
   command: string
   /** npm 全局包名，用于一键安装（大模型插件） */
   npmPackage?: string
+  /** 大模型插件：有内置对话面板（协议驱动）；没有的只能在终端里运行 */
+  chat?: boolean
+  /** JS 入口用本机安装的 node 运行（工具拒绝在 Electron 内置的 Node 里运行时） */
+  systemNode?: boolean
+  /** 在终端中运行时附加的参数 */
+  launchArgs?: string
   homepage: string
   /** 编程语言插件：负责的 Monaco 语言 id */
   languages?: string[]
@@ -26,6 +32,7 @@ export const PLUGINS: PluginDef[] = [
     description: '在终端里和 Claude 结对编程：读懂代码库、改代码、跑命令。',
     command: 'claude',
     npmPackage: '@anthropic-ai/claude-code',
+    chat: true,
     homepage: 'https://docs.claude.com/en/docs/claude-code/overview'
   },
   {
@@ -36,7 +43,32 @@ export const PLUGINS: PluginDef[] = [
     description: 'OpenAI 的命令行编程助手，在项目目录里读写代码、执行任务。',
     command: 'codex',
     npmPackage: '@openai/codex',
+    chat: true,
     homepage: 'https://github.com/openai/codex'
+  },
+  {
+    id: 'deepseek',
+    category: 'llm',
+    name: 'DeepSeek Harness',
+    publisher: 'DeepSeek',
+    description: 'DeepSeek 的开源智能体框架（dsh），在工作区里读写文件、执行命令、分派子任务。',
+    command: 'dsh',
+    npmPackage: '@deepseek-ai/dsh',
+    chat: true,
+    systemNode: true,
+    launchArgs: 'web',
+    homepage: 'https://github.com/deepseek-ai/deepseek-harness'
+  },
+  {
+    id: 'kimi',
+    category: 'llm',
+    name: 'Kimi Code',
+    publisher: 'Moonshot AI',
+    description: 'Moonshot AI 的命令行编程助手，由 Kimi 模型驱动，在项目目录里写代码、跑命令。',
+    command: 'kimi',
+    npmPackage: '@moonshot-ai/kimi-code',
+    chat: true,
+    homepage: 'https://www.kimi.com/code/docs/en/kimi-code-cli/getting-started'
   },
   {
     id: 'python',

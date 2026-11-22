@@ -114,6 +114,10 @@ const api: Api = {
     loginCancel: (loginId) => ipcRenderer.send('agent:loginCancel', loginId),
     onLogin: (cb) => subscribe('agent:login', cb),
     claudeLogout: () => ipcRenderer.invoke('agent:claudeLogout'),
+    kimiLogin: () => ipcRenderer.invoke('agent:kimiLogin'),
+    deepseekKeyStatus: () => ipcRenderer.invoke('agent:deepseekKeyStatus'),
+    setDeepseekKey: (key) => ipcRenderer.invoke('agent:setDeepseekKey', key),
+    deepseekSessionMeta: (ids) => ipcRenderer.invoke('agent:deepseekSessionMeta', ids),
     dailyUsage: (plugin) => ipcRenderer.invoke('agent:dailyUsage', plugin)
   },
   ide: {

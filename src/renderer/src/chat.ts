@@ -1,7 +1,8 @@
-import { AGENT_MODES, type DailyUsage, type RateLimits, type SessionInfo } from '../../shared/agents'
+import { ACP_ARGS, AGENT_MODES, type DailyUsage, type RateLimits, type SessionInfo } from '../../shared/agents'
 import { PLUGINS, type PluginDef } from '../../shared/plugins'
 import { initBus } from './agent/bus'
 import { ClaudeDriver } from './agent/claude'
+import { AcpDriver } from './agent/acp'
 import { CodexDriver } from './agent/codex'
 import { diffStat, openDiffTab, renderDiff } from './agent/diff'
 import { fileLink, renderMarkdown } from './agent/markdown'
@@ -320,7 +321,7 @@ class ChatView implements ChatHost {
     this.model = prefs.model
     this.effort = prefs.effort
     const opts = { mode: this.mode, model: this.model, effort: this.effort }
-    this.driver = def.id === 'codex' ? new CodexDriver(this, opts) : new ClaudeDriver(this, opts)
+    this.driver = def.id === 'codex' ? new CodexDriver(this, opts) : ACP_ARGS[def.id] ? new AcpDriver(this, def, opts) : new ClaudeDriver(this, opts)
 
     /* ----- 头部 ----- */
     this.titleEl = h('button', { class: 'chat-title', title: t('历史对话'), onClick: () => this.toggleHistory() }, t('新对话'))
@@ -357,7 +358,7 @@ class ChatView implements ChatHost {
       class: 'chat-input',
       rows: '1',
       spellcheck: 'false',
-      placeholder: def.id === 'codex' ? t('让 Codex 做点什么（@ 引用文件，/ 命令）') : t('向 Claude 提问或布置任务（@ 引用文件，/ 命令）'),
+      placeholder: def.id === 'codex' ? t('让 Codex 做点什么（@ 引用文件，/ 命令）') : def.id === 'claude' ? t('向 Claude 提问或布置任务（@ 引用文件，/ 命令）') : t('向 {0} 提问或布置任务（@ 引用文件，/ 命令）', def.name),
       onInput: () => {
         this.autoGrow()
         this.updateCompletion()
@@ -1164,7 +1165,15 @@ class ChatView implements ChatHost {
   private renderEmpty(): void {
     if (this.listEl.querySelector('.msg, .msg-user-wrap, .login-card, .msg-note')) return
     const isCodex = this.def.id === 'codex'
-    const tips = isCodex
+    const tips = ACP_ARGS[this.def.id]
+      ? [
+          ['@', t('引用文件；在编辑器里选中代码后提问会自动附带')],
+          ['/', this.def.id === 'kimi' ? t('打开命令菜单：/compact、/init…') : t('打开命令菜单：/model、/resume、/login…')],
+          [t('模式'), this.def.id === 'kimi' ? t('编辑前询问 / 计划模式 / 自动批准 / 全部批准') : t('编辑前询问 / 自动批准')],
+          [t('历史'), t('点击标题查看并续接之前的对话')],
+          ['Esc', t('中断；Ctrl N 新对话；Alt K 从编辑器插入引用')]
+        ]
+      : isCodex
       ? [
           ['@', t('引用文件；在编辑器里选中代码后提问会自动附带')],
           ['/review', t('审查当前未提交的修改')],
@@ -2331,12 +2340,14 @@ function modeIcon(mode: string): string {
   switch (mode) {
     case 'acceptEdits':
     case 'agent':
+    case 'auto':
       return icons.edit
     case 'plan':
     case 'chat':
       return icons.plan
     case 'bypassPermissions':
     case 'full':
+    case 'yolo':
       return icons.warn
     default:
       return icons.shield
@@ -2344,7 +2355,7 @@ function modeIcon(mode: string): string {
 }
 
 function effortLabel(e: string): string {
-  return { minimal: t('最低'), low: t('低'), medium: t('中'), high: t('高'), xhigh: t('超高'), max: t('最高'), none: t('关闭') }[e] ?? e
+  return { minimal: t('最低'), low: t('低'), medium: t('中'), high: t('高'), xhigh: t('超高'), max: t('最高'), none: t('关闭'), off: t('关闭'), on: t('开启') }[e] ?? e
 }
 
 function effortHint(e: string): string {
@@ -2355,7 +2366,9 @@ function effortHint(e: string): string {
       medium: t('平衡速度和质量'),
       high: t('更深入的思考'),
       xhigh: t('复杂问题，花更多时间'),
-      max: t('最难的问题，最慢')
+      max: t('最难的问题，最慢'),
+      off: t('不思考，直接回答'),
+      on: t('先思考再回答')
     }[e] ?? ''
   )
 }
