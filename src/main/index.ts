@@ -11,6 +11,7 @@ import { registerAccountIpc } from './account'
 import { registerAppInfoIpc } from './appInfo'
 import { registerPluginIpc } from './plugins'
 import { registerDebugIpc } from './debug'
+import { registerJupyterIpc } from './jupyter'
 import { registerAgentIpc } from './agents'
 import { registerSysmonIpc } from './sysmon'
 import { registerIdeIpc, startIdeServer } from './ide'
@@ -135,6 +136,7 @@ function registerIpc(): void {
   registerAppInfoIpc()
   registerPluginIpc()
   registerDebugIpc()
+  registerJupyterIpc()
   registerAgentIpc()
   registerSysmonIpc()
   registerIdeIpc()

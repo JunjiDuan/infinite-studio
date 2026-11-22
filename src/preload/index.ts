@@ -90,6 +90,13 @@ const api: Api = {
     onMessage: (cb) => subscribe('debug:message', cb),
     onExit: (cb) => subscribe('debug:exit', cb)
   },
+  jupyter: {
+    start: (opts) => ipcRenderer.invoke('jupyter:start', opts),
+    send: (session, msg) => ipcRenderer.send('jupyter:send', session, msg),
+    stop: (session) => ipcRenderer.send('jupyter:stop', session),
+    onEvent: (cb) => subscribe('jupyter:event', cb),
+    onExit: (cb) => subscribe('jupyter:exit', cb)
+  },
   sysmon: {
     subscribe: (cb) => {
       const off = subscribe('sysmon:sample', cb)

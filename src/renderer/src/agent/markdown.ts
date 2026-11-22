@@ -105,12 +105,17 @@ export function fileLink(label: string, p: string, line?: number, cls = 'md-file
 
 const INLINE = /(`+)([\s\S]*?[^`])\1(?!`)|\*\*([^*]+?)\*\*|__([^_]+?)__|~~([^~]+?)~~|(?<![\w*])\*(?!\s)([^*\n]+?)\*(?![\w*])|(?<![\w_])_(?!\s)([^_\n]+?)_(?![\w_])|\[([^\]\n]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)|(https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"])/g
 
+/** 图片 ![alt](src)：只在调用方提供了解析函数时识别（对话里不显示图片） */
+const IMAGE = /!\[([^\]\n]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/
+type ImageHook = (src: string, alt: string) => Node
+let imageHook: ImageHook | null = null
+
 export function inline(s: string): Node[] {
   const out: Node[] = []
   let last = 0
   let m: RegExpExecArray | null
   // 每次调用用自己的正则：粗体、链接等会递归调用 inline，共用一个 /g 正则会互相改写 lastIndex，导致死循环
-  const re = new RegExp(INLINE.source, 'g')
+  const re = new RegExp(imageHook ? `${INLINE.source}|${IMAGE.source}` : INLINE.source, 'g')
   while ((m = re.exec(s))) {
     if (m.index > last) out.push(document.createTextNode(s.slice(last, m.index)))
     if (m[0].length === 0) {
@@ -134,6 +139,7 @@ export function inline(s: string): Node[] {
         out.push(fileLink(m[8], ref.path, ref.line ?? (line ? +line : undefined)))
       }
     } else if (m[10] !== undefined) out.push(h('a', { href: m[10], target: '_blank', rel: 'noreferrer' }, m[10]))
+    else if (m[12] !== undefined && imageHook) out.push(imageHook(m[12], m[11] ?? ''))
   }
   if (last < s.length) out.push(document.createTextNode(s.slice(last)))
   return out
@@ -154,7 +160,19 @@ function cells(line: string): string[] {
 
 const LIST_RE = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/
 
-export function renderMarkdown(text: string): HTMLElement {
+/** opts.image：解析图片地址（Notebook 用它显示附件和本地图片） */
+export function renderMarkdown(text: string, opts: { image?: ImageHook } = {}): HTMLElement {
+  if (!opts.image) return renderBlocks(text)
+  const prev = imageHook
+  imageHook = opts.image
+  try {
+    return renderBlocks(text)
+  } finally {
+    imageHook = prev
+  }
+}
+
+function renderBlocks(text: string): HTMLElement {
   const root = h('div', { class: 'md' })
   const lines = text.replace(/\r\n/g, '\n').split('\n')
   let i = 0

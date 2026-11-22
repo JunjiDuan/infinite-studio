@@ -38,6 +38,10 @@ export interface ViewSpec {
   onShow?: () => void
   /** 对应磁盘上的文件（文档预览等）：文件被删除时关闭标签，改名时跟着改 */
   path?: string
+  /** 可编辑的视图（如 Notebook）：是否有未保存的修改 */
+  dirty?: () => boolean
+  /** 可编辑的视图：保存（Ctrl S / 全部保存） */
+  save?: () => Promise<boolean>
 }
 
 /**
@@ -45,10 +49,12 @@ export interface ViewSpec {
  * force 为 true 时表示文本方式打不开（二进制），由预览给出“用默认应用打开”的页面。
  */
 type Previewer = (path: string, force: boolean) => boolean
-let previewer: Previewer | null = null
+const previewers: Previewer[] = []
+/** 先注册的先问（Notebook 等专用视图要在通用文档预览之前注册） */
 export function registerPreviewer(fn: Previewer): void {
-  previewer = fn
+  previewers.push(fn)
 }
+const previewer = (path: string, force: boolean): boolean => previewers.some((fn) => fn(path, force))
 
 type Item = { type: 'file'; doc: Tab; view: monaco.editor.ICodeEditorViewState | null } | { type: 'view'; spec: ViewSpec }
 
@@ -103,6 +109,8 @@ export interface OpenOptions {
   line?: number
   col?: number
   len?: number
+  /** 跳过专用视图（Notebook 等），直接按文本打开 */
+  raw?: boolean
 }
 
 /** 所有打开的文件 */
@@ -234,12 +242,29 @@ export function findTab(path: string): Tab | undefined {
   return tabs.find((t) => samePath(t.path, path))
 }
 
+/** 所有组里打开的视图（去重） */
+function allViews(): ViewSpec[] {
+  const out = new Set<ViewSpec>()
+  for (const g of groups) for (const it of g.items) if (it.type === 'view') out.add(it.spec)
+  return [...out]
+}
+
+function viewDirty(spec: ViewSpec): boolean {
+  return !!spec.dirty?.()
+}
+
+/** 当前活动标签能否保存（文件，或带 save 的视图） */
+export function canSave(): boolean {
+  const it = activeGroup?.active
+  return it?.type === 'file' || (it?.type === 'view' && !!it.spec.save)
+}
+
 export function isDirty(t: Tab): boolean {
   return t.model.getAlternativeVersionId() !== t.savedVersion
 }
 
 export function anyDirty(): boolean {
-  return tabs.some(isDirty)
+  return tabs.some(isDirty) || allViews().some(viewDirty)
 }
 
 /** 编辑区里是否有任何标签（文件或视图） */
@@ -573,7 +598,7 @@ export async function openFile(rawPath: string, o: OpenOptions = {}): Promise<Ta
   const activate = o.activate !== false
   const g = activeGroup
   let doc = findTab(path)
-  if (!doc && activate && previewer?.(path, false)) return null
+  if (!doc && activate && !o.raw && previewer(path, false)) return null
   if (!doc) {
     const uri = monaco.Uri.file(path)
     // 模型可能已被语言服务预先创建（比如“查看定义”时），直接复用
@@ -581,7 +606,7 @@ export async function openFile(rawPath: string, o: OpenOptions = {}): Promise<Ta
     if (!model) {
       const r = await window.api.fs.readFile(path)
       if (!r.ok) {
-        if (r.reason === 'binary' && activate && previewer?.(path, true)) return null
+        if (r.reason === 'binary' && activate && previewer(path, true)) return null
         toast(
           r.reason === 'binary' ? t('这是二进制文件，暂不支持打开') : r.reason === 'too-large' ? t('文件超过 5 MB，暂不支持打开') : r.reason === 'missing' ? t('文件不存在') : t('无法读取文件')
         )
@@ -701,6 +726,7 @@ function dropDoc(doc: Tab): void {
 
 function closeItem(g: Group, it: Item): void {
   if (it.type === 'file' && refs(it.doc) === 1 && isDirty(it.doc) && !confirm(t('“{0}” 有未保存的修改，仍然关闭吗？', basename(it.doc.path)))) return
+  if (it.type === 'view' && viewDirty(it.spec) && !confirm(t('“{0}” 有未保存的修改，仍然关闭吗？', it.spec.title))) return
   if (it.type === 'view' && it.spec.onClose?.() === false) return
   detach(g, it)
 }
@@ -1330,7 +1356,7 @@ function syncTab(g: Group, it: Item, el: HTMLElement): boolean {
   const title = isFile ? basename(it.doc.path) : it.spec.title
   const on = it === g.active
   el.classList.toggle('on', on)
-  el.classList.toggle('dirty', isFile && isDirty(it.doc))
+  el.classList.toggle('dirty', isFile ? isDirty(it.doc) : viewDirty(it.spec))
   el.setAttribute('aria-selected', String(on))
   const tip = isFile ? it.doc.path : (it.spec.path ?? it.spec.title)
   if (el.title !== tip) el.title = tip
@@ -1576,14 +1602,20 @@ export async function saveTab(tab: Tab, quiet = false): Promise<boolean> {
 }
 
 export async function saveActive(): Promise<void> {
-  const t = activeTab()
-  if (t) await saveTab(t)
+  const it = activeGroup.active
+  if (it?.type === 'view') {
+    if (it.spec.save && (await it.spec.save())) toast(t('已保存'))
+    return
+  }
+  const tab = activeTab()
+  if (tab) await saveTab(tab)
 }
 
 export async function saveAll(): Promise<void> {
   const dirty = tabs.filter(isDirty)
   let n = 0
   for (const t of dirty) if (await saveTab(t, true)) n++
+  for (const v of allViews().filter(viewDirty)) if (await v.save?.()) n++
   toast(n ? t('已保存 {0} 个文件', n) : t('没有需要保存的文件'))
 }
 
@@ -1618,7 +1650,7 @@ export function renamePath(from: string, to: string): void {
       if (!spec?.path || !isUnder(spec.path, from)) continue
       spec.path = normPath(to + spec.path.slice(from.length))
       spec.title = basename(spec.path)
-      if (spec.key) spec.key = 'preview:' + pathKey(spec.path)
+      if (spec.key) spec.key = spec.key.slice(0, spec.key.indexOf(':')) + ':' + pathKey(spec.path)
     }
   updateTitle()
   emit('tabs')

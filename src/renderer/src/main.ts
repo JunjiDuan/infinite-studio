@@ -20,6 +20,7 @@ import {
   activeTab,
   anyDirty,
   applyEditorOptions,
+  canSave,
   closeAll,
   closeTab,
   cycleTab,
@@ -55,6 +56,7 @@ import { createSysmonView, setSysmonVisible } from './sysmon'
 import { debugRequest, initLsp, isProbe, lspStatus, refreshProbe, restartLsp, setLspRoot } from './lsp'
 import { createPanel, newTerminal, togglePanel } from './panel'
 import { initPreview, zoomPreviewAt } from './preview'
+import { initNotebook } from './notebook'
 import { createScmView, onScmCount, refreshScm, scheduleScmStatus } from './scm'
 import { createSearchView, focusSearch, resetSearch } from './search'
 import { addTreeMenuItems, beginCreate, createTree, invalidatePaths, render as renderTree, setTreeRoot } from './tree'
@@ -82,7 +84,7 @@ const MENUS: MenuDef[] = [
       { label: t('打开文件夹…'), key: 'Ctrl O', run: () => void pickFolder() },
       { label: t('关闭文件夹'), disabled: !state.root, run: closeFolder },
       'sep',
-      { label: t('保存'), key: 'Ctrl S', disabled: !activeTab(), run: () => void saveActive() },
+      { label: t('保存'), key: 'Ctrl S', disabled: !canSave(), run: () => void saveActive() },
       { label: t('全部保存'), disabled: !anyDirty(), run: () => void saveAll() },
       'sep',
       { label: t('关闭标签'), key: 'Ctrl W', disabled: !activeTab(), run: () => closeTab() },
@@ -961,6 +963,7 @@ async function boot(): Promise<void> {
   app.classList.add('booting')
   setTimeout(() => app.classList.remove('booting'), 900)
   initEditor(editorWrap)
+  initNotebook()
   initPreview()
   setTrailing(h('div', { class: 'trail' }, runButtons, agentIcons))
   initLsp()

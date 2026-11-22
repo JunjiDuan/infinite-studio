@@ -351,6 +351,14 @@ export interface Api {
     onMessage(cb: (session: number, msg: unknown) => void): () => void
     onExit(cb: (session: number, code: number) => void): () => void
   }
+  jupyter: {
+    /** 为某个 .ipynb 启动 Jupyter 内核（经 Python 的 jupyter_client 桥接） */
+    start(opts: JupyterStartOpts): Promise<JupyterStart>
+    send(session: number, msg: JupyterCommand): void
+    stop(session: number): void
+    onEvent(cb: (session: number, ev: JupyterEvent) => void): () => void
+    onExit(cb: (session: number, code: number, stderr: string) => void): () => void
+  }
   sysmon: {
     /** 开始接收采样（视图打开时调用），返回取消函数 */
     subscribe(cb: (s: SysSample) => void): () => void
@@ -421,3 +429,38 @@ export interface Api {
 export type DebugStart =
   | { ok: true; id: number; adapterId: string; launch: Record<string, unknown> }
   | { ok: false; error: string; output?: string }
+
+/* ---------------- Jupyter ---------------- */
+
+export interface JupyterStartOpts {
+  /** Notebook 文件路径（内核的工作目录是它所在的文件夹，并在上级目录里找虚拟环境） */
+  file: string
+  /** kernelspec 名称，比如 python3 */
+  kernel: string
+  /** 工作区根目录：找虚拟环境时不越过它 */
+  root?: string | null
+}
+
+export type JupyterStart =
+  | { ok: true; session: number; python: string }
+  | { ok: false; reason: 'no-python'; detail?: string }
+
+export type JupyterCommand =
+  | { cmd: 'execute'; id: number; code: string }
+  | { cmd: 'complete'; id: number; code: string; pos: number }
+  | { cmd: 'input'; value: string }
+  | { cmd: 'interrupt' }
+  | { cmd: 'restart' }
+  | { cmd: 'shutdown' }
+
+export type JupyterEvent =
+  /** 内核已就绪；info 是 kernel_info_reply 的内容 */
+  | { type: 'ready'; info: Record<string, unknown>; kernel: string; fallback?: string }
+  /** 请求已发出：客户端编号 → 内核消息 ID */
+  | { type: 'sent'; id: number; msg_id: string }
+  | { type: 'iopub' | 'shell' | 'stdin'; parent: string | null; msg_type: string; content: Record<string, unknown> }
+  | { type: 'restarted' }
+  | { type: 'dead' }
+  /** missing：缺少 jupyter_client / ipykernel；install 是在终端里安装它们的命令 */
+  | { type: 'fatal'; reason: 'missing' | 'nokernel' | 'start'; detail: string; install?: string }
+  | { type: 'log'; text: string }
