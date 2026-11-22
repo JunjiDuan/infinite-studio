@@ -6091,3 +6091,15 @@ a.tool-sum:hover {
   padding: 0;
   min-height: 0;
 }
+
+/* 插件市场插件的编辑器页面 */
+.plg-editor .plg-frame {
+  flex: 1;
+  width: 100%;
+  border: 0;
+  background: var(--bg);
+}
+.plg-icon img {
+  display: block;
+  object-fit: contain;
+}

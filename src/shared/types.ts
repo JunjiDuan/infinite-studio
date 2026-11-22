@@ -1,6 +1,6 @@
 import type { AgentStart, ClaudeLoginMethod, LoginEvent, SessionInfo, DailyUsage } from './agents'
 import type { IdeToolResult } from './ide'
-import type { PluginStatus, RunPlan } from './plugins'
+import type { MarketResult, PluginManifest, PluginStatus, RemotePlugin, RunPlan } from './plugins'
 
 export type ThemeId = 'dusk' | 'ink' | 'graphite' | 'paper'
 export type FontId = 'jet' | 'plex' | 'space'
@@ -275,6 +275,7 @@ export interface Api {
     writeFile(path: string, content: string): Promise<void>
     /** 读二进制内容（文档 / 图片 / 音视频预览用） */
     readBinary(path: string): Promise<BinaryResult>
+    writeBinary(path: string, data: Uint8Array): Promise<void>
     /** 用系统默认应用打开；成功返回空字符串，否则是错误信息 */
     openPath(path: string): Promise<string>
     listFiles(root: string): Promise<string[]>
@@ -336,6 +337,16 @@ export interface Api {
   settings: {
     load(): Promise<Settings | null>
     save(s: Settings): Promise<void>
+  }
+  /** 插件市场：从 GitHub 插件仓库安装的插件 */
+  market: {
+    registry(force?: boolean): Promise<MarketResult<RemotePlugin[]>>
+    installed(): Promise<PluginManifest[]>
+    install(id: string): Promise<MarketResult<PluginManifest>>
+    uninstall(id: string): Promise<MarketResult<void>>
+    /** 另存为对话框；取消时返回 null */
+    exportFile(name: string, data: Uint8Array | string): Promise<string | null>
+    onProgress(cb: (id: string, received: number, total: number) => void): () => void
   }
   plugins: {
     /** 检测插件对应的命令行工具是否已安装 */

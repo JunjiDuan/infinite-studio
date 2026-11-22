@@ -10,6 +10,7 @@ import { registerTerminalIpc } from './terminal'
 import { registerAccountIpc } from './account'
 import { registerAppInfoIpc } from './appInfo'
 import { registerPluginIpc } from './plugins'
+import { registerMarketIpc, registerPluginScheme } from './market'
 import { registerDebugIpc } from './debug'
 import { registerJupyterIpc } from './jupyter'
 import { registerAgentIpc } from './agents'
@@ -135,6 +136,7 @@ function registerIpc(): void {
   registerAccountIpc()
   registerAppInfoIpc()
   registerPluginIpc()
+  registerMarketIpc()
   registerDebugIpc()
   registerJupyterIpc()
   registerAgentIpc()
@@ -143,6 +145,7 @@ function registerIpc(): void {
 }
 
 Menu.setApplicationMenu(null)
+registerPluginScheme()
 
 app.whenReady().then(() => {
   app.setAppUserModelId('studio.infinite.ide')

@@ -8,6 +8,7 @@ import type { MenuItem } from './menu'
 import { newTerminal, type TermHandle } from './panel'
 import { persist, state } from './store'
 import { t } from './i18n'
+import { marketCards, marketCommands, onMarketChange, refreshMarket } from './market'
 
 const status = new Map<string, PluginStatus | 'checking'>()
 const terminals = new Map<string, TermHandle>()
@@ -18,9 +19,11 @@ const collapsedCats = new Set<PluginCategory>()
 
 const CATEGORIES: [PluginCategory, string][] = [
   ['llm', '大模型'],
-  ['language', '编程语言']
+  ['language', '编程语言'],
+  ['productivity', '生产力工具']
 ]
 let refreshing: Promise<void> | null = null
+onMarketChange(() => changed())
 
 const isWin = window.api.platform === 'win32'
 
@@ -77,7 +80,8 @@ function setEnabled(id: string, on: boolean): void {
 }
 
 /** 重新检测所有插件的命令行工具 */
-export function refreshPlugins(): Promise<void> {
+export function refreshPlugins(force = false): Promise<void> {
+  void refreshMarket(force)
   if (refreshing) return refreshing
   for (const p of PLUGINS) if (!status.has(p.id)) status.set(p.id, 'checking')
   render()
@@ -269,14 +273,15 @@ function matches(def: PluginDef, q: string): boolean {
 }
 
 function category(cat: PluginCategory, title: string, q: string): HTMLElement | null {
-  const all = PLUGINS.filter((p) => p.category === cat)
-  const items = all.filter((p) => matches(p, q))
+  const items = PLUGINS.filter((p) => p.category === cat && matches(p, q))
+  const market = cat === 'productivity' ? marketCards(q) : { items: [], count: 0 }
+  const count = items.length + market.count
   // 搜索时隐藏没有匹配项的分类
-  if (q && !items.length) return null
+  if (q && !count) return null
   // 搜索时强制展开，方便看到结果
   const collapsed = !q && collapsedCats.has(cat)
-  const body = h('div', { class: 'plg-cat-body' }, ...items.map(card))
-  if (!items.length) body.append(h('div', { class: 'plg-empty muted' }, t('暂无插件')))
+  const body = h('div', { class: 'plg-cat-body' }, ...items.map(card), ...market.items)
+  if (!body.childElementCount) body.append(h('div', { class: 'plg-empty muted' }, t('暂无插件')))
   const el = h(
     'div',
     { class: 'plg-cat' + (collapsed ? ' collapsed' : ''), 'data-cat': cat },
@@ -298,7 +303,7 @@ function category(cat: PluginCategory, title: string, q: string): HTMLElement | 
       h('span', { class: 'chev', html: icons.chevron }),
       h('span', { class: 'plg-cat-title' }, t(title)),
       h('span', { class: 'grow' }),
-      h('span', { class: 'scm-count' }, String(items.length))
+      h('span', { class: 'scm-count' }, String(count))
     ),
     body
   )
@@ -353,7 +358,7 @@ export function createPluginsView(): HTMLElement {
       h(
         'div',
         { class: 'side-actions' },
-        h('button', { class: 'icon-btn small', 'aria-label': t('重新检测'), title: t('重新检测'), html: icons.refresh, onClick: () => void refreshPlugins() })
+        h('button', { class: 'icon-btn small', 'aria-label': t('重新检测'), title: t('重新检测'), html: icons.refresh, onClick: () => void refreshPlugins(true) })
       )
     ),
     h('div', { class: 'plg-search' }, h('div', { class: 'search-box' }, h('span', { class: 'plg-search-ic', html: icons.search }), input)),
@@ -377,7 +382,7 @@ export function pluginCommands(openManager: () => void): Command[] {
     const tab = activeTab()
     if (tab) cmds.push({ id: `plugins.${def.id}.mention`, title: t('{0}：引用当前文件', def.name), run: () => mentionInChat(def.id, tab.path) })
   }
-  return cmds
+  return [...cmds, ...marketCommands()]
 }
 
 export function pluginTreeItems(path: string): MenuItem[] {

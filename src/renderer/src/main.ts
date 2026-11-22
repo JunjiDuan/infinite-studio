@@ -57,6 +57,7 @@ import { debugRequest, initLsp, isProbe, lspStatus, refreshProbe, restartLsp, se
 import { createPanel, newTerminal, togglePanel } from './panel'
 import { initPreview, zoomPreviewAt } from './preview'
 import { initNotebook } from './notebook'
+import { initMarket } from './market'
 import { createScmView, onScmCount, refreshScm, scheduleScmStatus } from './scm'
 import { createSearchView, focusSearch, resetSearch } from './search'
 import { addTreeMenuItems, beginCreate, createTree, invalidatePaths, render as renderTree, setTreeRoot } from './tree'
@@ -963,6 +964,8 @@ async function boot(): Promise<void> {
   app.classList.add('booting')
   setTimeout(() => app.classList.remove('booting'), 900)
   initEditor(editorWrap)
+  // 插件的自定义编辑器要在 Notebook、文档预览之前注册（PDF 等可以由插件接管）
+  await initMarket()
   initNotebook()
   initPreview()
   setTrailing(h('div', { class: 'trail' }, runButtons, agentIcons))

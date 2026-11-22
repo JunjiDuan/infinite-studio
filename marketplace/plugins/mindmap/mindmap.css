@@ -1,0 +1,285 @@
+:root {
+  --st-bg: #16151b;
+  --st-panel: #201e27;
+  --st-line: #2c2a35;
+  --st-sel: #221f2a;
+  --st-text: #ece7f2;
+  --st-muted: #9a95a6;
+  --st-accent: #6e9bff;
+  --ui-font: 'Segoe UI', 'Microsoft YaHei UI', 'PingFang SC', system-ui, sans-serif;
+}
+[hidden] {
+  display: none !important;
+}
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--st-bg);
+  color: var(--st-text);
+  font: 13px/1.4 var(--ui-font);
+  user-select: none;
+}
+body {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------- 工具栏 ---------- */
+#bar {
+  flex: none;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--st-line);
+  background: var(--st-bg);
+}
+#bar button {
+  height: 26px;
+  min-width: 26px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--st-text);
+  font: inherit;
+  cursor: pointer;
+}
+#bar button:hover {
+  background: var(--st-sel);
+}
+#bar button:disabled {
+  opacity: 0.4;
+  cursor: default;
+  background: transparent;
+}
+#bar button svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+#bar .sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 6px;
+  background: var(--st-line);
+}
+#bar .grow {
+  flex: 1;
+}
+#bar .zoom {
+  min-width: 46px;
+  color: var(--st-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 画布 ---------- */
+#viewport {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  outline: none;
+  cursor: default;
+  background-image: radial-gradient(circle, color-mix(in srgb, var(--st-text) 9%, transparent) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+#viewport.panning {
+  cursor: grabbing;
+}
+#canvas {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+}
+#edges {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+#edges path {
+  fill: none;
+  stroke-linecap: round;
+}
+
+/* ---------- 节点 ---------- */
+.node {
+  position: absolute;
+  padding: 5px 10px;
+  border-radius: 7px;
+  white-space: pre;
+  cursor: pointer;
+  color: var(--st-text);
+  border: 1.5px solid transparent;
+  transition: box-shadow 0.12s;
+}
+.node.root {
+  padding: 10px 18px;
+  font-size: 17px;
+  font-weight: 600;
+  background: var(--st-accent);
+  color: #fff;
+  border-radius: 10px;
+}
+.node.l1 {
+  padding: 6px 13px;
+  font-size: 14px;
+  font-weight: 500;
+  background: color-mix(in srgb, var(--c) 16%, var(--st-bg));
+  border-color: color-mix(in srgb, var(--c) 70%, transparent);
+}
+.node.deep {
+  border-bottom: 2px solid color-mix(in srgb, var(--c) 75%, transparent);
+  border-radius: 4px 4px 0 0;
+}
+.node:hover {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--st-accent) 35%, transparent);
+}
+.node.selected {
+  box-shadow: 0 0 0 2px var(--st-accent), 0 0 0 5px color-mix(in srgb, var(--st-accent) 22%, transparent);
+}
+.node.editing {
+  cursor: text;
+  user-select: text;
+  outline: none;
+  box-shadow: 0 0 0 2px var(--st-accent);
+  min-width: 40px;
+}
+.node.dragging {
+  opacity: 0.35;
+}
+.node.drop-child {
+  box-shadow: 0 0 0 2px var(--st-accent), 0 0 18px color-mix(in srgb, var(--st-accent) 45%, transparent);
+}
+.node.drop-before::before,
+.node.drop-after::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--st-accent);
+}
+.node.drop-before::before {
+  top: -8px;
+}
+.node.drop-after::after {
+  bottom: -8px;
+}
+.node .fold {
+  position: absolute;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  margin-top: -8px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--st-bg);
+  background: var(--c, var(--st-muted));
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.node.right .fold {
+  right: -21px;
+}
+.node.left .fold {
+  left: -21px;
+}
+.node:hover .fold,
+.node.selected .fold,
+.node.collapsed .fold {
+  opacity: 1;
+}
+.node.collapsed .fold {
+  min-width: 16px;
+  width: auto;
+  padding: 0 4px;
+  border-radius: 8px;
+}
+.node.right.collapsed .fold {
+  right: auto;
+  left: calc(100% + 5px);
+}
+.node.left.collapsed .fold {
+  left: auto;
+  right: calc(100% + 5px);
+}
+.ghost {
+  position: fixed;
+  z-index: 10;
+  padding: 4px 10px;
+  border-radius: 6px;
+  pointer-events: none;
+  white-space: pre;
+  background: var(--st-panel);
+  border: 1px solid var(--st-accent);
+  color: var(--st-text);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+}
+
+/* ---------- 帮助、错误 ---------- */
+#help {
+  position: absolute;
+  right: 12px;
+  top: 46px;
+  z-index: 5;
+  width: 300px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--st-line);
+  background: var(--st-panel);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+}
+#help h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+#help table {
+  width: 100%;
+  border-collapse: collapse;
+}
+#help td {
+  padding: 3px 0;
+  vertical-align: top;
+}
+#help td:first-child {
+  width: 112px;
+  color: var(--st-muted);
+  white-space: nowrap;
+}
+#help kbd {
+  font: 11px var(--ui-font);
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid var(--st-line);
+  background: var(--st-bg);
+}
+#error {
+  position: absolute;
+  inset: 38px 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+  color: var(--st-muted);
+  background: var(--st-bg);
+  white-space: pre-wrap;
+}

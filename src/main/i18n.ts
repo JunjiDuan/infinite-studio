@@ -20,6 +20,20 @@ export function getMainLocale(): 'zh' | 'en' {
 }
 
 const EN: Record<string, string> = {
+  '无法连接到插件仓库：{0}': 'Cannot reach the plugin repository: {0}',
+  '插件包不是有效的 zip 文件': 'The plugin package is not a valid zip file',
+  插件包不能加密: 'The plugin package must not be encrypted',
+  插件包解压后太大: 'The plugin package is too large when unpacked',
+  插件包使用了不支持的压缩方式: 'The plugin package uses an unsupported compression method',
+  插件包太大: 'The plugin package is too large',
+  '下载失败：{0}': 'Download failed: {0}',
+  正在安装中: 'Already installing',
+  '插件仓库里没有 {0}': '{0} is not in the plugin repository',
+  '需要 Infinite Studio {0} 或更高版本': 'Requires Infinite Studio {0} or later',
+  '校验失败：插件包和仓库登记的不一致': 'Checksum mismatch: the package does not match the repository',
+  插件包里有不安全的文件路径: 'The plugin package contains unsafe file paths',
+  '插件包里没有 manifest.json': 'The plugin package has no manifest.json',
+  '插件包的 manifest.json 无效': "The plugin package's manifest.json is invalid",
   令牌为空: 'Token is empty',
   令牌无效或已过期: 'Token is invalid or expired',
   'GitHub 返回 {0}': 'GitHub returned {0}',

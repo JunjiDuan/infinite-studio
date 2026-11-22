@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "plugins": [
+    {
+      "id": "mindmap",
+      "name": "思维导图",
+      "version": "1.0.0",
+      "publisher": "Infinite Studio",
+      "description": "在 IDE 里画思维导图：键盘快速建节点、拖拽调整结构、折叠分支，可导出 PNG / SVG / Markdown。文件保存为 .mind（JSON），方便用 Git 管理。",
+      "category": "productivity",
+      "homepage": "https://github.com/JunjiDuan/infinite-studio/tree/main/marketplace/plugins/mindmap",
+      "minStudio": "0.1.0",
+      "urls": [
+        "https://cdn.jsdelivr.net/gh/JunjiDuan/infinite-studio@main/marketplace/packages/mindmap-1.0.0.zip",
+        "https://raw.githubusercontent.com/JunjiDuan/infinite-studio/main/marketplace/packages/mindmap-1.0.0.zip"
+      ],
+      "sha256": "efd660abaeb7142c19bdefc57b918cfd9214d4d0dc72132c4ee5812615845fab",
+      "size": 17144
+    }
+  ],
+  "updated": "2026-11-22T15:43:00.191Z"
+}

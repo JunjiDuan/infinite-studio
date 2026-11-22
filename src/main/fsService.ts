@@ -128,6 +128,10 @@ export function registerFsIpc(): void {
     await fs.writeFile(file, content, 'utf8')
   })
 
+  ipcMain.handle('fs:writeBinary', async (_e, file: string, data: Uint8Array) => {
+    await fs.writeFile(file, Buffer.from(data))
+  })
+
   ipcMain.handle('fs:listFiles', async (_e, root: string): Promise<string[]> => {
     const out: string[] = []
     const queue = [root]

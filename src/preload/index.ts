@@ -29,6 +29,7 @@ const api: Api = {
     readFile: (p) => ipcRenderer.invoke('fs:readFile', p),
     writeFile: (p, content) => ipcRenderer.invoke('fs:writeFile', p, content),
     readBinary: (p) => ipcRenderer.invoke('fs:readBinary', p),
+    writeBinary: (p, data) => ipcRenderer.invoke('fs:writeBinary', p, data),
     openPath: (p) => ipcRenderer.invoke('fs:openPath', p),
     listFiles: (root) => ipcRenderer.invoke('fs:listFiles', root),
     gitBranch: (root) => ipcRenderer.invoke('fs:gitBranch', root),
@@ -78,6 +79,14 @@ const api: Api = {
   settings: {
     load: () => ipcRenderer.invoke('settings:load'),
     save: (s) => ipcRenderer.invoke('settings:save', s)
+  },
+  market: {
+    registry: (force) => ipcRenderer.invoke('market:registry', !!force),
+    installed: () => ipcRenderer.invoke('market:installed'),
+    install: (id) => ipcRenderer.invoke('market:install', id),
+    uninstall: (id) => ipcRenderer.invoke('market:uninstall', id),
+    exportFile: (name, data) => ipcRenderer.invoke('market:exportFile', name, data),
+    onProgress: (cb) => subscribe('market:progress', cb)
   },
   plugins: {
     detect: (id) => ipcRenderer.invoke('plugins:detect', id),
