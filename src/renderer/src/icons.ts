@@ -9,7 +9,6 @@ export const icons = {
   git: svg('<circle cx="4.5" cy="3.5" r="1.5"/><circle cx="4.5" cy="12.5" r="1.5"/><circle cx="11.5" cy="5.5" r="1.5"/><path d="M4.5 5v6M11.5 7c0 3-7 2-7 4"/>', 18, 1.4),
   gitSmall: svg('<circle cx="4.5" cy="3.5" r="1.5"/><circle cx="4.5" cy="12.5" r="1.5"/><circle cx="11.5" cy="5.5" r="1.5"/><path d="M4.5 5v6M11.5 7c0 3-7 2-7 4"/>', 12, 1.6),
   sliders: svg('<path d="M2.5 4.5h11M2.5 11.5h11"/><circle cx="6" cy="4.5" r="1.7"/><circle cx="10" cy="11.5" r="1.7"/>', 18, 1.4),
-  focus: svg('<path d="M2.5 5.5v-3h3M10.5 2.5h3v3M13.5 10.5v3h-3M5.5 13.5h-3v-3"/>', 18, 1.4),
   chevron: svg('<path d="M6 4l4 4-4 4"/>', 12, 1.6),
   chevronLeft: svg('<path d="M10 4L6 8l4 4"/>', 12, 1.6),
   gauge: svg('<path d="M2.5 11.5a5.5 5.5 0 1 1 11 0"/><path d="M8 11.5l2.5-3.5"/><circle cx="8" cy="11.5" r=".9" fill="currentColor" stroke="none"/>', 14, 1.4),

@@ -202,7 +202,7 @@ function card(def: PluginDef): HTMLElement {
       'div',
       { class: 'plg-top' },
       h('span', { class: 'plg-icon', html: glyph(def.id) }),
-      h('div', { class: 'plg-meta' }, h('div', { class: 'plg-name' }, def.name, badge), h('div', { class: 'plg-pub' }, def.publisher)),
+      h('div', { class: 'plg-meta' }, h('div', { class: 'plg-name' }, h('span', { class: 'plg-title', title: def.name }, def.name), badge), h('div', { class: 'plg-pub' }, def.publisher)),
       toggle
     ),
     h('p', { class: 'plg-desc' }, t(def.description)),
@@ -233,7 +233,7 @@ function languageCard(def: PluginDef, s: PluginStatus | 'checking' | undefined, 
       'div',
       { class: 'plg-top' },
       h('span', { class: 'plg-icon', html: glyph(def.id) }),
-      h('div', { class: 'plg-meta' }, h('div', { class: 'plg-name' }, def.name, badge), h('div', { class: 'plg-pub' }, def.publisher)),
+      h('div', { class: 'plg-meta' }, h('div', { class: 'plg-name' }, h('span', { class: 'plg-title', title: def.name }, def.name), badge), h('div', { class: 'plg-pub' }, def.publisher)),
       toggle
     ),
     h('p', { class: 'plg-desc' }, t(def.description)),

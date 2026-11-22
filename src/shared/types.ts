@@ -5,9 +5,8 @@ import type { PluginStatus, RunPlan } from './plugins'
 export type ThemeId = 'dusk' | 'ink' | 'graphite' | 'paper'
 export type FontId = 'jet' | 'plex' | 'space'
 
-/** 一个“空间”= 主题 + 强调色 + 字体 + 字号 */
+/** 外观 = 主题 + 强调色 + 字体 + 字号 */
 export interface Space {
-  name: string
   theme: ThemeId
   accent: string
   font: FontId
@@ -16,9 +15,6 @@ export interface Space {
 
 export interface Settings {
   space: Space
-  savedSpaces: Space[]
-  /** 项目路径 → 绑定的空间 */
-  bindings: Record<string, Space>
   recentFolders: string[]
   wordWrap: boolean
   /** 终端面板高度（px） */

@@ -895,17 +895,8 @@ body.dragging-tab .tab:hover::before {
 }
 
 /* ---------------- 状态栏 ---------------- */
-.st-lsp .dot,
-.st-space .dot {
+.st-lsp .dot {
   transition: background-color var(--d-md);
-}
-.st-space .dot {
-  animation: m-glow 3.2s var(--ease-in-out) infinite;
-}
-@keyframes m-glow {
-  50% {
-    opacity: 0.45;
-  }
 }
 
 /* ---------------- 启动 ---------------- */

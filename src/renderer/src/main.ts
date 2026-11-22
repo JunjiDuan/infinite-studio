@@ -171,7 +171,8 @@ function createMenubar(): HTMLElement {
 
   const open = (id: string): void => {
     const def = MENUS.find((m) => m.id === id)!
-    const btn = btns.get(id)!
+    // 被收进“更多”的菜单：从“更多”按钮下方展开
+    const btn = btns.get(id)!.hidden ? moreBtn : btns.get(id)!
     const r = btn.getBoundingClientRect()
     openId = id
     btn.classList.add('on')
@@ -189,7 +190,55 @@ function createMenubar(): HTMLElement {
     })
   }
 
-  return h(
+  // 宽度不够时，放不下的菜单收进末尾的“更多”按钮（同 VS Code）
+  const moreBtn: HTMLElement = h(
+    'button',
+    {
+      class: 'menubar-btn menubar-more',
+      role: 'menuitem',
+      'aria-haspopup': 'menu',
+      'aria-label': t('更多菜单'),
+      title: t('更多菜单'),
+      hidden: true,
+      html: icons.more,
+      onMousedown: (e: MouseEvent) => {
+        if (e.button !== 0) return
+        e.preventDefault()
+        if (justClosed === '__more') return
+        const r = moreBtn.getBoundingClientRect()
+        moreBtn.classList.add('on')
+        showMenu(
+          r.left,
+          r.bottom + 4,
+          MENUS.filter((m) => btns.get(m.id)!.hidden).map((m) => ({ label: m.label, run: () => setTimeout(() => open(m.id)) })),
+          {
+            onClose: () => {
+              moreBtn.classList.remove('on')
+              justClosed = '__more'
+              setTimeout(() => (justClosed = null))
+            }
+          }
+        )
+      }
+    }
+  )
+
+  const fit = (): void => {
+    const all = [...btns.values()]
+    for (const b of all) b.hidden = false
+    moreBtn.hidden = true
+    const avail = nav.clientWidth
+    if (nav.scrollWidth <= avail) return
+    moreBtn.hidden = false
+    const room = avail - moreBtn.offsetWidth - 2
+    let used = 0
+    for (const b of all) {
+      used += b.offsetWidth + 2
+      if (used > room) b.hidden = true
+    }
+  }
+
+  const nav = h(
     'nav',
     { class: 'menubar', role: 'menubar', 'aria-label': t('菜单栏') },
     ...MENUS.map((m) => {
@@ -219,8 +268,11 @@ function createMenubar(): HTMLElement {
       )
       btns.set(m.id, b)
       return b
-    })
+    }),
+    moreBtn
   )
+  new ResizeObserver(fit).observe(nav)
+  return nav
 }
 
 const titlebar = h(
@@ -285,7 +337,7 @@ function openGearMenu(): void {
       'sep',
       { label: t('插件'), run: () => showSideView('plugins') }
     ],
-    { onClose: () => gearBtn.classList.remove('on'), anchor: 'bottom' }
+    { onClose: () => gearBtn.classList.remove('on'), anchor: 'bottom', owner: gearBtn }
   )
 }
 const rail = h(
@@ -298,7 +350,6 @@ const rail = h(
   railDebug,
   railMonitor,
   h('button', { class: 'rail-btn', 'aria-label': t('终端 (Ctrl `)'), title: t('终端 Ctrl `'), html: icons.terminal, onClick: () => togglePanel() }),
-  h('button', { class: 'rail-btn', 'aria-label': t('专注模式 (Ctrl .)'), title: t('专注模式 Ctrl .'), html: icons.focus, onClick: () => toggleFocus() }),
   h('span', { class: 'grow' }),
   accountBtn,
   railPlugins,
@@ -319,7 +370,6 @@ const stCursor = h('span', { class: 'st-item' })
 const stEol = h('span', { class: 'st-item' })
 const stLang = h('span', { class: 'st-item' })
 const stLsp = h('button', { class: 'st-item st-lsp', title: t('点击重启语言服务'), onClick: () => void restartLsp() })
-const stSpace = h('button', { class: 'st-item st-space', onClick: () => toggleSettings() })
 const stDebug = h('button', { class: 'st-item st-debug', hidden: true, onClick: () => showSideView('debug') })
 const statusbar = h(
   'footer',
@@ -332,10 +382,7 @@ const statusbar = h(
   h('span', { class: 'st-item' }, 'UTF-8'),
   stEol,
   stLang,
-  stLsp,
-  h('button', { class: 'st-item st-link', onClick: () => togglePanel() }, t('终端 Ctrl `')),
-  h('button', { class: 'st-item st-link', onClick: () => toggleFocus() }, t('专注 Ctrl .')),
-  stSpace
+  stLsp
 )
 
 const focusPill = h(
@@ -404,7 +451,7 @@ function renderWelcome(): void {
         'div',
         { class: 'welcome-actions' },
         h('button', { class: 'btn primary', onClick: () => pickFolder() }, t('打开文件夹'), h('kbd', {}, 'Ctrl O')),
-        h('button', { class: 'btn', onClick: () => openSettings('appearance') }, t('个性化你的空间'))
+        h('button', { class: 'btn', onClick: () => openSettings('appearance') }, t('个性化与主题'))
       ),
       recents.length
         ? h(
@@ -442,7 +489,6 @@ function renderStatus(): void {
     stLsp.title = t('{0} 语言服务 · 点击重启', ls.name)
     stLsp.replaceChildren(h('span', { class: 'dot' }), label)
   }
-  stSpace.replaceChildren(h('span', { class: 'dot' }), t('空间 · {0}', state.settings.space.name))
   const ds = debugStatus()
   stDebug.hidden = !ds
   if (ds) {

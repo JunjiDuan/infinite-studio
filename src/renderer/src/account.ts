@@ -61,7 +61,7 @@ function openAccountMenu(): void {
         }
       ]
     : [{ label: t('使用 GitHub 登录…'), run: () => void openLoginDialog() }]
-  showMenu(x, y, items)
+  showMenu(x, y, items, { owner: accountBtn })
 }
 
 /* ---------------- 登录对话框 ---------------- */

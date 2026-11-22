@@ -4,6 +4,9 @@ export type MenuItem = { label: string; icon?: string; key?: string; danger?: bo
 
 let current: HTMLElement | null = null
 let onCurrentClose: (() => void) | null = null
+let currentOwner: HTMLElement | null = null
+/** 刚因按下触发按钮而关闭的菜单所属按钮：紧接着的 click 不再重新打开 */
+let justClosedOwner: HTMLElement | null = null
 
 export function closeMenu(): void {
   const el = current
@@ -13,18 +16,31 @@ export function closeMenu(): void {
     setTimeout(() => el.remove(), 140)
   }
   current = null
+  currentOwner = null
   const cb = onCurrentClose
   onCurrentClose = null
   cb?.()
 }
 
-/** onClose：菜单关闭时回调；onStep：左右方向键（菜单栏用来切换相邻菜单）；anchor 为 bottom 时 y 是菜单底边（向上展开） */
-type MenuOptions = { onClose?: () => void; onStep?: (dir: -1 | 1) => void; anchor?: 'top' | 'bottom' }
+/** onClose：菜单关闭时回调；onStep：左右方向键（菜单栏用来切换相邻菜单）；anchor 为 bottom 时 y 是菜单底边（向上展开）；
+ *  owner：打开菜单的按钮，菜单开着时再点它只关闭菜单 */
+type MenuOptions = { onClose?: () => void; onStep?: (dir: -1 | 1) => void; anchor?: 'top' | 'bottom'; owner?: HTMLElement }
 
 /** 极简右键菜单：Esc / 点外面关闭，方向键选择 */
 export function showMenu(x: number, y: number, items: MenuItem[], opts: MenuOptions = {}): void {
+  if (opts.owner) {
+    if (justClosedOwner === opts.owner) {
+      justClosedOwner = null
+      return
+    }
+    if (current && currentOwner === opts.owner) {
+      closeMenu()
+      return
+    }
+  }
   closeMenu()
   onCurrentClose = opts.onClose ?? null
+  currentOwner = opts.owner ?? null
   const buttons: HTMLButtonElement[] = []
   const menu = h(
     'div',
@@ -72,6 +88,14 @@ export function showMenu(x: number, y: number, items: MenuItem[], opts: MenuOpti
   setTimeout(() => {
     const away = (e: Event) => {
       if (current && !current.contains(e.target as Node)) {
+        const owner = currentOwner
+        if (e.type === 'mousedown' && owner?.contains(e.target as Node)) {
+          justClosedOwner = owner
+          // 没有产生 click（比如拖出按钮）时也要清掉，免得下次点击被吞
+          setTimeout(() => {
+            if (justClosedOwner === owner) justClosedOwner = null
+          }, 400)
+        }
         closeMenu()
         window.removeEventListener('mousedown', away, true)
         window.removeEventListener('blur', away)

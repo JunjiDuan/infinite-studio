@@ -1,38 +1,21 @@
 import type { FontId, Settings, Space, ThemeId } from '../../shared/types'
 import { isHex } from './theme'
-import { t } from './i18n'
-import { EN } from './i18n-en'
 
-export const PRESETS: Space[] = [
-  { name: t('深夜编码'), theme: 'dusk', accent: '#6E9BFF', font: 'jet', size: 14 },
-  { name: t('白天文档'), theme: 'paper', accent: '#6E9BFF', font: 'plex', size: 15 },
-  { name: t('演示模式'), theme: 'dusk', accent: '#E5C15C', font: 'space', size: 18 }
-]
+export const DEFAULT_SPACE: Space = { theme: 'dusk', accent: '#6E9BFF', font: 'jet', size: 14 }
 
 const THEME_IDS: ThemeId[] = ['dusk', 'ink', 'graphite', 'paper']
 const FONT_IDS: FontId[] = ['jet', 'plex', 'space']
 export const MIN_SIZE = 11
 export const MAX_SIZE = 24
 
-/** 预设空间名在另一种语言下保存的，换成当前语言的名字 */
-function localName(name: string): string {
-  for (const zh of ['深夜编码', '白天文档', '演示模式', '我的空间']) if (name === zh || name === EN[zh]) return t(zh)
-  return name
-}
-
-export function sanitizeSpace(raw: Partial<Space> | null | undefined, fallback: Space = PRESETS[0]): Space {
+export function sanitizeSpace(raw: Partial<Space> | null | undefined, fallback: Space = DEFAULT_SPACE): Space {
   const r = raw ?? {}
   return {
-    name: typeof r.name === 'string' && r.name.trim() ? localName(r.name.trim().slice(0, 40)) : fallback.name,
     theme: THEME_IDS.includes(r.theme as ThemeId) ? (r.theme as ThemeId) : fallback.theme,
     accent: isHex(r.accent) ? r.accent.toUpperCase() : fallback.accent,
     font: FONT_IDS.includes(r.font as FontId) ? (r.font as FontId) : fallback.font,
     size: typeof r.size === 'number' ? Math.min(MAX_SIZE, Math.max(MIN_SIZE, Math.round(r.size))) : fallback.size
   }
-}
-
-export function sameLook(a: Space, b: Space): boolean {
-  return a.theme === b.theme && a.accent === b.accent && a.font === b.font && a.size === b.size
 }
 
 type Topic = 'space' | 'layout' | 'root' | 'tabs' | 'cursor' | 'markers' | 'saved' | 'lsp' | 'debug'
@@ -52,9 +35,7 @@ export type SideView = 'files' | 'search' | 'scm' | 'plugins' | 'debug' | 'monit
 
 export const state = {
   settings: {
-    space: { ...PRESETS[0] },
-    savedSpaces: [],
-    bindings: {},
+    space: { ...DEFAULT_SPACE },
     recentFolders: [],
     wordWrap: false
   } as Settings,
@@ -75,8 +56,6 @@ export async function loadSettings(): Promise<void> {
   if (!s) return
   state.settings = {
     space: sanitizeSpace(s.space),
-    savedSpaces: Array.isArray(s.savedSpaces) ? s.savedSpaces.map((x) => sanitizeSpace(x)) : [],
-    bindings: Object.fromEntries(Object.entries(s.bindings ?? {}).map(([k, v]) => [k, sanitizeSpace(v)])),
     recentFolders: Array.isArray(s.recentFolders) ? s.recentFolders.filter((x) => typeof x === 'string').slice(0, 8) : [],
     wordWrap: !!s.wordWrap,
     panelHeight: typeof s.panelHeight === 'number' ? Math.max(120, Math.min(2000, s.panelHeight)) : undefined,
@@ -109,20 +88,10 @@ export function persist(): void {
   }, 300)
 }
 
-function knownSpaces(): Space[] {
-  return [...PRESETS, ...state.settings.savedSpaces]
-}
-
-/** 修改当前空间。外观变了但没起新名字时，名字自动变成“我的空间” */
+/** 修改外观（主题、强调色、字体、字号） */
 export function setSpace(patch: Partial<Space>): void {
   const prev = state.settings.space
-  const next = sanitizeSpace({ ...prev, ...patch }, prev)
-  if (patch.name === undefined) {
-    const known = knownSpaces().find((s) => sameLook(s, next))
-    if (known) next.name = known.name
-    else if (knownSpaces().some((s) => s.name === prev.name)) next.name = t('我的空间')
-  }
-  state.settings.space = next
+  state.settings.space = sanitizeSpace({ ...prev, ...patch }, prev)
   emit('space')
   emit('layout')
   persist()

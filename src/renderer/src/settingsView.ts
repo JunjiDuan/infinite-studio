@@ -13,7 +13,7 @@ import { anyDirty } from './editor'
 export type SettingsPane = 'system' | 'appearance' | 'language'
 const PANES: [SettingsPane, string, string, string?][] = [
   ['system', t('系统设置'), t('编辑器、AI 助手、窗口与数据')],
-  ['appearance', t('个性化与主题'), t('空间、主题与字体')],
+  ['appearance', t('个性化与主题'), t('主题与字体')],
   ['language', t('多语言设置'), t('界面显示语言')]
 ]
 
@@ -230,9 +230,9 @@ function build(): void {
   previewFrame = h('div', { class: 'preview-frame' })
   const previewEditorEl = h('div', { class: 'preview-editor' })
   previewFrame.append(
-    h('div', { class: 'pv-top' }, h('span', { class: 'logo tiny', html: icons.logo }), h('span', {}, '~/.infinite/spaces/space.ts')),
+    h('div', { class: 'pv-top' }, h('span', { class: 'logo tiny', html: icons.logo }), h('span', {}, '~/.infinite/theme.ts')),
     h('div', { class: 'pv-body' }, h('span', { class: 'pv-rail' }), h('span', { class: 'pv-side' }, bar('60%'), bar('55%', 'faint'), bar('70%', 'acc'), bar('50%', 'faint'), bar('45%'), bar('65%', 'faint')), previewEditorEl),
-    h('div', { class: 'pv-status' }, h('span', {}, 'main'), h('span', { class: 'grow' }), h('span', { class: 'pv-space' }))
+    h('div', { class: 'pv-status' }, h('span', {}, 'main'), h('span', { class: 'grow' }))
   )
 
   const right = h(
@@ -382,9 +382,8 @@ function build(): void {
 
 function previewCode(s: Space): string {
   return [
-    t('// 你的空间，你的规则'),
-    'export const space = defineSpace({',
-    `  name: '${s.name.replace(/'/g, "\\'")}',`,
+    t('// 你的界面，你的规则'),
+    'export const theme = defineTheme({',
     `  theme: '${s.theme}',`,
     `  accent: '${s.accent}',`,
     `  font: '${FONTS[s.font].name}',`,
@@ -420,7 +419,6 @@ function sync(): void {
   const isCustom = !ACCENTS.some((a) => a.hex === s.accent)
   customColor.parentElement!.classList.toggle('on', isCustom)
 
-  previewFrame.querySelector('.pv-space')!.textContent = s.name
   if (preview) {
     preview.setValue(previewCode(s))
     preview.updateOptions({ fontFamily: FONTS[s.font].css, fontSize: s.size, lineHeight: Math.round(s.size * 1.8) })
