@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>演示文稿</title>
+    <link rel="stylesheet" href="pptx.css" />
+  </head>
+  <body>
+    <div id="bar"></div>
+    <div id="main">
+      <div id="side" tabindex="0"></div>
+      <div id="center">
+        <div id="stage" tabindex="0">
+          <div id="wrap">
+            <div id="canvas"></div>
+          </div>
+          <div id="empty" hidden></div>
+        </div>
+        <div id="notes" hidden><textarea id="notesText" spellcheck="false"></textarea></div>
+      </div>
+    </div>
+    <div id="statusbar"><span id="status"></span></div>
+    <div id="sel" hidden>
+      <div class="hd" data-h="nw"></div><div class="hd" data-h="n"></div><div class="hd" data-h="ne"></div><div class="hd" data-h="e"></div>
+      <div class="hd" data-h="se"></div><div class="hd" data-h="s"></div><div class="hd" data-h="sw"></div><div class="hd" data-h="w"></div>
+      <div class="hd rot" data-h="rot"></div>
+    </div>
+    <div id="guides"></div>
+    <div id="show" hidden tabindex="0"><div class="show-stage"></div><div class="show-num"></div></div>
+    <div id="error" hidden></div>
+    <script src="studio.js"></script>
+    <script src="zip.js"></script>
+    <script src="ooxml.js"></script>
+    <script src="geom.js"></script>
+    <script src="render.js"></script>
+    <script src="doc.js"></script>
+    <script src="blank.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

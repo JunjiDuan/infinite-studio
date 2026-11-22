@@ -16,7 +16,23 @@
       ],
       "sha256": "efd660abaeb7142c19bdefc57b918cfd9214d4d0dc72132c4ee5812615845fab",
       "size": 17144
+    },
+    {
+      "id": "pptx",
+      "name": "演示文稿",
+      "version": "1.0.0",
+      "publisher": "Infinite Studio",
+      "description": "在 IDE 里打开和编辑 PowerPoint（.pptx）：按原样式显示幻灯片，可以改文字、移动和缩放形状、插入文本框 / 形状 / 图片 / 表格，增删、复制、拖动排序幻灯片，编辑备注，全屏放映。保存的文件可以直接用 PowerPoint 打开。",
+      "category": "productivity",
+      "homepage": "https://github.com/JunjiDuan/infinite-studio/tree/main/marketplace/plugins/pptx",
+      "minStudio": "0.1.0",
+      "urls": [
+        "https://cdn.jsdelivr.net/gh/JunjiDuan/infinite-studio@main/marketplace/packages/pptx-1.0.0.zip",
+        "https://raw.githubusercontent.com/JunjiDuan/infinite-studio/main/marketplace/packages/pptx-1.0.0.zip"
+      ],
+      "sha256": "21f128987f78e8feb3ee80da7ab02ba249f2791754b5d6f950bcbaac3833aab9",
+      "size": 82253
     }
   ],
-  "updated": "2026-11-22T15:43:00.191Z"
+  "updated": "2026-11-22T16:36:43.998Z"
 }
