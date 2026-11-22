@@ -10,6 +10,9 @@
  *   studio.exportFile(name, data)             另存为对话框，data 是字符串 / ArrayBuffer / Uint8Array / Blob
  *   studio.toast(text)                        IDE 底部提示
  *   studio.openExternal(url)                  用系统浏览器打开 https 链接
+ *   studio.openText()                         用 IDE 的文本编辑器打开当前文件
+ *   studio.openLink(href)                     打开相对于当前文件的链接（只限工作区内）
+ *   studio.readAsset(href)                    读取相对于当前文件的图片 → Promise<Blob | null>（只限工作区内）
  *   studio.locale                             'zh' | 'en'
  */
 ;(function () {
@@ -152,6 +155,17 @@
     },
     openExternal: function (url) {
       send({ type: 'openExternal', url: String(url) })
+    },
+    openText: function () {
+      send({ type: 'openText' })
+    },
+    openLink: function (href) {
+      send({ type: 'openLink', href: String(href) })
+    },
+    readAsset: function (href) {
+      return request({ type: 'readAsset', href: String(href) }).then(function (v) {
+        return v && v.data ? new Blob([v.data], { type: v.mime || '' }) : null
+      })
     },
     /** 中英文：t('中文', 'English') */
     t: function (zh, en) {

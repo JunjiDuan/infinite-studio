@@ -536,6 +536,8 @@ export const EN: Record<string, string> = {
   '未命名': 'Untitled',
   '新建失败': 'Could not create the file',
   '{0}：新建{1}': '{0}: New {1}',
+  '{0}：打开当前文件': '{0}: Open Current File',
+  '只能打开工作区里的文件': 'Only files inside the workspace can be opened',
   '无法读取 {0}': 'Cannot read {0}',
   '插件没有响应': 'The plugin is not responding',
   '插件返回的内容无效': 'The plugin returned invalid content',

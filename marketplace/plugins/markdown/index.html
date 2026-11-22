@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Markdown</title>
+    <link rel="stylesheet" href="md.css" />
+  </head>
+  <body>
+    <div id="bar"></div>
+    <div id="progress"><i></i></div>
+    <div id="main" data-mode="read" data-theme="ink">
+      <div id="srcPane">
+        <div id="srcScroll">
+          <div id="srcInner">
+            <pre id="hl" aria-hidden="true"></pre>
+            <textarea id="src" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="soft"></textarea>
+          </div>
+        </div>
+      </div>
+      <div id="docPane">
+        <div id="docScroll"><article id="doc" class="md"></article></div>
+        <aside id="outline">
+          <div class="ol-title"></div>
+          <nav id="olList"></nav>
+          <div id="olStats"></div>
+        </aside>
+      </div>
+    </div>
+    <div id="menu" class="pop" hidden></div>
+    <script src="vendor/marked.js"></script>
+    <script src="vendor/purify.js"></script>
+    <script src="studio.js"></script>
+    <script src="highlight.js"></script>
+    <script src="md.js"></script>
+  </body>
+</html>

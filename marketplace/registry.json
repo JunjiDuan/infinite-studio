@@ -2,6 +2,22 @@
   "schema": 1,
   "plugins": [
     {
+      "id": "markdown",
+      "name": "Markdown 美化",
+      "version": "1.0.0",
+      "publisher": "Infinite Studio",
+      "description": "把 .md 文件排版成易读的文档：标题编号、提示块、带行号和复制按钮的代码块、任务进度、右侧大纲和阅读进度。支持阅读 / 分栏 / 源码三种模式，边写边看，滚动同步；墨夜、纸白、书卷、终端四套主题，可导出 HTML。",
+      "category": "productivity",
+      "homepage": "https://github.com/JunjiDuan/infinite-studio/tree/main/marketplace/plugins/markdown",
+      "minStudio": "0.1.0",
+      "urls": [
+        "https://cdn.jsdelivr.net/gh/JunjiDuan/infinite-studio@main/marketplace/packages/markdown-1.0.0.zip",
+        "https://raw.githubusercontent.com/JunjiDuan/infinite-studio/main/marketplace/packages/markdown-1.0.0.zip"
+      ],
+      "sha256": "98ee79326838be2da4ba8f11372ae8fc1ec73cdfb8caacf24f5eef8a70c7144d",
+      "size": 68626
+    },
+    {
       "id": "mindmap",
       "name": "思维导图",
       "version": "1.0.0",
@@ -34,5 +50,5 @@
       "size": 82253
     }
   ],
-  "updated": "2026-11-22T16:36:43.998Z"
+  "updated": "2026-11-22T17:23:05.896Z"
 }

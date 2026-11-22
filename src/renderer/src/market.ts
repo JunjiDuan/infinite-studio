@@ -5,7 +5,7 @@
 import type { PluginManifest, RemotePlugin } from '../../shared/plugins'
 import type { Command } from './commands'
 import { basename, h, toast } from './dom'
-import { closeView, openFile, openView, pathKey, registerPreviewer, revealView, samePath, type ViewSpec } from './editor'
+import { activeTab, closeView, isUnder, normPath, openFile, openView, pathKey, registerPreviewer, revealView, samePath, type ViewSpec } from './editor'
 import { getLocale, t } from './i18n'
 import { icons } from './icons'
 import { emit, on, persist, state } from './store'
@@ -93,7 +93,31 @@ function entries(): Entry[] {
   const map = new Map<string, Entry>()
   for (const r of remote) map.set(r.id, { id: r.id, remote: r })
   for (const m of installed) map.set(m.id, { ...map.get(m.id), id: m.id, local: m })
-  return [...map.values()].sort((a, b) => (a.local ? 0 : 1) - (b.local ? 0 : 1) || info(a).name.localeCompare(info(b).name))
+  return [...map.values()].sort((a, b) => cmpName(info(a).name, info(b).name))
+}
+
+/* 按名称首字母 A–Z 排序：英文取首字母，中文取拼音首字母（例如“思维导图”算 S） */
+const collator = new Intl.Collator('zh-Hans-CN', { sensitivity: 'base', numeric: true })
+/** 各拼音首字母下排在最前的汉字（Unicode 排序规则下的分界） */
+const PINYIN_BOUNDS = '阿八嚓哒妸发旮哈讥咔垃痳拏噢妑七呥仨他屲夕丫帀'
+const PINYIN_LETTERS = 'ABCDEFGHJKLMNOPQRSTWXYZ'
+
+function initial(name: string): string {
+  const ch = [...name.trim()][0] ?? ''
+  if (/[a-z]/i.test(ch)) return ch.toUpperCase()
+  if (!/\p{Script=Han}/u.test(ch)) return '~' // 数字、符号排在最后
+  let r = 'A'
+  for (let i = 0; i < PINYIN_BOUNDS.length; i++) {
+    if (collator.compare(ch, PINYIN_BOUNDS[i]) >= 0) r = PINYIN_LETTERS[i]
+    else break
+  }
+  return r
+}
+
+function cmpName(a: string, b: string): number {
+  const x = initial(a)
+  const y = initial(b)
+  return x < y ? -1 : x > y ? 1 : collator.compare(a, b)
 }
 
 function info(e: Entry): { name: string; publisher: string; description: string; homepage?: string } {
@@ -206,6 +230,12 @@ export function marketCommands(): Command[] {
   for (const m of installed) {
     if (!marketEnabled(m.id) || !m.newFile) continue
     out.push({ id: `market.${m.id}.new`, title: t('{0}：新建{1}', m.name, m.newFile.label), run: () => void newPluginFile(m) })
+  }
+  // 当前文件在文本编辑器里打开着（例如点过“以文本方式打开”）：可以切回插件视图
+  const tab = activeTab()
+  if (tab) {
+    const m = editorFor(tab.path)
+    if (m) out.push({ id: `market.${m.id}.open`, title: t('{0}：打开当前文件', m.name), run: () => openPluginEditor(m, tab.path) })
   }
   return out
 }
@@ -359,7 +389,70 @@ async function onMessage(ed: PluginEditor, m: Record<string, unknown>): Promise<
     case 'key':
       forwardKey(ed, m)
       break
+    case 'openText':
+      // 用 IDE 的文本编辑器打开当前文件（插件视图保留）
+      void openFile(ed.path, { raw: true })
+      break
+    case 'openLink': {
+      const p = typeof m.href === 'string' ? resolveRelative(ed.path, m.href) : null
+      if (p) void openFile(p)
+      else toast(t('只能打开工作区里的文件'))
+      break
+    }
+    case 'readAsset': {
+      const p = typeof m.href === 'string' ? resolveRelative(ed.path, m.href) : null
+      const mime = p ? IMAGE_MIME[(p.match(/\.[^.\\/]+$/)?.[0] ?? '').toLowerCase()] : undefined
+      let value: { data: ArrayBuffer; mime: string } | null = null
+      if (p && mime) {
+        const r = await window.api.fs.readBinary(p).catch(() => null)
+        if (r?.ok && r.data.byteLength <= 20 * 1024 * 1024) value = { data: r.data.buffer.slice(r.data.byteOffset, r.data.byteOffset + r.data.byteLength) as ArrayBuffer, mime }
+      }
+      post(ed, { type: 'response', id: m.id, value }, value ? [value.data] : [])
+      break
+    }
   }
+}
+
+/** 插件能读取的图片（Markdown 里的相对路径图片） */
+const IMAGE_MIME: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+  '.bmp': 'image/bmp',
+  '.ico': 'image/x-icon',
+  '.avif': 'image/avif'
+}
+
+/**
+ * 插件页面给的相对链接（相对于当前文件）→ 绝对路径。
+ * 只允许落在工作区里（没打开工作区时为当前文件所在目录），不接受绝对路径和 URL。
+ */
+function resolveRelative(file: string, href: string): string | null {
+  let rel = href.replace(/[?#].*$/, '')
+  try {
+    rel = decodeURIComponent(rel)
+  } catch {
+    return null
+  }
+  if (!rel || /^[a-z][a-z0-9+.-]*:/i.test(rel) || /^[\\/]/.test(rel) || rel.includes('\0')) return null
+  const sep = window.api.platform === 'win32' ? '\\' : '/'
+  const parts = file.split(/[\\/]/)
+  parts.pop()
+  const head = parts.shift() ?? ''
+  for (const seg of rel.split(/[\\/]+/)) {
+    if (!seg || seg === '.') continue
+    if (seg === '..') {
+      if (!parts.length) return null
+      parts.pop()
+    } else parts.push(seg)
+  }
+  const out = normPath([head, ...parts].join(sep))
+  const dir = file.replace(/[\\/][^\\/]*$/, '')
+  const base = state.root && isUnder(file, state.root) ? state.root : dir
+  return isUnder(out, base) ? out : null
 }
 
 function openPluginEditor(manifest: PluginManifest, path: string): void {
