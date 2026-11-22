@@ -2,12 +2,12 @@
  * 插件市场：读取仓库 marketplace/registry.json，下载插件包（zip）、校验 sha256、解压安装。
  * 插件页面通过 studio-plugin://<id>/ 协议加载，和 IDE 界面不同源，拿不到 window.api。
  */
-import { app, BrowserWindow, dialog, ipcMain, net, protocol } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, net, protocol } from 'electron'
 import { createHash } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { inflateRawSync } from 'node:zlib'
-import { MARKET_REPO, type MarketResult, type PluginManifest, type RemotePlugin } from '../shared/plugins'
+import { MARKET_REPO, PLUGIN_API, PLUGIN_PERMISSIONS, type MarketResult, type PluginManifest, type PluginPermission, type RemotePlugin } from '../shared/plugins'
 import { tm } from './i18n'
 
 export const PLUGIN_SCHEME = 'studio-plugin'
@@ -121,7 +121,8 @@ function validManifest(m: unknown): m is PluginManifest {
     x.editor.extensions = x.editor.extensions.filter((e) => typeof e === 'string' && /^\.[\w.-]+$/.test(e)).map((e) => e.toLowerCase())
   }
   if (x.newFile && (typeof x.newFile.label !== 'string' || typeof x.newFile.extension !== 'string' || !/^\.[\w.-]+$/.test(x.newFile.extension))) delete x.newFile
-  x.permissions = Array.isArray(x.permissions) ? x.permissions.filter((p) => p === 'network' || p === 'eval') : []
+  x.permissions = Array.isArray(x.permissions) ? x.permissions.filter((p): p is PluginPermission => (PLUGIN_PERMISSIONS as readonly string[]).includes(p)) : []
+  x.minApi = Number.isInteger(x.minApi) && (x.minApi as number) > 0 ? x.minApi : 1
   x.publisher = String(x.publisher ?? '')
   x.description = String(x.description ?? '')
   x.category = 'productivity'
@@ -233,6 +234,7 @@ async function install(id: string, send: (got: number, total: number) => void): 
     const r = list.find((p) => p.id === id)
     if (!r) throw new Error(tm('插件仓库里没有 {0}', id))
     if (r.minStudio && compareVersions(app.getVersion(), r.minStudio) < 0) throw new Error(tm('需要 Infinite Studio {0} 或更高版本', r.minStudio))
+    if ((r.minApi ?? 1) > PLUGIN_API) throw new Error(tm('这个插件需要更新 Infinite Studio 才能使用'))
     const buf = await download(r.urls, r.size, send)
     const sum = createHash('sha256').update(buf).digest('hex')
     if (sum.toLowerCase() !== r.sha256.toLowerCase()) throw new Error(tm('校验失败：插件包和仓库登记的不一致'))
@@ -248,6 +250,7 @@ async function install(id: string, send: (got: number, total: number) => void): 
     if (!mf) throw new Error(tm('插件包里没有 manifest.json'))
     const manifest = JSON.parse(mf.data.toString('utf8')) as unknown
     if (!validManifest(manifest) || manifest.id !== id) throw new Error(tm('插件包的 manifest.json 无效'))
+    if ((manifest.minApi ?? 1) > PLUGIN_API) throw new Error(tm('这个插件需要更新 Infinite Studio 才能使用'))
 
     const root = pluginsDir()
     const staging = path.join(root, `.staging-${id}-${Date.now()}`)
@@ -399,4 +402,79 @@ export function registerMarketIpc(): void {
     await fs.writeFile(r.filePath, typeof data === 'string' ? data : Buffer.from(data))
     return r.filePath
   })
+
+  /* ----- 插件接口 v2 用到的主进程能力（渲染进程已检查过路径范围和权限，这里再查一次权限） ----- */
+
+  ipcMain.handle('market:stat', async (_e, p: string) => {
+    try {
+      const st = await fs.stat(String(p))
+      return { type: st.isDirectory() ? 'dir' : 'file', size: st.size, mtime: st.mtimeMs }
+    } catch {
+      return null
+    }
+  })
+
+  ipcMain.handle('market:mkdirp', async (_e, p: string) => {
+    await fs.mkdir(String(p), { recursive: true })
+  })
+
+  ipcMain.handle('market:move', async (_e, from: string, to: string) => {
+    try {
+      await fs.access(String(to))
+      throw new Error(tm('已存在同名文件：{0}', path.basename(String(to))))
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
+    }
+    await fs.mkdir(path.dirname(String(to)), { recursive: true })
+    await fs.rename(String(from), String(to))
+  })
+
+  // 用户在对话框里选的文件：任意位置都可以读（用户自己选的）
+  ipcMain.handle('market:openFiles', async (e, opts: { title?: string; extensions?: string[]; multiple?: boolean; directory?: boolean }) => {
+    const win = BrowserWindow.fromWebContents(e.sender)
+    const exts = Array.isArray(opts?.extensions) ? opts.extensions.map((x) => String(x).replace(/^\./, '')).filter((x) => /^[\w.-]+$/.test(x)) : []
+    const o: Electron.OpenDialogOptions = {
+      title: opts?.title ? String(opts.title).slice(0, 100) : undefined,
+      properties: [opts?.directory ? 'openDirectory' : 'openFile', ...(opts?.multiple ? (['multiSelections'] as const) : [])],
+      filters: exts.length ? [{ name: exts.join(', '), extensions: exts }] : undefined
+    }
+    const r = win ? await dialog.showOpenDialog(win, o) : await dialog.showOpenDialog(o)
+    return r.canceled ? [] : r.filePaths
+  })
+
+  ipcMain.handle('market:readExternal', async (_e, p: string) => {
+    const st = await fs.stat(String(p))
+    if (st.size > 100 * 1024 * 1024) throw new Error('too large')
+    return new Uint8Array(await fs.readFile(String(p)))
+  })
+
+  ipcMain.handle('market:clipboard', async (_e, id: string, op: 'read' | 'write', text?: string) => {
+    if (op === 'write') {
+      clipboard.writeText(String(text ?? ''))
+      return true
+    }
+    if (!(await pluginPerms(String(id))).includes('clipboard-read')) throw new Error('permission denied: clipboard-read')
+    return clipboard.readText()
+  })
+
+  // 插件发起的网络请求（声明了 network 权限）：走主进程，不受页面跨域限制
+  ipcMain.handle(
+    'market:fetch',
+    async (_e, id: string, url: string, init: { method?: string; headers?: Record<string, string>; body?: string | Uint8Array; timeout?: number }) => {
+      if (!ID_RE.test(String(id)) || !(await pluginPerms(String(id))).includes('network')) throw new Error('permission denied: network')
+      if (!/^https?:\/\//i.test(String(url))) throw new Error('only http(s) URLs')
+      const r = await net.fetch(String(url), {
+        method: init?.method ? String(init.method).toUpperCase() : 'GET',
+        headers: init?.headers && typeof init.headers === 'object' ? init.headers : undefined,
+        body: init?.body == null ? undefined : typeof init.body === 'string' ? init.body : Buffer.from(init.body),
+        signal: AbortSignal.timeout(Math.min(Math.max(Number(init?.timeout) || 60000, 1000), 300000)),
+        redirect: 'follow'
+      })
+      const buf = new Uint8Array(await r.arrayBuffer())
+      if (buf.byteLength > 100 * 1024 * 1024) throw new Error('response too large')
+      const headers: Record<string, string> = {}
+      r.headers.forEach((v, k) => (headers[k] = v))
+      return { status: r.status, statusText: r.statusText, url: r.url, headers, body: buf }
+    }
+  )
 }

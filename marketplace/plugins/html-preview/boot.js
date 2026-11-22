@@ -30,6 +30,12 @@
       return !!u && !/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(u) && u[0] !== '#' && u[0] !== '?'
     }
 
+    /** 页面里的相对地址 → 相对于根 html 的地址；以 / 开头的（工作区根目录）原样 */
+    function fromPage(href) {
+      href = String(href).trim()
+      return href[0] === '/' ? href : cfg.dir + href
+    }
+
     /* ---------- console ---------- */
 
     function fmt(v) {
@@ -169,7 +175,7 @@
     function openUrl(href) {
       href = String(href || '').trim()
       if (/^https?:\/\//i.test(href)) post({ t: 'open', url: href })
-      else if (isLocal(href)) post({ t: 'link', href: cfg.dir + href })
+      else if (isLocal(href)) post({ t: 'link', href: fromPage(href) })
     }
     window.addEventListener('click', function (e) {
       if (e.defaultPrevented || e.button !== 0) return
@@ -198,7 +204,7 @@
       return new Promise(function (res) {
         var id = ++seq
         pend[id] = res
-        post({ t: 'fetch', id: id, href: cfg.dir + String(href).trim() })
+        post({ t: 'fetch', id: id, href: fromPage(href) })
       })
     }
     var origFetch = window.fetch

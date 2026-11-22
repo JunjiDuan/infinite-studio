@@ -38,7 +38,9 @@ marketplace/
   "category": "productivity",
   "homepage": "https://github.com/JunjiDuan/infinite-studio/tree/main/marketplace/plugins/mindmap",
   "minStudio": "0.1.0",
+  "minApi": 2,
   "icon": "icon.svg",
+  "permissions": [],
   "editor": { "entry": "index.html", "extensions": [".mind"], "binary": false },
   "newFile": { "label": "思维导图", "extension": ".mind", "template": "" }
 }
@@ -48,11 +50,45 @@ marketplace/
 | --- | --- |
 | `id` | 小写字母、数字、连字符，必须和目录名相同 |
 | `version` | `x.y.z`。发布新版本前先改这里 |
-| `minStudio` | 需要的最低 IDE 版本。IDE 版本更低时拒绝安装 |
+| `minApi` | 需要的最低**插件接口版本**（见下文），不写为 1。IDE 不够新时插件卡片显示“需要更新 Infinite Studio”，不能安装 |
+| `minStudio` | 需要的最低 IDE 版本。一般不用，用 `minApi` |
 | `editor.extensions` | 由这个插件打开的文件扩展名 |
 | `editor.binary` | `true`：文件按二进制读写（PDF、PPTX 等），页面收到的是 `ArrayBuffer` |
 | `newFile` | 可选。在插件卡片和命令面板里加一个“新建…”命令 |
-| `permissions` | 可选。`["network"]`：页面可以加载 http(s) 资源；`["eval"]`：页面可以用 `eval` / `new Function`。会显示在插件卡片上，没有必要不要声明 |
+| `permissions` | 可选。额外权限，显示在插件卡片上。没有必要不要声明 |
+
+### 权限
+
+| 权限 | 允许 |
+| --- | --- |
+| `network` | 页面可以加载 http(s) 资源；可以用 `studio.net.fetch`（主进程发请求，不受跨域限制） |
+| `eval` | 页面可以用 `eval` / `new Function` |
+| `workspace-write` | 在工作区里写入、新建、移动、删除文件。不声明时只能写**当前打开的文件** |
+| `clipboard-read` | 读取剪贴板（写入不需要权限） |
+| `terminal` | 在 IDE 终端里运行命令。每次 IDE 运行期间，第一次运行前会弹窗问用户 |
+
+不需要权限的：读取工作区里的任何文件、列目录、监视文件、对话框、写剪贴板、打开文件、提示、命令面板。
+
+### 插件接口版本（为什么加插件不用更新 IDE）
+
+IDE 给插件的能力是一套通用接口（文件、对话框、网络、剪贴板、终端、命令…），插件在这套接口上实现功能。**只用现有接口的插件，发布后所有 IDE 都能直接安装使用，不需要更新 IDE。**
+
+只有接口本身扩展时（新增一类能力），接口版本号 `PLUGIN_API`（`src/shared/plugins.ts`）才加 1：
+
+| 版本 | 内容 |
+| --- | --- |
+| 1 | 打开 / 保存当前文件、主题、导出、提示、打开链接、`readAsset` |
+| 2 | `studio.call` 通用调用：`fs.*`、`dialog.*`、`clipboard.*`、`net.fetch`、`editor.*`、`ui.*`、`terminal.run`、`commands.*`；权限；文件监视 |
+
+插件用到哪个版本的接口，就在 manifest 里写 `"minApi"`。旧 IDE 不会装上用不了的插件（卡片会提示更新 IDE）；新 IDE 永远兼容旧插件。
+
+如果某个功能只是“锦上添花”，不想因为它提高 `minApi`，可以运行时判断：
+
+```js
+if (studio.has('terminal.run')) showRunButton()
+```
+
+在 IDE 里扩展接口时：在 `src/renderer/src/market.ts` 的 `call()` 里加方法、加进 `METHODS`，在 `sdk/studio.js` 里加简写，`PLUGIN_API` 加 1，并更新上面的表。**不要改已有方法的参数和返回值**，只能新增。
 
 ### 页面里的 SDK
 
@@ -63,26 +99,86 @@ marketplace/
 <script src="main.js"></script>
 ```
 
+**当前文件（接口版本 1）**
+
 ```js
-studio.onLoad((content, info) => { /* 打开文件；content 是字符串或 ArrayBuffer */ })
-studio.onSave(() => serialize())          // IDE 保存（Ctrl S）时调用，返回要写入的内容
+studio.onLoad((content, info) => {})      // 打开 / 重新加载文件；content 是字符串或 ArrayBuffer；info: { fileName, path, relPath }
+studio.onSave(() => serialize())          // IDE 保存（Ctrl S）时调用，返回要写入的内容（可以返回 Promise）
+studio.onSaved(() => {})                  // 保存完成
 studio.setDirty(true)                     // 有未保存的修改
 studio.onTheme((t) => {})                 // 主题变化；CSS 变量 --st-bg / --st-text / --st-accent 等会自动更新
 studio.exportFile('图.png', blob)         // 另存为对话框
 studio.toast('已完成')
 studio.t('中文', 'English')               // 跟随 IDE 界面语言
 studio.openText()                         // 用 IDE 的文本编辑器打开当前文件
-studio.openLink('docs/a.md')              // 打开相对于当前文件的链接（只限工作区内）
-studio.readAsset('img/a.png')             // 读取相对于当前文件的图片、样式、脚本、字体、音视频 → Promise<Blob | null>（只限工作区内）
-studio.watchAssets(['css/a.css'])         // 监视这些相对文件
-studio.onAssetChanged(() => {})           // 被监视的文件在磁盘上变了
+studio.openLink('docs/a.md')              // 在 IDE 里打开工作区文件
+studio.readAsset('img/a.png')             // 读取工作区里的任意文件 → Promise<Blob | null>
+studio.watchAssets(['css/a.css'])         // 监视文件
+studio.onAssetChanged((paths) => {})      // 被监视的文件在磁盘上变了
+```
+
+**扩展接口（接口版本 2）**：都返回 Promise，失败时 reject（例如没声明权限、路径超出工作区、IDE 太旧）。
+
+路径相对于当前文件；以 `/` 开头时相对于工作区根目录。只能访问工作区（没打开工作区时为当前文件所在目录）。
+
+```js
+studio.api                                // IDE 支持的接口版本
+studio.has('fs.write')                    // IDE 支不支持某个方法
+studio.permissions                        // 这个插件拿到的权限
+studio.call('fs.read', 'a.txt')           // 通用调用；下面都是它的简写
+
+// 文件
+await studio.fs.readText('data/a.csv')    // 字符串
+await studio.fs.read('img/a.png')         // ArrayBuffer
+await studio.fs.readJSON('/package.json')
+await studio.fs.write('out/a.txt', text)  // 字符串 / ArrayBuffer / Blob；自动建上级目录（其他文件需 workspace-write）
+await studio.fs.stat('src')               // { type: 'file' | 'dir', size, mtime } | null
+await studio.fs.exists('a.txt')
+await studio.fs.list('/src')              // [{ name, type, path }]
+await studio.fs.files({ extension: '.md' }) // 工作区里的所有文件 ['/README.md', ...]（跳过 node_modules、.git）
+await studio.fs.mkdir('out')              // workspace-write
+await studio.fs.move('a.txt', 'b/a.txt')  // workspace-write
+await studio.fs.delete('tmp.txt')         // 移到回收站；workspace-write（当前文件除外）
+await studio.fs.watch(['data/a.csv'])     // 变化时调用 onAssetChanged(paths)
+
+// 对话框
+await studio.dialog.open({ extensions: ['csv'], multiple: true, encoding: 'utf8' }) // [{ name, data }]，可以选工作区外的文件
+await studio.dialog.save('报告.pdf', blob)                                          // 保存的路径或 null
+
+// 剪贴板
+await studio.clipboard.writeText('hi')
+await studio.clipboard.readText()         // clipboard-read
+
+// 网络（network）：主进程发请求，不受跨域限制
+const r = await studio.net.fetch('https://api.example.com/x', { method: 'POST', headers: {}, body: '...' })
+r.status; r.headers; await r.json()
+
+// 编辑器
+await studio.editor.open('src/a.js', { line: 10 })  // 在 IDE 里打开文件，跳到某行
+await studio.editor.setTitle('标题')                 // 改标签标题
+await studio.editor.save()
+await studio.editor.reload()                         // 从磁盘重新读取当前文件
+
+// 界面
+await studio.ui.confirm('确定删除？')     // true / false
+await studio.ui.openExternal('https://…')
+studio.onShow(() => {})                   // 插件标签切到前台
+
+// 终端（terminal）
+await studio.terminal.run('npm test', { cwd: '/', title: '测试' })
+
+// 命令面板（插件标签显示时出现，标题前面会加插件名）
+await studio.commands.register('export-pdf', '导出 PDF', () => exportPdf())
 ```
 
 快捷键：Ctrl S 由 SDK 处理。页面里没处理的 Ctrl 组合键（命令面板、关闭标签等）会转给 IDE。如果插件自己要用某个组合键，请在 `document` 或元素上监听并调用 `preventDefault()`。
 
+插件自己的设置可以存在 `localStorage` 里（每个插件单独一份，不会丢）。
+
 ### 安全限制
 
-- 插件页面和 IDE 不同源，拿不到 IDE 的任何接口，只能通过 SDK 读写**当前打开的文件**。
+- 插件页面和 IDE 不同源，拿不到 IDE 的任何接口，只能通过 SDK。
+- 文件访问只限工作区；写入当前文件以外的文件、读剪贴板、联网、运行命令都要在 manifest 里声明权限，并显示在插件卡片上。
 - 页面的 CSP 禁止联网：所有脚本、样式、字体、wasm 都要打进插件包（声明了 `network` 权限的除外）。
 - 页面里可以再嵌 iframe（`srcdoc`、`blob:`、`data:`），它继承插件页面的 CSP。HTML 预览器就是这样显示网页的：预览框不带 `allow-same-origin`，拿不到插件页面的 SDK。
 
@@ -95,7 +191,7 @@ studio.onAssetChanged(() => {})           // 被监视的文件在磁盘上变�
 # 2. 打包：生成 packages/<id>-<版本>.zip，并更新 registry.json
 node marketplace/pack.mjs mindmap
 # 3. 提交并推送 marketplace/（registry.json 和 packages/ 都要提交）
-git add marketplace && git commit -m "发布 mindmap v1.0.1" && git push
+git add marketplace && git commit -m "Release mindmap 1.0.1" && git push
 ```
 
 推送后几分钟内，用户在 IDE 插件面板点“重新检测”就能看到“更新”按钮。

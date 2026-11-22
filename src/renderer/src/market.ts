@@ -2,12 +2,13 @@
  * 插件市场（生产力工具）：从 GitHub 插件仓库安装的插件。
  * 插件的编辑器页面放在 iframe 里（studio-plugin://<id>/ 协议，和 IDE 不同源），只能通过 postMessage 和 IDE 通信。
  */
-import type { PluginManifest, RemotePlugin } from '../../shared/plugins'
+import { PLUGIN_API, type PluginManifest, type PluginPermission, type RemotePlugin } from '../../shared/plugins'
 import type { Command } from './commands'
 import { basename, h, toast } from './dom'
-import { activeTab, closeView, isUnder, normPath, openFile, openView, pathKey, registerPreviewer, revealView, samePath, type ViewSpec } from './editor'
+import { activeTab, closeView, isUnder, normPath, openFile, openView, pathKey, registerPreviewer, revealView, samePath, updateView, type ViewSpec } from './editor'
 import { getLocale, t } from './i18n'
 import { icons } from './icons'
+import { newTerminal } from './panel'
 import { emit, on, persist, state } from './store'
 import { resolve } from './theme'
 
@@ -127,8 +128,21 @@ function info(e: Entry): { name: string; publisher: string; description: string;
 /** 插件声明的额外权限（联网等），显示在卡片上 */
 function permHint(e: Entry): HTMLElement | null {
   const perms = e.remote?.permissions ?? e.local?.permissions ?? []
-  const names = perms.map((p) => (p === 'network' ? t('联网') : p === 'eval' ? t('动态执行代码') : '')).filter(Boolean)
-  return names.length ? h('p', { class: 'plg-hint muted', title: t('插件页面可以加载网络资源，用于显示网页内容') }, t('需要权限：{0}', names.join(t('、')))) : null
+  const names = perms.map((p) => PERM_NAMES[p]?.()).filter(Boolean)
+  return names.length ? h('p', { class: 'plg-hint muted' }, t('需要权限：{0}', names.join(t('、')))) : null
+}
+
+const PERM_NAMES: Record<string, () => string> = {
+  network: () => t('联网'),
+  eval: () => t('动态执行代码'),
+  'workspace-write': () => t('修改工作区文件'),
+  'clipboard-read': () => t('读取剪贴板'),
+  terminal: () => t('在终端运行命令')
+}
+
+/** 插件要求的接口版本比这个 IDE 新 */
+function tooNew(x: { minApi?: number } | undefined): boolean {
+  return !!x && (x.minApi ?? 1) > PLUGIN_API
 }
 
 function matches(e: Entry, q: string): boolean {
@@ -141,7 +155,8 @@ function card(e: Entry): HTMLElement {
   const i = info(e)
   const on = marketEnabled(e.id)
   const p = progress.get(e.id)
-  const update = e.local && e.remote && cmpVer(e.remote.version, e.local.version) > 0 ? e.remote : null
+  const needIde = tooNew(e.remote) || tooNew(e.local)
+  const update = !needIde && e.local && e.remote && cmpVer(e.remote.version, e.local.version) > 0 ? e.remote : null
 
   const badge = p
     ? h('span', { class: 'plg-badge' }, p === 'busy' ? t('正在安装…') : `${Math.round(p * 100)}%`)
@@ -156,7 +171,7 @@ function card(e: Entry): HTMLElement {
       actions.push(h('button', { class: 'btn small primary', onClick: () => void newPluginFile(m) }, t('新建{0}', m.newFile!.label)))
     }
     if (update) actions.push(h('button', { class: 'btn small primary', title: t('更新到 v{0}', update.version), onClick: () => void install(e.id, i.name) }, t('更新')))
-    if (!e.local && e.remote) actions.push(h('button', { class: 'btn small primary', title: e.remote.size ? `${(e.remote.size / 1024 / 1024).toFixed(1)} MB` : undefined, onClick: () => void install(e.id, i.name) }, t('安装')))
+    if (!e.local && e.remote && !needIde) actions.push(h('button', { class: 'btn small primary', title: e.remote.size ? `${(e.remote.size / 1024 / 1024).toFixed(1)} MB` : undefined, onClick: () => void install(e.id, i.name) }, t('安装')))
     if (e.local) {
       const m = e.local
       actions.push(h('button', { class: 'btn small', onClick: () => void uninstall(m) }, t('卸载')))
@@ -187,6 +202,7 @@ function card(e: Entry): HTMLElement {
     ),
     h('p', { class: 'plg-desc' }, i.description),
     permHint(e),
+    needIde ? h('p', { class: 'plg-hint muted' }, t('这个插件需要更新 Infinite Studio 才能使用')) : null,
     update ? h('p', { class: 'plg-hint muted' }, t('有新版本 v{0}', update.version)) : null,
     h('div', { class: 'plg-actions' }, ...actions)
   )
@@ -245,6 +261,13 @@ export function marketCommands(): Command[] {
     const m = editorFor(tab.path)
     if (m) out.push({ id: `market.${m.id}.open`, title: t('{0}：打开当前文件', m.name), run: () => openPluginEditor(m, tab.path) })
   }
+  // 正在显示的插件编辑器注册的命令
+  for (const ed of editors) {
+    if (!ed.commands.size || !ed.spec.el.isConnected || !ed.spec.el.offsetParent) continue
+    for (const [id, title] of ed.commands) {
+      out.push({ id: `market.${ed.manifest.id}.cmd.${id}`, title: `${ed.manifest.name}：${title}`, run: () => post(ed, { type: 'command', id }) })
+    }
+  }
   return out
 }
 
@@ -261,8 +284,10 @@ interface PluginEditor {
   stamp: string
   pending: Map<number, (v: unknown) => void>
   seq: number
-  /** 插件要求监视的相对文件（pathKey），变化时发 assetChanged */
-  watch?: Set<string>
+  /** 插件要求监视的文件：pathKey → 插件给的原路径，变化时发 assetChanged */
+  watch?: Map<string, string>
+  /** 插件注册的命令（命令面板）：id → 标题 */
+  commands: Map<string, string>
   close: () => void
 }
 
@@ -270,7 +295,7 @@ const editors = new Set<PluginEditor>()
 
 function editorFor(path: string): PluginManifest | undefined {
   const lower = path.toLowerCase()
-  return installed.find((m) => marketEnabled(m.id) && m.editor?.extensions.some((ext) => lower.endsWith(ext)))
+  return installed.find((m) => marketEnabled(m.id) && !tooNew(m) && m.editor?.extensions.some((ext) => lower.endsWith(ext)))
 }
 
 function themePayload(): Record<string, unknown> {
@@ -305,7 +330,23 @@ async function readContent(ed: PluginEditor): Promise<string | ArrayBuffer | nul
 async function sendLoad(ed: PluginEditor): Promise<void> {
   const content = await readContent(ed)
   if (content == null) return toast(t('无法读取 {0}', basename(ed.path)))
-  post(ed, { type: 'load', content, fileName: basename(ed.path), path: ed.path, theme: themePayload(), locale: getLocale() }, typeof content === 'string' ? [] : [content])
+  post(ed, loadMessage(ed, content), typeof content === 'string' ? [] : [content])
+}
+
+/** load 消息：内容 + 接口版本和能调用的方法（SDK 据此实现 studio.api / studio.has） */
+function loadMessage(ed: PluginEditor, content: string | ArrayBuffer): Record<string, unknown> {
+  return {
+    type: 'load',
+    content,
+    fileName: basename(ed.path),
+    path: ed.path,
+    relPath: toPluginPath(ed.path, ed.path),
+    theme: themePayload(),
+    locale: getLocale(),
+    api: PLUGIN_API,
+    methods: METHODS,
+    permissions: ed.manifest.permissions ?? []
+  }
 }
 
 function request(ed: PluginEditor, type: string, timeout = 15000): Promise<unknown> {
@@ -411,21 +452,35 @@ async function onMessage(ed: PluginEditor, m: Record<string, unknown>): Promise<
     }
     case 'readAsset': {
       const p = typeof m.href === 'string' ? resolveRelative(ed.path, m.href) : null
-      const mime = p ? ASSET_MIME[(p.match(/\.[^.\\/]+$/)?.[0] ?? '').toLowerCase()] : undefined
+      // 任何类型的文件都可以读（只限工作区内），MIME 按扩展名猜
+      const mime = p ? (ASSET_MIME[(p.match(/\.[^.\\/]+$/)?.[0] ?? '').toLowerCase()] ?? 'application/octet-stream') : ''
       let value: { data: ArrayBuffer; mime: string } | null = null
-      if (p && mime) {
+      if (p) {
         const r = await window.api.fs.readBinary(p).catch(() => null)
-        if (r?.ok && r.data.byteLength <= 20 * 1024 * 1024) value = { data: r.data.buffer.slice(r.data.byteOffset, r.data.byteOffset + r.data.byteLength) as ArrayBuffer, mime }
+        if (r?.ok && r.data.byteLength <= 100 * 1024 * 1024) value = { data: u8ToBuffer(r.data), mime }
       }
       post(ed, { type: 'response', id: m.id, value }, value ? [value.data] : [])
       break
     }
     case 'watch': {
       // 插件用到的相对文件（网页引用的 CSS / JS 等）：它们变了就通知插件
-      const list = Array.isArray(m.hrefs) ? m.hrefs.slice(0, 2000) : []
-      ed.watch = new Set(list.map((x) => (typeof x === 'string' ? resolveRelative(ed.path, x) : null)).filter((x): x is string => !!x).map(pathKey))
+      setWatch(ed, Array.isArray(m.hrefs) ? m.hrefs.slice(0, 5000) : [], true)
       break
     }
+    case 'call': {
+      // 插件接口 v2：失败时返回 error，插件那边的 Promise 会 reject
+      const method = String(m.method ?? '')
+      try {
+        const [value, transfer] = await call(ed, method, Array.isArray(m.args) ? m.args : [])
+        post(ed, { type: 'response', id: m.id, value }, transfer)
+      } catch (e) {
+        post(ed, { type: 'response', id: m.id, error: String((e as Error)?.message ?? e) })
+      }
+      break
+    }
+    default:
+      // 新版 SDK 用到了这个 IDE 不认识的请求：回一个错误，免得插件一直等
+      if (m.id != null) post(ed, { type: 'response', id: m.id, error: `unsupported request: ${String(m.type)}` })
   }
 }
 
@@ -474,17 +529,23 @@ const ASSET_MIME: Record<string, string> = {
  * 插件页面给的相对链接（相对于当前文件）→ 绝对路径。
  * 只允许落在工作区里（没打开工作区时为当前文件所在目录），不接受绝对路径和 URL。
  */
-function resolveRelative(file: string, href: string): string | null {
-  let rel = href.replace(/[?#].*$/, '')
-  try {
-    rel = decodeURIComponent(rel)
-  } catch {
-    return null
+function resolveRelative(file: string, href: string, url = true): string | null {
+  let rel = href
+  if (url) {
+    rel = rel.replace(/[?#].*$/, '')
+    try {
+      rel = decodeURIComponent(rel)
+    } catch {
+      return null
+    }
   }
-  if (!rel || /^[a-z][a-z0-9+.-]*:/i.test(rel) || /^[\\/]/.test(rel) || rel.includes('\0')) return null
+  if (!rel || /^[a-z][a-z0-9+.-]*:/i.test(rel) || rel.includes('\0')) return null
   const sep = window.api.platform === 'win32' ? '\\' : '/'
-  const parts = file.split(/[\\/]/)
-  parts.pop()
+  const base = pluginBase(file)
+  // 以 / 开头：相对于工作区根目录（没打开工作区时为当前文件所在目录）
+  const fromRoot = /^[\\/]/.test(rel)
+  const parts = (fromRoot ? base : file).split(/[\\/]/).filter((s, i) => s || i === 0)
+  if (!fromRoot) parts.pop()
   const head = parts.shift() ?? ''
   for (const seg of rel.split(/[\\/]+/)) {
     if (!seg || seg === '.') continue
@@ -493,10 +554,282 @@ function resolveRelative(file: string, href: string): string | null {
       parts.pop()
     } else parts.push(seg)
   }
-  const out = normPath([head, ...parts].join(sep))
-  const dir = file.replace(/[\\/][^\\/]*$/, '')
-  const base = state.root && isUnder(file, state.root) ? state.root : dir
+  const out = normPath([head, ...parts].join(sep) || sep)
   return isUnder(out, base) ? out : null
+}
+
+/** 插件能访问的范围：工作区；没打开工作区（或文件不在工作区里）时为当前文件所在目录 */
+function pluginBase(file: string): string {
+  return state.root && isUnder(file, state.root) ? state.root : file.replace(/[\\/][^\\/]*$/, '')
+}
+
+/** 绝对路径 → 插件看到的路径（以 / 开头，相对于插件能访问的范围） */
+function toPluginPath(file: string, p: string): string {
+  const base = pluginBase(file).replace(/[\\/]+$/, '')
+  return '/' + p.slice(base.length).replace(/^[\\/]+/, '').replace(/\\/g, '/')
+}
+
+/* ---------------- 插件接口 v2：studio.call(method, ...args) ---------------- */
+
+type Transfer = Transferable[]
+class CallError extends Error {}
+
+function u8ToBuffer(u: Uint8Array): ArrayBuffer {
+  return u.buffer.slice(u.byteOffset, u.byteOffset + u.byteLength) as ArrayBuffer
+}
+function toBytes(data: unknown): Uint8Array | string {
+  if (typeof data === 'string') return data
+  if (data instanceof ArrayBuffer) return new Uint8Array(data)
+  if (ArrayBuffer.isView(data)) return new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+  throw new CallError('data must be a string or ArrayBuffer')
+}
+function hasPerm(ed: PluginEditor, p: PluginPermission): boolean {
+  return !!ed.manifest.permissions?.includes(p)
+}
+function needPerm(ed: PluginEditor, p: PluginPermission): void {
+  if (!hasPerm(ed, p)) throw new CallError(`permission "${p}" is not declared in manifest.json`)
+}
+function argPath(ed: PluginEditor, v: unknown): string {
+  if (typeof v !== 'string') throw new CallError('path must be a string')
+  const p = resolveRelative(ed.path, v, false)
+  if (!p) throw new CallError(`path is outside the workspace: ${v}`)
+  return p
+}
+/** 写入类操作：没有 workspace-write 权限时只能写当前文件 */
+function writablePath(ed: PluginEditor, v: unknown): string {
+  const p = argPath(ed, v)
+  if (!samePath(p, ed.path)) needPerm(ed, 'workspace-write')
+  return p
+}
+
+/** 每个插件本次会话是否已同意在终端运行命令 */
+const terminalOk = new Set<string>()
+
+/** v2 能调用的方法（load 消息里告诉插件，SDK 的 studio.has() 据此判断） */
+const METHODS = [
+  'info',
+  'fs.read',
+  'fs.write',
+  'fs.stat',
+  'fs.exists',
+  'fs.list',
+  'fs.files',
+  'fs.mkdir',
+  'fs.delete',
+  'fs.move',
+  'fs.watch',
+  'dialog.open',
+  'dialog.save',
+  'clipboard.readText',
+  'clipboard.writeText',
+  'net.fetch',
+  'editor.open',
+  'editor.openText',
+  'editor.setTitle',
+  'editor.save',
+  'editor.reload',
+  'ui.toast',
+  'ui.confirm',
+  'ui.openExternal',
+  'terminal.run',
+  'commands.register',
+  'commands.unregister'
+]
+
+async function call(ed: PluginEditor, method: string, a: unknown[]): Promise<[unknown, Transfer]> {
+  const opt = (i: number): Record<string, unknown> => (a[i] && typeof a[i] === 'object' ? (a[i] as Record<string, unknown>) : {})
+  switch (method) {
+    case 'info':
+      return [
+        {
+          api: PLUGIN_API,
+          methods: METHODS,
+          permissions: ed.manifest.permissions ?? [],
+          platform: window.api.platform,
+          locale: getLocale(),
+          file: { path: toPluginPath(ed.path, ed.path), name: basename(ed.path) },
+          workspace: state.root && isUnder(ed.path, state.root) ? { name: basename(state.root) } : null
+        },
+        []
+      ]
+
+    /* ----- 文件（工作区内；路径相对于当前文件，以 / 开头时相对于工作区根目录） ----- */
+    case 'fs.read': {
+      const p = argPath(ed, a[0])
+      const st = await window.api.market.stat(p)
+      if (!st || st.type !== 'file') throw new CallError(`not found: ${String(a[0])}`)
+      if (st.size > 100 * 1024 * 1024) throw new CallError('file too large (> 100 MB)')
+      const r = await window.api.fs.readBinary(p)
+      if (!r.ok) throw new CallError(`cannot read: ${String(a[0])}`)
+      if (opt(1).encoding === 'utf8' || opt(1).encoding === 'utf-8') return [new TextDecoder().decode(r.data), []]
+      const buf = u8ToBuffer(r.data)
+      return [buf, [buf]]
+    }
+    case 'fs.write': {
+      const p = writablePath(ed, a[0])
+      const data = toBytes(a[1])
+      await window.api.market.mkdirp(p.replace(/[\\/][^\\/]*$/, ''))
+      if (typeof data === 'string') await window.api.fs.writeFile(p, data)
+      else await window.api.fs.writeBinary(p, data)
+      return [true, []]
+    }
+    case 'fs.stat':
+      return [await window.api.market.stat(argPath(ed, a[0])), []]
+    case 'fs.exists':
+      return [!!(await window.api.market.stat(argPath(ed, a[0]))), []]
+    case 'fs.list': {
+      const p = argPath(ed, a[0] ?? '.')
+      const items = await window.api.fs.readDir(p)
+      return [items.map((x) => ({ name: x.name, type: x.isDir ? 'dir' : 'file', path: toPluginPath(ed.path, x.path) })), []]
+    }
+    case 'fs.files': {
+      // 工作区里的所有文件（跳过 node_modules、.git 等），以 / 开头
+      const all = await window.api.fs.listFiles(pluginBase(ed.path))
+      const ext = typeof opt(0).extension === 'string' ? String(opt(0).extension).toLowerCase() : ''
+      return [all.filter((p) => !ext || p.toLowerCase().endsWith(ext)).map((p) => toPluginPath(ed.path, p)), []]
+    }
+    case 'fs.mkdir':
+      needPerm(ed, 'workspace-write')
+      await window.api.market.mkdirp(argPath(ed, a[0]))
+      return [true, []]
+    case 'fs.delete': {
+      const p = writablePath(ed, a[0])
+      if (samePath(p, pluginBase(ed.path))) throw new CallError('cannot delete the workspace root')
+      await window.api.fs.trash(p)
+      return [true, []]
+    }
+    case 'fs.move': {
+      needPerm(ed, 'workspace-write')
+      await window.api.market.move(argPath(ed, a[0]), argPath(ed, a[1]))
+      return [true, []]
+    }
+    case 'fs.watch': {
+      const list = Array.isArray(a[0]) ? a[0].slice(0, 5000) : []
+      setWatch(ed, list, false)
+      return [true, []]
+    }
+
+    /* ----- 对话框 ----- */
+    case 'dialog.open': {
+      const o = opt(0)
+      const paths = await window.api.market.openFiles({
+        title: typeof o.title === 'string' ? o.title : undefined,
+        extensions: Array.isArray(o.extensions) ? o.extensions.map(String) : undefined,
+        multiple: !!o.multiple
+      })
+      const out: { name: string; data: string | ArrayBuffer }[] = []
+      const transfer: Transfer = []
+      for (const p of paths.slice(0, 50)) {
+        const bytes = await window.api.market.readExternal(p)
+        if (o.encoding === 'utf8' || o.encoding === 'utf-8') out.push({ name: basename(p), data: new TextDecoder().decode(bytes) })
+        else {
+          const buf = u8ToBuffer(bytes)
+          transfer.push(buf)
+          out.push({ name: basename(p), data: buf })
+        }
+      }
+      return [out, transfer]
+    }
+    case 'dialog.save': {
+      const saved = await window.api.market.exportFile(String(a[0] ?? 'export'), toBytes(a[1]))
+      if (saved) toast(t('已导出到 {0}', saved))
+      return [saved, []]
+    }
+
+    /* ----- 剪贴板 ----- */
+    case 'clipboard.writeText':
+      await window.api.market.clipboard(ed.manifest.id, 'write', String(a[0] ?? ''))
+      return [true, []]
+    case 'clipboard.readText':
+      needPerm(ed, 'clipboard-read')
+      return [await window.api.market.clipboard(ed.manifest.id, 'read'), []]
+
+    /* ----- 网络（主进程发请求，不受跨域限制） ----- */
+    case 'net.fetch': {
+      needPerm(ed, 'network')
+      const o = opt(1)
+      const headers: Record<string, string> = {}
+      if (o.headers && typeof o.headers === 'object') for (const [k, v] of Object.entries(o.headers)) headers[k] = String(v)
+      const r = await window.api.market.fetch(ed.manifest.id, String(a[0] ?? ''), {
+        method: typeof o.method === 'string' ? o.method : undefined,
+        headers,
+        body: o.body == null ? undefined : toBytes(o.body),
+        timeout: typeof o.timeout === 'number' ? o.timeout : undefined
+      })
+      const body = u8ToBuffer(r.body)
+      return [{ ...r, body }, [body]]
+    }
+
+    /* ----- 编辑器 ----- */
+    case 'editor.open': {
+      const p = argPath(ed, a[0])
+      const o = opt(1)
+      await openFile(p, { line: typeof o.line === 'number' ? o.line : undefined, col: typeof o.col === 'number' ? o.col : undefined, raw: !!o.text })
+      return [true, []]
+    }
+    case 'editor.openText':
+      void openFile(ed.path, { raw: true })
+      return [true, []]
+    case 'editor.setTitle':
+      updateView(ed.spec.el, { title: String(a[0] ?? '').slice(0, 120) || basename(ed.path) })
+      return [true, []]
+    case 'editor.save':
+      return [await saveEditor(ed), []]
+    case 'editor.reload':
+      await sendLoad(ed)
+      return [true, []]
+
+    /* ----- 界面 ----- */
+    case 'ui.toast':
+      toast(String(a[0] ?? '').slice(0, 300))
+      return [true, []]
+    case 'ui.confirm':
+      return [window.confirm(`${ed.manifest.name}\n\n${String(a[0] ?? '').slice(0, 2000)}`), []]
+    case 'ui.openExternal': {
+      const url = String(a[0] ?? '')
+      if (!/^https?:\/\//i.test(url) && !/^mailto:/i.test(url)) throw new CallError('only http(s) and mailto: links')
+      window.open(url)
+      return [true, []]
+    }
+
+    /* ----- 终端 ----- */
+    case 'terminal.run': {
+      needPerm(ed, 'terminal')
+      const cmd = String(a[0] ?? '').trim()
+      if (!cmd) throw new CallError('command is empty')
+      const o = opt(1)
+      if (!terminalOk.has(ed.manifest.id)) {
+        if (!window.confirm(t('插件“{0}”要在终端里运行命令：\n\n{1}\n\n允许吗？（本次运行 IDE 期间不再询问）', ed.manifest.name, cmd.slice(0, 500)))) throw new CallError('denied by user')
+        terminalOk.add(ed.manifest.id)
+      }
+      const cwd = typeof o.cwd === 'string' ? argPath(ed, o.cwd) : pluginBase(ed.path)
+      await newTerminal(cwd, { title: typeof o.title === 'string' ? o.title.slice(0, 60) : ed.manifest.name, run: cmd })
+      return [true, []]
+    }
+
+    /* ----- 命令面板（插件编辑器打开时出现） ----- */
+    case 'commands.register': {
+      const id = String(a[0] ?? '')
+      const title = String(a[1] ?? '').slice(0, 120)
+      if (!/^[\w.-]{1,64}$/.test(id) || !title) throw new CallError('invalid command id or title')
+      ed.commands.set(id, title)
+      return [true, []]
+    }
+    case 'commands.unregister':
+      ed.commands.delete(String(a[0] ?? ''))
+      return [true, []]
+  }
+  throw new CallError(`unsupported method: ${method}`)
+}
+
+/** 记住要监视的文件：变化时把插件给的原路径发回去 */
+function setWatch(ed: PluginEditor, list: unknown[], url: boolean): void {
+  ed.watch = new Map()
+  for (const x of list) {
+    if (typeof x !== 'string') continue
+    const p = resolveRelative(ed.path, x, url)
+    if (p) ed.watch.set(pathKey(p), x)
+  }
 }
 
 function openPluginEditor(manifest: PluginManifest, path: string): void {
@@ -519,6 +852,7 @@ function openPluginEditor(manifest: PluginManifest, path: string): void {
     stamp: '',
     pending: new Map(),
     seq: 0,
+    commands: new Map(),
     close: () => undefined
   }
   const onMsg = (e: MessageEvent): void => {
@@ -537,7 +871,10 @@ function openPluginEditor(manifest: PluginManifest, path: string): void {
     path,
     dirty: () => ed.dirty,
     save: () => saveEditor(ed),
-    onShow: () => requestAnimationFrame(() => frame.focus()),
+    onShow: () => {
+      requestAnimationFrame(() => frame.focus())
+      if (ed.ready) post(ed, { type: 'show' })
+    },
     onClose: () => {
       window.removeEventListener('message', onMsg)
       editors.delete(ed)
@@ -572,14 +909,17 @@ export async function initMarket(): Promise<void> {
   // 磁盘上的文件被别的程序改了：没修改过的重新加载，修改过的只提示
   window.api.fs.onChanged((paths) => {
     for (const ed of editors) {
-      if (ed.ready && ed.watch?.size && paths.some((p) => ed.watch!.has(pathKey(p)))) post(ed, { type: 'assetChanged' })
+      if (ed.ready && ed.watch?.size) {
+        const hit = paths.map((p) => ed.watch!.get(pathKey(p))).filter((x): x is string => !!x)
+        if (hit.length) post(ed, { type: 'assetChanged', paths: [...new Set(hit)] })
+      }
       if (!ed.ready || !paths.some((p) => samePath(p, ed.path))) continue
       void (async () => {
         const before = ed.stamp
         const content = await readContent(ed)
         if (content == null || ed.stamp === before) return
         if (ed.dirty) return toast(t('“{0}” 在磁盘上被修改了，保存会覆盖它', basename(ed.path)))
-        post(ed, { type: 'load', content, fileName: basename(ed.path), path: ed.path, theme: themePayload(), locale: getLocale() }, typeof content === 'string' ? [] : [content])
+        post(ed, loadMessage(ed, content), typeof content === 'string' ? [] : [content])
       })()
     }
   })

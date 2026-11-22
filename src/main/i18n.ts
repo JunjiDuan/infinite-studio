@@ -30,6 +30,7 @@ const EN: Record<string, string> = {
   正在安装中: 'Already installing',
   '插件仓库里没有 {0}': '{0} is not in the plugin repository',
   '需要 Infinite Studio {0} 或更高版本': 'Requires Infinite Studio {0} or later',
+  '这个插件需要更新 Infinite Studio 才能使用': 'This plugin requires a newer version of Infinite Studio',
   '校验失败：插件包和仓库登记的不一致': 'Checksum mismatch: the package does not match the repository',
   插件包里有不安全的文件路径: 'The plugin package contains unsafe file paths',
   '插件包里没有 manifest.json': 'The plugin package has no manifest.json',

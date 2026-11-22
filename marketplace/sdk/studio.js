@@ -1,9 +1,12 @@
 /**
  * Infinite Studio 插件 SDK（编辑器页面用）
  *
- * 插件页面运行在 iframe 里，只能通过这里的函数和 IDE 通信：
+ * 插件页面运行在 iframe 里，只能通过这里的函数和 IDE 通信。完整说明见 marketplace/README.md。
+ *
+ * 基础（接口版本 1，所有 IDE 都支持）
  *   studio.onLoad((content, info) => {...})   打开 / 重新加载文件。content 是字符串（文本文件）或 ArrayBuffer（binary: true）
  *   studio.onSave(() => content)              IDE 要保存时调用，返回要写入文件的内容（可以返回 Promise）
+ *   studio.onSaved(() => {...})               保存完成
  *   studio.setDirty(true / false)             标记有没有未保存的修改（标签上显示圆点）
  *   studio.save()                             主动保存（Ctrl S 已自动处理）
  *   studio.onTheme((theme) => {...})          IDE 主题变化；CSS 变量 --st-bg、--st-text 等会自动更新
@@ -12,30 +15,48 @@
  *   studio.openExternal(url)                  用系统浏览器打开 https 链接
  *   studio.openText()                         用 IDE 的文本编辑器打开当前文件
  *   studio.openLink(href)                     打开相对于当前文件的链接（只限工作区内）
- *   studio.readAsset(href)                    读取相对于当前文件的图片 / 样式 / 脚本 / 字体等 → Promise<Blob | null>（只限工作区内）
- *   studio.watchAssets([href...])             监视这些相对文件，任何一个在磁盘上变了就调用 onAssetChanged
- *   studio.onAssetChanged(() => {...})
+ *   studio.readAsset(href)                    读取相对于当前文件的任意文件 → Promise<Blob | null>（只限工作区内）
+ *   studio.watchAssets([href...])             监视这些文件，变了就调用 onAssetChanged(paths)
  *   studio.locale                             'zh' | 'en'
+ *
+ * 扩展（接口版本 2）：调用失败时 Promise 会 reject；IDE 太旧时 reject 并说明需要更新
+ *   studio.api                                IDE 支持的接口版本（旧 IDE 为 1）
+ *   studio.has('fs.write')                    这个 IDE 支不支持某个方法
+ *   studio.call(method, ...args)              通用调用（下面的函数都是它的简写）
+ *   studio.fs.read / readText / write / stat / exists / list / files / mkdir / delete / move / watch
+ *   studio.dialog.open / save
+ *   studio.clipboard.readText / writeText
+ *   studio.net.fetch(url, init)               主进程发请求，不受跨域限制（需要 network 权限）
+ *   studio.editor.open / openText / setTitle / save / reload
+ *   studio.ui.toast / confirm / openExternal
+ *   studio.terminal.run(command, { cwd, title })   （需要 terminal 权限）
+ *   studio.commands.register(id, title, fn)   在命令面板里加命令（插件编辑器显示时）
+ *   studio.onShow(fn)                         插件标签切到前台
+ *
+ * 路径：相对于当前文件；以 / 开头时相对于工作区根目录。只能访问工作区里的文件。
  */
 ;(function () {
   'use strict'
   var parentOrigin = '*'
-  var handlers = { load: null, save: null, theme: [], saved: [], asset: [] }
+  var handlers = { load: null, save: null, theme: [], saved: [], asset: [], show: [] }
+  var commands = {}
   var seq = 0
   var pending = {}
   var dirty = false
+  var methods = []
 
   function send(msg, transfer) {
     msg.studio = 1
     window.parent.postMessage(msg, parentOrigin, transfer || [])
   }
 
-  function request(msg) {
+  /** 发请求等回复：回复里有 error 时 reject */
+  function request(msg, transfer) {
     var id = ++seq
     msg.id = id
-    return new Promise(function (resolve) {
-      pending[id] = resolve
-      send(msg, msg.data instanceof ArrayBuffer ? [msg.data] : [])
+    return new Promise(function (resolve, reject) {
+      pending[id] = { resolve: resolve, reject: reject }
+      send(msg, transfer || (msg.data instanceof ArrayBuffer ? [msg.data] : []))
     })
   }
 
@@ -52,6 +73,16 @@
     })
   }
 
+  function each(list, arg) {
+    list.forEach(function (fn) {
+      try {
+        fn(arg)
+      } catch (e) {
+        console.error(e)
+      }
+    })
+  }
+
   window.addEventListener('message', function (e) {
     if (e.source !== window.parent) return
     var m = e.data
@@ -60,9 +91,12 @@
       case 'load':
         parentOrigin = e.origin && e.origin !== 'null' ? e.origin : '*'
         if (m.locale) studio.locale = m.locale
+        studio.api = typeof m.api === 'number' ? m.api : 1
+        methods = Array.isArray(m.methods) ? m.methods : []
+        studio.permissions = Array.isArray(m.permissions) ? m.permissions : []
         applyTheme(m.theme)
         dirty = false
-        if (handlers.load) handlers.load(m.content, { fileName: m.fileName, path: m.path })
+        if (handlers.load) handlers.load(m.content, { fileName: m.fileName, path: m.path, relPath: m.relPath || null })
         break
       case 'theme':
         applyTheme(m.theme)
@@ -87,19 +121,29 @@
         break
       case 'saved':
         dirty = false
-        handlers.saved.forEach(function (fn) {
-          fn()
-        })
+        each(handlers.saved)
         break
       case 'assetChanged':
-        handlers.asset.forEach(function (fn) {
-          fn()
-        })
+        each(handlers.asset, Array.isArray(m.paths) ? m.paths : [])
+        break
+      case 'show':
+        each(handlers.show)
+        break
+      case 'command':
+        if (commands[m.id]) {
+          try {
+            commands[m.id]()
+          } catch (err) {
+            console.error(err)
+          }
+        }
         break
       case 'response':
         if (pending[m.id]) {
-          pending[m.id](m.value)
+          var p = pending[m.id]
           delete pending[m.id]
+          if (m.error) p.reject(new Error(String(m.error)))
+          else p.resolve(m.value)
         }
         break
     }
@@ -123,9 +167,24 @@
     send({ type: 'key', key: e.key, code: e.code, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey, metaKey: e.metaKey })
   })
 
+  /** Blob / Uint8Array → ArrayBuffer（字符串原样） */
+  function toData(d) {
+    if (typeof Blob !== 'undefined' && d instanceof Blob) return d.arrayBuffer()
+    if (d instanceof Uint8Array) return Promise.resolve(d.buffer.slice(d.byteOffset, d.byteOffset + d.byteLength))
+    return Promise.resolve(d)
+  }
+
+  function call(method) {
+    var args = Array.prototype.slice.call(arguments, 1)
+    if (studio.api < 2) return Promise.reject(new Error(studio.t('需要更新 Infinite Studio 才能使用：', 'This needs a newer Infinite Studio: ') + method))
+    return request({ type: 'call', method: method, args: args })
+  }
+
   var studio = {
     locale: 'zh',
     theme: null,
+    api: 1,
+    permissions: [],
     onLoad: function (fn) {
       handlers.load = fn
     },
@@ -138,6 +197,9 @@
     onTheme: function (fn) {
       handlers.theme.push(fn)
       if (studio.theme) fn(studio.theme)
+    },
+    onShow: function (fn) {
+      handlers.show.push(fn)
     },
     setDirty: function (v) {
       v = !!v
@@ -152,8 +214,7 @@
       send({ type: 'save' })
     },
     exportFile: function (name, data) {
-      return Promise.resolve(typeof Blob !== 'undefined' && data instanceof Blob ? data.arrayBuffer() : data).then(function (d) {
-        if (d instanceof Uint8Array) d = d.buffer.slice(d.byteOffset, d.byteOffset + d.byteLength)
+      return toData(data).then(function (d) {
         return request({ type: 'export', name: name, data: d })
       })
     },
@@ -177,9 +238,154 @@
     watchAssets: function (hrefs) {
       send({ type: 'watch', hrefs: Array.prototype.slice.call(hrefs || []).map(String) })
     },
+    /** fn(paths)：变了的文件（watchAssets / fs.watch 给的原路径） */
     onAssetChanged: function (fn) {
       handlers.asset.push(fn)
     },
+
+    /* ---------------- 接口版本 2 ---------------- */
+
+    has: function (method) {
+      return methods.indexOf(method) >= 0
+    },
+    call: call,
+    fs: {
+      /** → ArrayBuffer */
+      read: function (path) {
+        return call('fs.read', path)
+      },
+      readText: function (path) {
+        return call('fs.read', path, { encoding: 'utf8' })
+      },
+      readJSON: function (path) {
+        return call('fs.read', path, { encoding: 'utf8' }).then(JSON.parse)
+      },
+      /** 写当前文件以外的文件需要 workspace-write 权限；会自动建上级目录 */
+      write: function (path, data) {
+        return toData(data).then(function (d) {
+          return call('fs.write', path, d)
+        })
+      },
+      /** → { type: 'file' | 'dir', size, mtime } | null */
+      stat: function (path) {
+        return call('fs.stat', path)
+      },
+      exists: function (path) {
+        return call('fs.exists', path)
+      },
+      /** → [{ name, type, path }] */
+      list: function (dir) {
+        return call('fs.list', dir || '.')
+      },
+      /** 工作区里的所有文件 → ['/src/a.js', ...]；opts.extension 过滤扩展名 */
+      files: function (opts) {
+        return call('fs.files', opts || {})
+      },
+      mkdir: function (path) {
+        return call('fs.mkdir', path)
+      },
+      /** 移到回收站 */
+      delete: function (path) {
+        return call('fs.delete', path)
+      },
+      move: function (from, to) {
+        return call('fs.move', from, to)
+      },
+      /** 变化时调用 onAssetChanged(paths) */
+      watch: function (paths) {
+        return call('fs.watch', Array.prototype.slice.call(paths || []).map(String))
+      }
+    },
+    dialog: {
+      /** 让用户选文件（可以在工作区外）→ [{ name, data }]；opts: { title, extensions, multiple, encoding: 'utf8' } */
+      open: function (opts) {
+        return call('dialog.open', opts || {})
+      },
+      /** 另存为 → 保存的路径，取消时为 null */
+      save: function (name, data) {
+        return toData(data).then(function (d) {
+          return call('dialog.save', name, d)
+        })
+      }
+    },
+    clipboard: {
+      writeText: function (text) {
+        return call('clipboard.writeText', String(text))
+      },
+      /** 需要 clipboard-read 权限 */
+      readText: function () {
+        return call('clipboard.readText')
+      }
+    },
+    net: {
+      /**
+       * 需要 network 权限。init: { method, headers, body, timeout }
+       * → { status, statusText, url, headers, body: ArrayBuffer, text(), json() }
+       */
+      fetch: function (url, init) {
+        init = init || {}
+        return toData(init.body).then(function (body) {
+          var o = { method: init.method, headers: init.headers, timeout: init.timeout, body: body }
+          return call('net.fetch', String(url), o).then(function (r) {
+            r.ok = r.status >= 200 && r.status < 300
+            r.text = function () {
+              return Promise.resolve(new TextDecoder().decode(r.body))
+            }
+            r.json = function () {
+              return r.text().then(JSON.parse)
+            }
+            return r
+          })
+        })
+      }
+    },
+    editor: {
+      /** 在 IDE 里打开工作区文件；opts: { line, col, text: true 用文本编辑器 } */
+      open: function (path, opts) {
+        return call('editor.open', path, opts || {})
+      },
+      openText: function () {
+        return call('editor.openText')
+      },
+      setTitle: function (title) {
+        return call('editor.setTitle', String(title))
+      },
+      save: function () {
+        return call('editor.save')
+      },
+      /** 从磁盘重新读取当前文件（会再次调用 onLoad） */
+      reload: function () {
+        return call('editor.reload')
+      }
+    },
+    ui: {
+      toast: function (text) {
+        return call('ui.toast', String(text))
+      },
+      confirm: function (message) {
+        return call('ui.confirm', String(message))
+      },
+      openExternal: function (url) {
+        return call('ui.openExternal', String(url))
+      }
+    },
+    terminal: {
+      /** 需要 terminal 权限；每次 IDE 运行期间第一次会询问用户。opts: { cwd, title } */
+      run: function (command, opts) {
+        return call('terminal.run', String(command), opts || {})
+      }
+    },
+    commands: {
+      register: function (id, title, fn) {
+        commands[id] = fn
+        return call('commands.register', id, title)
+      },
+      unregister: function (id) {
+        delete commands[id]
+        return call('commands.unregister', id)
+      }
+    },
+
     /** 中英文：t('中文', 'English') */
     t: function (zh, en) {
       return studio.locale === 'en' ? en : zh

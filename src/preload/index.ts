@@ -86,6 +86,13 @@ const api: Api = {
     install: (id) => ipcRenderer.invoke('market:install', id),
     uninstall: (id) => ipcRenderer.invoke('market:uninstall', id),
     exportFile: (name, data) => ipcRenderer.invoke('market:exportFile', name, data),
+    stat: (p) => ipcRenderer.invoke('market:stat', p),
+    mkdirp: (p) => ipcRenderer.invoke('market:mkdirp', p),
+    move: (from, to) => ipcRenderer.invoke('market:move', from, to),
+    openFiles: (opts) => ipcRenderer.invoke('market:openFiles', opts),
+    readExternal: (p) => ipcRenderer.invoke('market:readExternal', p),
+    clipboard: (id, op, text) => ipcRenderer.invoke('market:clipboard', id, op, text),
+    fetch: (id, url, init) => ipcRenderer.invoke('market:fetch', id, url, init),
     onProgress: (cb) => subscribe('market:progress', cb)
   },
   plugins: {

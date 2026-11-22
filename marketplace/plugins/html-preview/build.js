@@ -29,21 +29,24 @@
   }
 
   /**
-   * 相对于 html 文件的路径：dir 是 '' 或 'a/b/'，结果可能以 ../ 开头。
-   * 以 / 开头的地址（站点根目录）没法对应到工作区，返回 null。
+   * 相对于 html 文件的路径：dir 是 ''、'a/b/' 或 '/a/'，结果可能以 ../ 开头。
+   * 以 / 开头的地址（站点根目录）对应工作区根目录，结果也以 / 开头。
    */
   function join(dir, href) {
     var p = splitSuffix(href).path
-    if (!p || p[0] === '/' || p[0] === '\\') return null
+    if (!p) return null
+    var root = p[0] === '/' || p[0] === '\\'
+    if (!root) root = dir[0] === '/'
     var out = []
-    ;(dir + p).split(/[\\/]/).forEach(function (seg) {
+    ;((p[0] === '/' || p[0] === '\\' ? '' : dir) + p).split(/[\\/]/).forEach(function (seg) {
       if (seg === '' || seg === '.') return
       if (seg === '..') {
         if (out.length && out[out.length - 1] !== '..') out.pop()
-        else out.push('..')
+        else if (!root) out.push('..')
       } else out.push(seg)
     })
-    return out.length ? out.join('/') : null
+    if (!out.length) return null
+    return (root ? '/' : '') + out.join('/')
   }
 
   function dirOf(p) {

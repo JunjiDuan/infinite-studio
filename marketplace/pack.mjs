@@ -136,6 +136,7 @@ function pack(id) {
       homepage: m.homepage,
       minStudio: m.minStudio,
       permissions: Array.isArray(m.permissions) && m.permissions.length ? m.permissions : undefined,
+      minApi: Number.isInteger(m.minApi) && m.minApi > 1 ? m.minApi : undefined,
       // jsDelivr 在国内更快；刚推送时它可能还没有这个文件，IDE 会接着试 raw.githubusercontent
       urls: [`https://cdn.jsdelivr.net/gh/${REPO}@main/${rel}`, `https://raw.githubusercontent.com/${REPO}/main/${rel}`],
       sha256,

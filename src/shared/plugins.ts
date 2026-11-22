@@ -164,15 +164,31 @@ export interface PluginManifest {
     /** 新文件的初始内容（文本） */
     template?: string
   }
-  /**
-   * 额外权限（默认都没有）：
-   *   network  页面可以加载 http(s) 资源（例如网页预览要用 CDN 上的脚本和样式）
-   *   eval     页面可以用 eval / new Function（预览的网页里有些库要用）
-   */
+  /** 需要的最低插件接口版本（PLUGIN_API），不写为 1。IDE 版本不够时拒绝安装 */
+  minApi?: number
+  /** 额外权限（默认都没有），见 PLUGIN_PERMISSIONS */
   permissions?: PluginPermission[]
 }
 
-export type PluginPermission = 'network' | 'eval'
+/**
+ * 插件接口版本：IDE 给插件的接口（SDK 能调用的方法、事件、权限）扩展一次就加 1。
+ * 插件在 manifest 里写 minApi；只用到老接口的插件在新旧 IDE 上都能装。
+ *   1  load / save / dirty / theme / export / toast / openExternal / openText / openLink / readAsset
+ *   2  call() 通用调用：fs.* / dialog.* / clipboard.* / net.fetch / editor.* / terminal.run / commands；
+ *      权限；嵌套预览框；文件监视
+ */
+export const PLUGIN_API = 2
+
+/** 插件可以声明的权限 */
+export const PLUGIN_PERMISSIONS = ['network', 'eval', 'workspace-write', 'clipboard-read', 'terminal'] as const
+/**
+ *   network          页面可以加载 http(s) 资源；可以用 net.fetch（不受跨域限制）
+ *   eval             页面可以用 eval / new Function
+ *   workspace-write  可以在工作区里写入、新建、重命名、删除文件（不声明时只能写当前文件）
+ *   clipboard-read   可以读取剪贴板（写入不需要权限）
+ *   terminal         可以在 IDE 终端里运行命令（每次会话第一次运行前会询问用户）
+ */
+export type PluginPermission = (typeof PLUGIN_PERMISSIONS)[number]
 
 /** registry.json 里的一项 */
 export interface RemotePlugin {
@@ -186,6 +202,8 @@ export interface RemotePlugin {
   minStudio?: string
   /** 插件需要的额外权限，安装前显示在卡片上 */
   permissions?: PluginPermission[]
+  /** 需要的最低插件接口版本（PLUGIN_API） */
+  minApi?: number
   /** 插件包（zip）的下载地址，依次尝试 */
   urls: string[]
   sha256: string

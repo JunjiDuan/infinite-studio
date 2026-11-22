@@ -346,6 +346,20 @@ export interface Api {
     uninstall(id: string): Promise<MarketResult<void>>
     /** 另存为对话框；取消时返回 null */
     exportFile(name: string, data: Uint8Array | string): Promise<string | null>
+    /** 插件接口 v2 */
+    stat(path: string): Promise<{ type: 'file' | 'dir'; size: number; mtime: number } | null>
+    mkdirp(path: string): Promise<void>
+    move(from: string, to: string): Promise<void>
+    /** 打开对话框，返回用户选的路径（取消时为空数组） */
+    openFiles(opts: { title?: string; extensions?: string[]; multiple?: boolean; directory?: boolean }): Promise<string[]>
+    /** 读取用户在对话框里选的文件（不限工作区） */
+    readExternal(path: string): Promise<Uint8Array>
+    clipboard(pluginId: string, op: 'read' | 'write', text?: string): Promise<string | boolean>
+    fetch(
+      pluginId: string,
+      url: string,
+      init: { method?: string; headers?: Record<string, string>; body?: string | Uint8Array; timeout?: number }
+    ): Promise<{ status: number; statusText: string; url: string; headers: Record<string, string>; body: Uint8Array }>
     onProgress(cb: (id: string, received: number, total: number) => void): () => void
   }
   plugins: {
