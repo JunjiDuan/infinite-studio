@@ -1,0 +1,1698 @@
+/* LaTeX 编辑器 —— Infinite Studio 插件 */
+:root {
+  --st-bg: #1b1c1f;
+  --st-panel: #232428;
+  --st-line: #2c2e33;
+  --st-sel: #2b2d33;
+  --st-text: #d6d7db;
+  --st-muted: #9a9ca3;
+  --st-accent: #e08a5f;
+  --st-font-code: 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+  --ui-font: 'Segoe UI', 'Microsoft YaHei UI', 'PingFang SC', system-ui, sans-serif;
+  --efs: 14px;
+  --zoom: 1;
+  --split: 50%;
+
+  /* 源码高亮（深色） */
+  --t-cmd: #6cb6ff;
+  --t-env: #e5a26b;
+  --t-math: #c49bff;
+  --t-mcmd: #a983f0;
+  --t-com: #747a85;
+  --t-br: #8f95a1;
+  --t-sp: #ef7a85;
+  --t-verb: #9fcf8a;
+  --t-sec: #f0f1f3;
+  --sel-bg: rgba(108, 182, 255, 0.28);
+  --err: #f0616d;
+  --warn: #e7b94d;
+}
+:root[data-theme='light'] {
+  --t-cmd: #1f5fbf;
+  --t-env: #b25a00;
+  --t-math: #7a3fc8;
+  --t-mcmd: #6a2fb8;
+  --t-com: #8a909a;
+  --t-br: #7c818b;
+  --t-sp: #c2364a;
+  --t-verb: #2f7d32;
+  --t-sec: #111216;
+  --sel-bg: rgba(31, 95, 191, 0.2);
+  --err: #d13a46;
+  --warn: #b98407;
+}
+[hidden] {
+  display: none !important;
+}
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--st-bg);
+  color: var(--st-text);
+  font: 13px/1.4 var(--ui-font);
+}
+body {
+  display: flex;
+  flex-direction: column;
+}
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+/* ================= 工具栏 ================= */
+#bar {
+  flex: none;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--st-line);
+  background: var(--st-bg);
+  user-select: none;
+  overflow: hidden;
+}
+#bar .sp {
+  flex: 1;
+  min-width: 4px;
+}
+#bar .sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 4px;
+  background: var(--st-line);
+  flex: none;
+}
+.tb {
+  height: 28px;
+  min-width: 28px;
+  padding: 0 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--st-muted);
+  cursor: pointer;
+  flex: none;
+  white-space: nowrap;
+}
+.tb:hover {
+  background: var(--st-sel);
+  color: var(--st-text);
+}
+.tb:disabled {
+  opacity: 0.45;
+  cursor: default;
+  background: transparent;
+}
+.tb.on {
+  color: var(--st-text);
+  background: color-mix(in srgb, var(--st-accent) 18%, transparent);
+}
+.tb svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+.tb .glyph {
+  font: 600 13px/1 'Times New Roman', 'Cambria Math', serif;
+  min-width: 14px;
+  text-align: center;
+}
+.tb .glyph.i {
+  font-style: italic;
+}
+.tb.boxed {
+  border: 1px solid var(--st-line);
+  background: var(--st-panel);
+  color: var(--st-text);
+}
+.tb.primary {
+  background: var(--st-accent);
+  color: #fff;
+  font-weight: 600;
+  padding: 0 10px 0 8px;
+}
+.tb.primary:hover {
+  background: color-mix(in srgb, var(--st-accent) 85%, #fff);
+  color: #fff;
+}
+.tb.primary.busy svg {
+  animation: spin 0.9s linear infinite;
+}
+.tb .caret {
+  width: 10px;
+  height: 10px;
+  opacity: 0.7;
+  margin-left: -2px;
+}
+.tb .badge {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+  font-weight: 600;
+  color: #fff;
+}
+.badge.err {
+  background: var(--err);
+}
+.badge.warn {
+  background: var(--warn);
+  color: #1b1c1f;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.seg {
+  display: flex;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--st-panel);
+  border: 1px solid var(--st-line);
+  flex: none;
+}
+.seg button {
+  height: 24px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--st-muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+}
+.seg button:hover {
+  color: var(--st-text);
+}
+.seg button.on {
+  background: var(--st-sel);
+  color: var(--st-text);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--st-text) 10%, transparent);
+}
+#fmt {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  min-width: 0;
+  overflow: hidden;
+}
+body[data-mode='preview'] #fmt,
+body[data-mode='preview'] #fmtSep {
+  display: none;
+}
+body[data-mode='source'] #viewSeg {
+  display: none;
+}
+@media (max-width: 760px) {
+  #fmt .opt {
+    display: none;
+  }
+}
+
+/* ================= 弹出菜单 ================= */
+.pop {
+  position: fixed;
+  z-index: 50;
+  min-width: 190px;
+  max-height: calc(100vh - 60px);
+  overflow: auto;
+  padding: 6px;
+  border-radius: 10px;
+  background: var(--st-panel);
+  border: 1px solid var(--st-line);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+  user-select: none;
+}
+.pop .mi {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pop .mi:hover,
+.pop .mi.active {
+  background: var(--st-sel);
+}
+.pop .mi .desc {
+  margin-left: auto;
+  padding-left: 16px;
+  color: var(--st-muted);
+  font-size: 12px;
+}
+.pop .mi .ck {
+  width: 14px;
+  color: var(--st-accent);
+  flex: none;
+}
+.pop .mi svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+.pop .mi code {
+  font: 12px var(--st-font-code);
+  color: var(--st-muted);
+}
+.pop .hd {
+  padding: 8px 10px 4px;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  color: var(--st-muted);
+}
+.pop .row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 6px 10px;
+}
+.pop .row .val {
+  font-family: var(--st-font-code);
+  color: var(--st-muted);
+  font-size: 12px;
+}
+.pop .note {
+  padding: 4px 10px 8px;
+  color: var(--st-muted);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: normal;
+  max-width: 320px;
+}
+.pop input[type='range'] {
+  width: 100%;
+  accent-color: var(--st-accent);
+}
+.pop input[type='text'] {
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid var(--st-line);
+  background: var(--st-bg);
+  font: 12px var(--st-font-code);
+  outline: none;
+}
+.pop input[type='text']:focus {
+  border-color: var(--st-accent);
+}
+.pop .seg {
+  margin: 2px 10px 6px;
+}
+.pop .seg button {
+  flex: 1;
+  padding: 0 6px;
+}
+.pop hr {
+  border: 0;
+  border-top: 1px solid var(--st-line);
+  margin: 6px 4px;
+}
+.pop .ol-item {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  max-width: 420px;
+}
+.pop .ol-item:hover {
+  background: var(--st-sel);
+}
+.pop .ol-item .n {
+  color: var(--st-muted);
+  font: 12px var(--st-font-code);
+  flex: none;
+}
+.pop .ol-item .t {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pop .ol-item .ln {
+  margin-left: auto;
+  color: var(--st-muted);
+  font: 11px var(--st-font-code);
+  padding-left: 12px;
+  flex: none;
+}
+.sw {
+  position: relative;
+  width: 34px;
+  height: 20px;
+  border-radius: 999px;
+  border: 0;
+  padding: 0;
+  background: color-mix(in srgb, var(--st-muted) 45%, transparent);
+  cursor: pointer;
+  flex: none;
+  transition: background 0.15s;
+}
+.sw::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s;
+}
+.sw[aria-checked='true'] {
+  background: var(--st-accent);
+}
+.sw[aria-checked='true']::after {
+  transform: translateX(14px);
+}
+
+/* ================= 布局 ================= */
+#main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+#srcPane {
+  position: relative;
+  flex: 0 0 var(--split);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+#viewPane {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+#splitter {
+  flex: none;
+  width: 5px;
+  margin: 0 -2px;
+  z-index: 3;
+  cursor: col-resize;
+  position: relative;
+}
+#splitter::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 1px;
+  background: var(--st-line);
+}
+#splitter:hover::after,
+#splitter.drag::after {
+  background: var(--st-accent);
+  width: 2px;
+  left: 1.5px;
+}
+#main[data-mode='source'] #viewPane,
+#main[data-mode='source'] #splitter,
+#main[data-mode='preview'] #srcPane,
+#main[data-mode='preview'] #splitter {
+  display: none;
+}
+#main[data-mode='source'] #srcPane {
+  flex: 1;
+}
+
+/* ================= 源码编辑器 ================= */
+#srcScroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: var(--st-bg);
+}
+#srcInner {
+  position: relative;
+  min-height: 100%;
+}
+#main[data-mode='source'] #srcInner {
+  max-width: 1080px;
+  margin: 0 auto;
+}
+#hl,
+#src {
+  margin: 0;
+  padding: 14px 20px 50vh 60px;
+  font: var(--efs) / 1.7 var(--st-font-code);
+  tab-size: 2;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  letter-spacing: 0;
+  border: 0;
+}
+#main[data-wrap='off'] #hl,
+#main[data-wrap='off'] #src {
+  white-space: pre;
+  overflow-wrap: normal;
+}
+#main[data-wrap='off'] #srcInner {
+  width: max-content;
+  min-width: 100%;
+}
+#hl {
+  min-height: 100%;
+  color: var(--st-text);
+  pointer-events: none;
+}
+#src {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  resize: none;
+  overflow: hidden;
+  outline: none;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--st-accent);
+}
+#src::selection {
+  background: var(--sel-bg);
+  color: transparent;
+}
+#hl .ln {
+  position: relative;
+}
+#hl .ln::before {
+  content: attr(data-n);
+  position: absolute;
+  left: -50px;
+  width: 34px;
+  text-align: right;
+  color: color-mix(in srgb, var(--st-muted) 55%, transparent);
+  font-size: 0.82em;
+}
+#hl .ln.cur {
+  background: var(--st-sel);
+  box-shadow: -60px 0 0 var(--st-sel), 20px 0 0 var(--st-sel);
+}
+#hl .ln.cur::before {
+  color: var(--st-text);
+}
+#hl .ln.err::after,
+#hl .ln.warn::after {
+  content: '';
+  position: absolute;
+  left: -12px;
+  top: 0.55em;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--err);
+}
+#hl .ln.warn::after {
+  background: var(--warn);
+}
+#hl .ln.err {
+  background: color-mix(in srgb, var(--err) 10%, transparent);
+}
+#hl .ln.flash {
+  animation: flash 1.2s ease-out;
+}
+@keyframes flash {
+  from {
+    background: color-mix(in srgb, var(--st-accent) 35%, transparent);
+  }
+}
+.t-cmd {
+  color: var(--t-cmd);
+}
+.t-kw {
+  color: var(--t-cmd);
+  font-weight: 600;
+}
+.t-env {
+  color: var(--t-env);
+}
+.t-math {
+  color: var(--t-math);
+}
+.t-math .t-cmd {
+  color: var(--t-mcmd);
+}
+.t-com {
+  color: var(--t-com);
+  font-style: italic;
+}
+.t-br {
+  color: var(--t-br);
+}
+.t-sp {
+  color: var(--t-sp);
+}
+.t-verb {
+  color: var(--t-verb);
+}
+.t-sec {
+  color: var(--t-sec);
+  font-weight: 700;
+}
+.t-magic {
+  color: var(--t-env);
+  font-style: italic;
+}
+
+/* 查找替换 */
+#findBar {
+  position: absolute;
+  top: 8px;
+  right: 18px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  border-radius: 8px;
+  background: var(--st-panel);
+  border: 1px solid var(--st-line);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+#findBar .frow {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+#findBar input {
+  width: 200px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 5px;
+  border: 1px solid var(--st-line);
+  background: var(--st-bg);
+  outline: none;
+  font: 12px var(--st-font-code);
+}
+#findBar input:focus {
+  border-color: var(--st-accent);
+}
+#findBar .cnt {
+  min-width: 54px;
+  padding: 0 6px;
+  color: var(--st-muted);
+  font-size: 12px;
+  text-align: center;
+}
+#findBar .tb {
+  height: 26px;
+  min-width: 26px;
+  padding: 0 5px;
+  font-size: 12px;
+}
+
+/* 补全 */
+.ac {
+  position: fixed;
+  z-index: 60;
+  min-width: 220px;
+  max-width: 440px;
+  max-height: 260px;
+  overflow: auto;
+  padding: 4px;
+  border-radius: 8px;
+  background: var(--st-panel);
+  border: 1px solid var(--st-line);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+  font: 12.5px var(--st-font-code);
+}
+.ac .it {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ac .it.on {
+  background: color-mix(in srgb, var(--st-accent) 22%, transparent);
+}
+.ac .it b {
+  color: var(--st-accent);
+  font-weight: 600;
+}
+.ac .it .k {
+  font-size: 10px;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--st-sel);
+  color: var(--st-muted);
+  flex: none;
+  font-family: var(--ui-font);
+}
+.ac .it .h {
+  margin-left: auto;
+  color: var(--st-muted);
+  font: 11.5px var(--ui-font);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ================= 预览：纸张 ================= */
+#liveScroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 24px 20px 40vh;
+  background: color-mix(in srgb, var(--st-bg) 86%, #888);
+}
+:root[data-theme='light'] #liveScroll,
+:root[data-theme='light'] #pdfScroll {
+  background: #e6e7ea;
+}
+.tex-page {
+  --paper: #fff;
+  --ink: #1a1a1a;
+  --muted: #666;
+  --rule: #222;
+  --link: #1a56b8;
+  --code-bg: #f3f3f1;
+  --soft: #f6f6f4;
+  --accent: #b23a1d;
+  font-size: calc(16px * var(--zoom));
+  width: 46em;
+  max-width: 100%;
+  min-height: 60em;
+  margin: 0 auto;
+  padding: 4.2em 4.6em 5em;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: 'Latin Modern Roman', 'CMU Serif', 'Cambria', 'Times New Roman', 'Songti SC', 'SimSun', 'Noto Serif CJK SC', serif;
+  line-height: 1.62;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18), 0 6px 24px rgba(0, 0, 0, 0.18);
+  border-radius: 2px;
+  overflow-wrap: break-word;
+  hyphens: auto;
+  text-align: justify;
+  cursor: text;
+  color-scheme: light;
+}
+.tex-page[data-paper='sepia'] {
+  --paper: #f5eedc;
+  --ink: #3b3024;
+  --muted: #7c6b57;
+  --rule: #3b3024;
+  --code-bg: #ece3cc;
+  --soft: #efe6d0;
+}
+.tex-page[data-paper='dark'] {
+  --paper: #1f2023;
+  --ink: #dcdcdc;
+  --muted: #9a9a9a;
+  --rule: #cfcfcf;
+  --link: #7fb2ff;
+  --code-bg: #2a2b2f;
+  --soft: #26272a;
+  --accent: #ff9b73;
+  color-scheme: dark;
+  box-shadow: 0 0 0 1px #2f3035, 0 6px 24px rgba(0, 0, 0, 0.4);
+}
+.tex-page[data-paper='dark'] img.gfx {
+  filter: invert(0.88) hue-rotate(180deg);
+}
+.tex-page[data-lang='zh'] {
+  text-align: justify;
+  hyphens: manual;
+}
+@media (max-width: 640px) {
+  .tex-page {
+    padding: 2.2em 1.6em 3em;
+  }
+}
+.tex-page .par {
+  margin: 0;
+  text-indent: 1.5em;
+}
+.tex-page[data-lang='zh'] .par {
+  text-indent: 2em;
+}
+.tex-page .par.ni,
+.tex-page li > .par:first-child,
+.tex-page figure .par,
+.tex-page .center .par,
+.tex-page .flushright .par,
+.tex-page .flushleft .par,
+.tex-page .minipage .par:first-child,
+.tex-page .abstract .par:first-child,
+.tex-page .thm > .par:first-child,
+.tex-page .proof > .par:first-child,
+.tex-page .framebody .par,
+.tex-page .bblock .par,
+.tex-page td .par {
+  text-indent: 0;
+}
+.tex-page .par + .par {
+  margin-top: 0.15em;
+}
+.tex-page h1,
+.tex-page h2,
+.tex-page h3,
+.tex-page h4,
+.tex-page h5,
+.tex-page h6 {
+  font-weight: 700;
+  line-height: 1.3;
+  text-align: left;
+  hyphens: manual;
+  color: var(--ink);
+}
+.tex-page h1.chapter,
+.tex-page h1.part {
+  font-size: 1.75em;
+  margin: 2em 0 1.1em;
+}
+.tex-page h1.part {
+  text-align: center;
+  font-size: 2em;
+}
+.tex-page .chapnum,
+.tex-page .partnum {
+  display: block;
+  font-size: 0.7em;
+  margin-bottom: 0.6em;
+}
+.tex-page[data-lang='zh'] h1.chapter {
+  text-align: center;
+}
+.tex-page[data-lang='zh'] .chapnum {
+  display: inline;
+  font-size: 1em;
+  margin: 0 0.6em 0 0;
+}
+.tex-page h2 {
+  font-size: 1.38em;
+  margin: 1.5em 0 0.6em;
+}
+.tex-page h3 {
+  font-size: 1.15em;
+  margin: 1.3em 0 0.5em;
+}
+.tex-page h4 {
+  font-size: 1em;
+  margin: 1.1em 0 0.4em;
+}
+.tex-page h5,
+.tex-page h6 {
+  font-size: 1em;
+  margin: 1em 0 0.3em;
+}
+.tex-page .secnum {
+  margin-right: 0.85em;
+}
+.tex-page .runin {
+  font-weight: 700;
+}
+.tex-page .runin .secnum {
+  margin-right: 0.5em;
+}
+.tex-page h2.nonum {
+  margin-top: 1.2em;
+}
+.tex-page .titleblock {
+  text-align: center;
+  margin: 0.6em 0 2.2em;
+}
+.tex-page .title {
+  font-size: 1.72em;
+  font-weight: 400;
+  margin: 0 0 0.8em;
+  text-align: center;
+}
+.tex-page .subtitle {
+  font-size: 1.2em;
+  margin: -0.4em 0 0.8em;
+}
+.tex-page .authors {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.4em 3em;
+  font-size: 1.12em;
+}
+.tex-page .institute {
+  margin-top: 0.4em;
+  color: var(--muted);
+}
+.tex-page .date {
+  margin-top: 0.8em;
+  font-size: 1.12em;
+}
+.tex-page .abstract {
+  margin: 1.4em 3em 1.8em;
+  font-size: 0.92em;
+}
+.tex-page .abs-title {
+  text-align: center;
+  font-weight: 700;
+  margin-bottom: 0.4em;
+}
+.tex-page .keywords {
+  margin: -0.8em 3em 1.6em;
+  font-size: 0.92em;
+}
+.tex-page .toc {
+  margin: 1em 0 2em;
+  text-align: left;
+}
+.tex-page .toc-item {
+  display: flex;
+  gap: 0.6em;
+  color: inherit;
+  text-decoration: none;
+  padding: 0.12em 0;
+}
+.tex-page .toc-item:hover .toc-t {
+  color: var(--link);
+}
+.tex-page .toc-item.lv0 {
+  font-weight: 700;
+  margin-top: 0.45em;
+}
+.tex-page .toc-item.lv1 {
+  padding-left: 1.5em;
+}
+.tex-page .toc-item.lv2 {
+  padding-left: 3.8em;
+}
+.tex-page .toc-item.lv3 {
+  padding-left: 6.4em;
+}
+.tex-page .toc-item .secnum {
+  margin: 0;
+  min-width: 1.8em;
+}
+.tex-page .toc-t {
+  flex: 1;
+}
+
+/* 公式 */
+.tex-page .katex {
+  font-size: 1.12em;
+  text-indent: 0;
+}
+.tex-page .eq {
+  margin: 0.7em 0;
+  padding: 0.15em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  text-indent: 0;
+  /* KaTeX 的盒子常比容器宽一两个像素：不显示滚动条，公式真的太宽时悬停才出现 */
+  scrollbar-width: none;
+}
+.tex-page .eq:hover {
+  scrollbar-width: thin;
+}
+.tex-page .eq .katex-display {
+  margin: 0;
+}
+.tex-page .katex-display > .katex {
+  max-width: 100%;
+}
+.tex-page .math-err,
+.tex-page .math-raw {
+  font: 0.82em/1.5 var(--st-font-code);
+  color: #c4302b;
+  background: rgba(196, 48, 43, 0.08);
+  border-radius: 3px;
+  padding: 0 3px;
+  white-space: pre-wrap;
+  cursor: help;
+}
+.tex-page .eq > .math-err {
+  display: block;
+  padding: 6px 10px;
+}
+
+/* 列表 */
+.tex-page .list {
+  list-style: none;
+  margin: 0.5em 0;
+  padding-left: 2.1em;
+  text-align: left;
+}
+.tex-page .list li {
+  position: relative;
+  margin: 0.2em 0;
+}
+.tex-page .list .lbl {
+  position: absolute;
+  left: -2.1em;
+  width: 1.7em;
+  text-align: right;
+  text-indent: 0;
+}
+.tex-page .list.description {
+  padding-left: 1.6em;
+}
+.tex-page .list.description li {
+  text-indent: -1.6em;
+}
+.tex-page .list.description li .par {
+  text-indent: -1.6em;
+}
+.tex-page .dt {
+  font-weight: 700;
+}
+.tex-page .biblist {
+  padding-left: 2.6em;
+}
+.tex-page .biblist .lbl {
+  left: -2.6em;
+  width: 2.2em;
+}
+.tex-page .bib {
+  text-align: left;
+}
+
+/* 定理 */
+.tex-page .thm,
+.tex-page .proof {
+  margin: 0.8em 0;
+}
+.tex-page .thm-head {
+  font-weight: 700;
+  font-style: normal;
+}
+.tex-page .thm-note {
+  font-weight: 400;
+}
+.tex-page .thm-plain .par {
+  font-style: italic;
+}
+.tex-page .thm-plain .katex,
+.tex-page .thm-plain .thm-head {
+  font-style: normal;
+}
+.tex-page .thm-remark .thm-head {
+  font-weight: 400;
+  font-style: italic;
+}
+.tex-page .proof-head {
+  font-style: italic;
+}
+.tex-page .proof > .par:last-child::after,
+.tex-page .qed {
+  content: '∎';
+  float: right;
+}
+.tex-page .proof > .par:last-child:has(.qed)::after {
+  content: none;
+}
+
+/* 浮动体 */
+.tex-page figure.float {
+  margin: 1.3em 0;
+  text-align: center;
+}
+.tex-page figcaption {
+  font-size: 0.95em;
+  margin: 0.55em auto;
+  max-width: 92%;
+  text-align: center;
+  text-indent: 0;
+}
+.tex-page figcaption.subcap {
+  font-size: 0.9em;
+  margin: 0.3em auto;
+}
+.tex-page img.gfx {
+  max-width: 100%;
+  height: auto;
+  vertical-align: middle;
+}
+.tex-page img.gfx[data-state='loading'],
+.tex-page img.gfx[data-state='missing'] {
+  display: inline-block;
+  min-width: 10em;
+  min-height: 5em;
+  border: 1px dashed var(--muted);
+  border-radius: 4px;
+  color: var(--muted);
+  font: 0.8em var(--ui-font);
+  padding: 2em 1em;
+  background: var(--soft);
+}
+.tex-page .minipage,
+.tex-page .subfig,
+.tex-page .parbox {
+  display: inline-block;
+  vertical-align: top;
+  text-align: left;
+  margin: 0 0.4%;
+  text-indent: 0;
+}
+.tex-page .subfig {
+  text-align: center;
+}
+.tex-page .tblwrap {
+  display: inline-block;
+  max-width: 100%;
+  overflow-x: auto;
+  vertical-align: middle;
+  text-indent: 0;
+}
+.tex-page table.tabular {
+  border-collapse: collapse;
+  margin: 0.4em auto;
+  line-height: 1.4;
+}
+.tex-page table.tabular td {
+  padding: 0.22em 0.6em;
+  vertical-align: top;
+  text-align: left;
+}
+.tex-page .center,
+.tex-page .center .par {
+  text-align: center;
+}
+.tex-page .flushright {
+  text-align: right;
+}
+.tex-page .flushleft {
+  text-align: left;
+}
+.tex-page blockquote {
+  margin: 0.7em 2.5em;
+}
+.tex-page blockquote.verse .par {
+  text-indent: -1.5em;
+  padding-left: 1.5em;
+}
+.tex-page .multicols {
+  column-gap: 2em;
+  margin: 0.6em 0;
+}
+
+/* 文字 */
+.tex-page b {
+  font-weight: 700;
+}
+.tex-page em {
+  font-style: italic;
+}
+.tex-page em.up,
+.tex-page i em {
+  font-style: normal;
+}
+.tex-page .sl {
+  font-style: oblique;
+}
+.tex-page .sc {
+  font-variant: small-caps;
+}
+.tex-page .sf {
+  font-family: 'Latin Modern Sans', 'Segoe UI', 'Helvetica Neue', Arial, 'Microsoft YaHei', 'PingFang SC', sans-serif;
+}
+.tex-page .rm {
+  font-family: inherit;
+}
+.tex-page .md {
+  font-weight: 400;
+}
+.tex-page .up {
+  font-style: normal;
+}
+.tex-page .nf {
+  font-weight: 400;
+  font-style: normal;
+  font-variant: normal;
+}
+.tex-page .kai {
+  font-family: 'KaiTi', 'STKaiti', 'Kaiti SC', serif;
+  font-style: normal;
+}
+.tex-page code.tt,
+.tex-page .tt {
+  font-family: 'Latin Modern Mono', 'Cascadia Mono', Consolas, 'Courier New', monospace;
+  font-size: 0.94em;
+}
+.tex-page u.uu {
+  text-decoration-style: double;
+}
+.tex-page u.wave {
+  text-decoration-style: wavy;
+}
+.tex-page mark {
+  background: #fff1a8;
+  color: inherit;
+}
+.tex-page .fs-tiny {
+  font-size: 0.5em;
+}
+.tex-page .fs-script {
+  font-size: 0.7em;
+}
+.tex-page .fs-foot {
+  font-size: 0.8em;
+}
+.tex-page .fs-small {
+  font-size: 0.9em;
+}
+.tex-page .fs-normal {
+  font-size: 1rem;
+  font-size: calc(16px * var(--zoom));
+}
+.tex-page .fs-large {
+  font-size: 1.2em;
+}
+.tex-page .fs-Large {
+  font-size: 1.44em;
+}
+.tex-page .fs-LARGE {
+  font-size: 1.73em;
+}
+.tex-page .fs-huge {
+  font-size: 2.07em;
+}
+.tex-page .fs-Huge {
+  font-size: 2.49em;
+}
+.tex-page .nowrap {
+  white-space: nowrap;
+}
+.tex-page .fbox {
+  border: 1px solid var(--rule);
+  padding: 0 0.25em;
+}
+.tex-page .cbox {
+  padding: 0 0.25em;
+}
+.tex-page .hsp,
+.tex-page .rule {
+  display: inline-block;
+  vertical-align: baseline;
+}
+.tex-page .rule {
+  background: currentColor;
+}
+.tex-page .hfill {
+  display: inline-block;
+  width: 3em;
+}
+.tex-page .dotfill {
+  border-bottom: 1px dotted currentColor;
+}
+.tex-page .rulefill {
+  border-bottom: 1px solid currentColor;
+}
+.tex-page .ph {
+  visibility: hidden;
+}
+.tex-page .vsp.smallskip {
+  height: 0.3em;
+}
+.tex-page .vsp.medskip {
+  height: 0.6em;
+}
+.tex-page .vsp.bigskip {
+  height: 1.2em;
+}
+.tex-page .pagebreak {
+  height: 0;
+  margin: 2.4em -4.6em;
+  border-top: 1px dashed color-mix(in srgb, var(--muted) 45%, transparent);
+}
+.tex-page .logo .a {
+  font-size: 0.72em;
+  vertical-align: 0.28em;
+  margin-left: -0.36em;
+  margin-right: -0.15em;
+}
+.tex-page .logo .e {
+  position: relative;
+  top: 0.22em;
+  margin-left: -0.1667em;
+  margin-right: -0.125em;
+  text-transform: uppercase;
+}
+.tex-page a {
+  color: var(--link);
+  text-decoration: none;
+}
+.tex-page a:hover {
+  text-decoration: underline;
+}
+.tex-page a.url {
+  font-family: 'Latin Modern Mono', Consolas, monospace;
+  font-size: 0.92em;
+  word-break: break-all;
+}
+.tex-page .ref.missing {
+  color: #c4302b;
+  font-weight: 700;
+}
+.tex-page .unk {
+  border-bottom: 1px dotted color-mix(in srgb, var(--accent) 60%, transparent);
+}
+.tex-page sup.fn {
+  font-size: 0.7em;
+  line-height: 0;
+  text-indent: 0;
+}
+.tex-page .footnotes {
+  margin-top: 3em;
+  padding-top: 0.6em;
+  font-size: 0.84em;
+  border-top: 1px solid color-mix(in srgb, var(--rule) 40%, transparent);
+  width: 40%;
+  min-width: 14em;
+}
+.tex-page .footnotes ol {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  width: 250%;
+  max-width: 41em;
+}
+.tex-page .footnotes li {
+  margin: 0.2em 0;
+}
+.tex-page .footnotes .lbl {
+  font-size: 0.75em;
+  vertical-align: super;
+  margin-right: 0.3em;
+}
+.tex-page pre.code {
+  font: 0.84em/1.5 'Latin Modern Mono', 'Cascadia Mono', Consolas, monospace;
+  background: var(--code-bg);
+  padding: 0.7em 1em;
+  border-radius: 4px;
+  overflow: auto;
+  text-align: left;
+  margin: 0.7em 0;
+  white-space: pre;
+}
+.tex-page .tikz {
+  display: flex;
+  align-items: center;
+  gap: 0.8em;
+  margin: 0.8em auto;
+  max-width: 30em;
+  padding: 1.2em 1.4em;
+  border: 1px dashed color-mix(in srgb, var(--muted) 60%, transparent);
+  border-radius: 6px;
+  color: var(--muted);
+  font: 0.82em var(--ui-font);
+  background: var(--soft);
+  text-align: left;
+}
+.tex-page .tikz span {
+  font-family: var(--st-font-code);
+  padding: 0.1em 0.5em;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--muted) 15%, transparent);
+}
+.tex-page .tikz.inline {
+  display: inline-flex;
+  padding: 0.1em 0.4em;
+  margin: 0;
+}
+.tex-page .inc-note {
+  color: var(--muted);
+  font: italic 0.85em var(--ui-font);
+  margin: 0.4em 0;
+}
+.tex-page .inc-note.missing {
+  color: #c4302b;
+}
+.tex-page .env-unk {
+  position: relative;
+  margin: 0.6em 0;
+  padding-left: 0.9em;
+  border-left: 2px dotted color-mix(in srgb, var(--muted) 50%, transparent);
+}
+.tex-page .env-unk::before {
+  content: attr(data-env);
+  display: block;
+  font: 0.72em var(--st-font-code);
+  color: var(--muted);
+}
+.tex-page .algorithmic {
+  margin: 0.6em 0;
+  padding: 0.5em 0.8em;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  text-align: left;
+}
+.tex-page .alg-line {
+  margin: 0.1em 0;
+}
+.tex-page .muted {
+  color: var(--muted);
+}
+/* beamer */
+.tex-page section.frame {
+  margin: 1.4em 0;
+  border: 1px solid color-mix(in srgb, var(--rule) 25%, transparent);
+  border-radius: 6px;
+  overflow: hidden;
+  aspect-ratio: 4 / 3;
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+.tex-page .frametitle {
+  margin: 0;
+  padding: 0.6em 1em;
+  font-size: 1.2em;
+  background: color-mix(in srgb, var(--accent) 12%, var(--paper));
+  color: var(--ink);
+}
+.tex-page .frametitle small {
+  display: block;
+  font-weight: 400;
+  font-size: 0.75em;
+  color: var(--muted);
+}
+.tex-page .framebody {
+  padding: 0.8em 1.4em;
+  flex: 1;
+  overflow: auto;
+}
+.tex-page .bblock {
+  margin: 0.6em 0;
+  border-radius: 5px;
+  overflow: hidden;
+  background: var(--soft);
+}
+.tex-page .bblock-title {
+  padding: 0.25em 0.7em;
+  font-weight: 700;
+  background: color-mix(in srgb, #2b5cb8 18%, var(--paper));
+}
+.tex-page .alertblock .bblock-title {
+  background: color-mix(in srgb, #c4302b 18%, var(--paper));
+}
+.tex-page .exampleblock .bblock-title {
+  background: color-mix(in srgb, #2f7d32 18%, var(--paper));
+}
+.tex-page .bblock-body {
+  padding: 0.4em 0.7em;
+}
+.tex-page .columns {
+  display: flex;
+  gap: 1.2em;
+}
+.tex-page .alert {
+  color: var(--accent);
+}
+.tex-page [data-line].flash {
+  animation: flashp 1.4s ease-out;
+}
+@keyframes flashp {
+  from {
+    background: color-mix(in srgb, #f5b041 45%, transparent);
+  }
+}
+.tex-page .empty {
+  color: var(--muted);
+  text-align: center;
+  padding: 6em 0;
+  font-family: var(--ui-font);
+}
+
+/* ================= PDF ================= */
+#pdfScroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  position: relative;
+  background: color-mix(in srgb, var(--st-bg) 86%, #888);
+}
+#pdfPages {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 16px 60px;
+  min-width: min-content;
+}
+.pdfpage {
+  position: relative;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2), 0 6px 22px rgba(0, 0, 0, 0.2);
+  flex: none;
+}
+.pdfpage canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+#pdfPages[data-paper='dark'] .pdfpage {
+  background: #1f2023;
+}
+#pdfPages[data-paper='dark'] canvas {
+  filter: invert(0.88) hue-rotate(180deg);
+}
+#pdfPages[data-paper='sepia'] canvas {
+  filter: sepia(0.35) brightness(0.97);
+}
+.pdfpage .hlbox {
+  position: absolute;
+  border-radius: 3px;
+  background: color-mix(in srgb, #f5b041 40%, transparent);
+  outline: 2px solid color-mix(in srgb, #f5b041 85%, transparent);
+  pointer-events: none;
+  animation: fadeout 2.2s ease-in forwards;
+}
+@keyframes fadeout {
+  0%,
+  60% {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+#pdfEmpty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  text-align: center;
+  color: var(--st-muted);
+}
+#pdfEmpty .big {
+  font-size: 15px;
+  color: var(--st-text);
+}
+#pdfEmpty .hint {
+  max-width: 420px;
+  line-height: 1.6;
+  font-size: 12.5px;
+}
+#pdfEmpty code {
+  font: 12px var(--st-font-code);
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--st-panel);
+}
+#pdfTools {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--st-panel) 94%, transparent);
+  border: 1px solid var(--st-line);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  user-select: none;
+  backdrop-filter: blur(6px);
+}
+#pdfTools .tb {
+  height: 26px;
+  min-width: 26px;
+}
+#pdfTools .lbl {
+  min-width: 48px;
+  text-align: center;
+  font: 12px var(--st-font-code);
+  color: var(--st-muted);
+}
+#problems:not([hidden]) + #pdfTools,
+#viewPane:has(#problems:not([hidden])) #pdfTools {
+  bottom: calc(var(--probH, 160px) + 14px);
+}
+
+/* ================= 问题列表 ================= */
+#problems {
+  flex: none;
+  height: var(--probH, 160px);
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--st-line);
+  background: var(--st-bg);
+}
+#problems .ph-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 6px 0 12px;
+  border-bottom: 1px solid var(--st-line);
+  font-size: 12px;
+  color: var(--st-muted);
+  flex: none;
+}
+#problems .ph-head .t {
+  color: var(--st-text);
+  font-weight: 600;
+}
+#problems .ph-list {
+  flex: 1;
+  overflow: auto;
+  padding: 4px;
+}
+#problems .pi {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font-size: 12.5px;
+}
+#problems .pi:hover {
+  background: var(--st-sel);
+}
+#problems .pi .ic {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  transform: translateY(-1px);
+}
+#problems .pi.error .ic {
+  background: var(--err);
+}
+#problems .pi.warning .ic {
+  background: var(--warn);
+}
+#problems .pi.badbox .ic,
+#problems .pi.info .ic {
+  background: var(--st-muted);
+}
+#problems .pi .m {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+#problems .pi .loc {
+  color: var(--st-muted);
+  font: 11.5px var(--st-font-code);
+  flex: none;
+}
+#problems .empty {
+  padding: 14px;
+  color: var(--st-muted);
+}
+
+/* ================= 状态栏 ================= */
+#status {
+  flex: none;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 8px;
+  border-top: 1px solid var(--st-line);
+  font-size: 12px;
+  color: var(--st-muted);
+  user-select: none;
+  overflow: hidden;
+  white-space: nowrap;
+}
+#status .si {
+  padding: 0 8px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 4px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+}
+#status button.si {
+  cursor: pointer;
+}
+#status button.si:hover {
+  background: var(--st-sel);
+  color: var(--st-text);
+}
+#status .sp {
+  flex: 1;
+}
+#status .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--st-muted);
+}
+#status .dot.ok {
+  background: #4fb477;
+}
+#status .dot.err {
+  background: var(--err);
+}
+#status .dot.busy {
+  background: var(--st-accent);
+  animation: pulse 1s ease-in-out infinite;
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.3;
+  }
+}

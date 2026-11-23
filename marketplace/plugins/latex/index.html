@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>LaTeX</title>
+    <link rel="stylesheet" href="vendor/katex/katex.min.css" />
+    <link rel="stylesheet" href="latex.css" />
+  </head>
+  <body>
+    <div id="bar"></div>
+    <div id="main" data-mode="split" data-view="live">
+      <div id="srcPane">
+        <div id="findBar" hidden></div>
+        <div id="srcScroll">
+          <div id="srcInner">
+            <pre id="hl" aria-hidden="true"></pre>
+            <textarea id="src" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="soft"></textarea>
+          </div>
+        </div>
+      </div>
+      <div id="splitter" role="separator" aria-orientation="vertical" tabindex="-1"></div>
+      <div id="viewPane">
+        <div id="liveScroll"><article id="page" class="tex-page"></article></div>
+        <div id="pdfScroll" hidden>
+          <div id="pdfPages"></div>
+          <div id="pdfEmpty" hidden></div>
+        </div>
+        <div id="pdfTools" hidden></div>
+        <div id="problems" hidden></div>
+      </div>
+    </div>
+    <div id="status"></div>
+    <div id="menu" class="pop" hidden></div>
+    <div id="ac" class="ac" hidden role="listbox"></div>
+    <script src="vendor/katex/katex.min.js"></script>
+    <script src="vendor/katex/mhchem.min.js"></script>
+    <script src="studio.js"></script>
+    <script src="tex2html.js"></script>
+    <script src="textools.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

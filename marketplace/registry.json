@@ -142,6 +142,26 @@
       "size": 27066
     },
     {
+      "id": "latex",
+      "name": "LaTeX 编辑器",
+      "version": "1.0.0",
+      "publisher": "Infinite Studio",
+      "description": "编辑和预览 .tex 文件：语法高亮、命令 / 环境 / 标签 / 文献补全、查找替换。即时预览不用安装 TeX，边写边看排版（公式、编号、交叉引用、表格、定理、参考文献）；PDF 模式调用本机 TeX（XeLaTeX、pdfLaTeX、LuaLaTeX、latexmk、Tectonic）编译，错误定位到行，SyncTeX 双击互相跳转。",
+      "category": "productivity",
+      "homepage": "https://github.com/JunjiDuan/infinite-studio/tree/main/marketplace/plugins/latex",
+      "minStudio": "0.1.0",
+      "permissions": [
+        "terminal"
+      ],
+      "minApi": 2,
+      "urls": [
+        "https://cdn.jsdelivr.net/gh/JunjiDuan/infinite-studio@main/marketplace/packages/latex-1.0.0.zip",
+        "https://raw.githubusercontent.com/JunjiDuan/infinite-studio/main/marketplace/packages/latex-1.0.0.zip"
+      ],
+      "sha256": "22586e5b0e0ffacb41b795d83d78a69bb1d35b068453c2ab841c433f9429717a",
+      "size": 958355
+    },
+    {
       "id": "markdown",
       "name": "Markdown 美化",
       "version": "1.0.0",
@@ -190,5 +210,5 @@
       "size": 82253
     }
   ],
-  "updated": "2026-11-23T00:37:16.685Z"
+  "updated": "2026-11-23T13:43:07.427Z"
 }

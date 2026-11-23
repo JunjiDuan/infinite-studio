@@ -7,6 +7,7 @@ Infinite Studio（无界工作室）的官方插件。IDE 的插件面板里，�
 | 插件 | 说明 |
 | --- | --- |
 | [HTML 预览器](plugins/html-preview) | 打开 `.html` 文件时直接显示成网页：本地 CSS / JS / 图片 / 字体自动加载，脚本照常运行。预览 / 分栏 / 源码，边写边刷新；桌面 / 平板 / 手机尺寸；控制台；引用文件改动后自动刷新；导出单文件 HTML |
+| [LaTeX 编辑器](plugins/latex) | 打开 `.tex` 文件。语法高亮，命令 / 环境 / 标签 / 文献 / 文件名补全，查找替换，大纲。即时预览不用安装 TeX（KaTeX 公式、自动编号、交叉引用、表格、定理、参考文献、图片），双击跳回源码；PDF 模式用本机 TeX 编译（XeLaTeX、pdfLaTeX、LuaLaTeX、latexmk、Tectonic），日志错误定位到行，SyncTeX 双向跳转。需要 `terminal` 权限 |
 | [Markdown 美化](plugins/markdown) | 打开 `.md` 文件。阅读 / 分栏 / 源码三种模式：标题编号、提示块、代码高亮与复制、任务进度、大纲与阅读进度，分栏滚动同步；四套主题，导出 HTML |
 | [思维导图](plugins/mindmap) | 打开 `.mind` 文件。用键盘快速建主题，拖拽调整结构，可折叠分支，导出 PNG / SVG / Markdown |
 | [演示文稿](plugins/pptx) | 打开和编辑 `.pptx`：按原样式显示（主题、母版、表格、图表、SmartArt），改文字和格式，移动 / 缩放 / 旋转形状，插入文本框、形状、图片、表格，增删 / 复制 / 排序幻灯片，备注，放映 |
