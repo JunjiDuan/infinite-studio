@@ -15,7 +15,8 @@ const terminals = new Map<string, TermHandle>()
 const listeners = new Set<() => void>()
 let listEl: HTMLElement
 let query = ''
-const collapsedCats = new Set<PluginCategory>()
+/** 用户手动展开过的分类；默认全部收起 */
+const expandedCats = new Set<PluginCategory>()
 
 const CATEGORIES: [PluginCategory, string][] = [
   ['llm', '大模型'],
@@ -282,7 +283,7 @@ function category(cat: PluginCategory, title: string, q: string): HTMLElement | 
   // 搜索时隐藏没有匹配项的分类
   if (q && !count) return null
   // 搜索时强制展开，方便看到结果
-  const collapsed = !q && collapsedCats.has(cat)
+  const collapsed = !q && !expandedCats.has(cat)
   const body = h('div', { class: 'plg-cat-body' }, ...items.map(card), ...market.items)
   if (!body.childElementCount) body.append(h('div', { class: 'plg-empty muted' }, t('暂无插件')))
   const el = h(
@@ -315,15 +316,15 @@ function category(cat: PluginCategory, title: string, q: string): HTMLElement | 
 
 function toggleCat(cat: PluginCategory, el: HTMLElement): void {
   const collapsed = !el.classList.contains('collapsed')
-  if (collapsed) collapsedCats.add(cat)
-  else collapsedCats.delete(cat)
+  if (collapsed) expandedCats.delete(cat)
+  else expandedCats.add(cat)
   el.classList.toggle('collapsed', collapsed)
   el.querySelector('.plg-cat-head')?.setAttribute('aria-expanded', String(!collapsed))
 }
 
 /** 展开并滚动到某个分类（例如从多语言设置跳到“语言”） */
 export function revealCategory(cat: PluginCategory): void {
-  collapsedCats.delete(cat)
+  expandedCats.add(cat)
   render()
   requestAnimationFrame(() => listEl?.querySelector(`.plg-cat[data-cat="${cat}"]`)?.scrollIntoView({ block: 'start', behavior: 'smooth' }))
 }
