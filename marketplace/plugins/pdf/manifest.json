@@ -1,0 +1,23 @@
+{
+  "id": "pdf",
+  "name": "PDF 编辑器",
+  "version": "1.0.0",
+  "publisher": "Infinite Studio",
+  "description": "在 IDE 里打开和编辑 PDF：添加文字、修改原有文字、高亮、白色遮盖、矩形 / 椭圆 / 直线 / 箭头、手绘签名、插入图片，填写表单；页面旋转、删除、复制、拖动排序，插入空白页或合并其他 PDF，导出选中页；修改文档属性。添加的内容保存后再次打开仍可编辑，保存的文件可以直接用任何 PDF 阅读器打开。",
+  "category": "productivity",
+  "homepage": "https://github.com/JunjiDuan/infinite-studio/tree/main/marketplace/plugins/pdf",
+  "minStudio": "0.1.0",
+  "minApi": 2,
+  "icon": "icon.svg",
+  "permissions": [],
+  "editor": {
+    "entry": "index.html",
+    "extensions": [".pdf"],
+    "binary": true
+  },
+  "newFile": {
+    "label": "PDF 文档",
+    "extension": ".pdf",
+    "template": ""
+  }
+}

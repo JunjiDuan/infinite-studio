@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>PDF</title>
+    <link rel="stylesheet" href="pdf.css" />
+  </head>
+  <body>
+    <div id="bar"></div>
+    <div id="props"></div>
+    <div id="main">
+      <div id="side" tabindex="0">
+        <div id="sideBar"></div>
+        <div id="thumbs"></div>
+      </div>
+      <div id="view" tabindex="0">
+        <div id="pages"></div>
+      </div>
+    </div>
+    <div id="statusbar"><span id="status"></span><span class="grow"></span><span id="hint"></span></div>
+    <div id="menu" class="pop" hidden></div>
+    <div id="modal" hidden></div>
+    <div id="busy" hidden><div class="spin"></div><span></span></div>
+    <div id="error" hidden></div>
+    <script src="vendor/pdf-lib/pdf-lib.min.js"></script>
+    <script src="vendor/pdf-lib/fontkit.umd.min.js"></script>
+    <script src="studio.js"></script>
+    <script src="fonts.js"></script>
+    <script src="writer.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
