@@ -16,7 +16,7 @@ import { registerJupyterIpc } from './jupyter'
 import { registerAgentIpc } from './agents'
 import { registerSysmonIpc } from './sysmon'
 import { registerIdeIpc } from './ide'
-import { getSavedLocale, setMainLocale } from './i18n'
+import { getLocalePack, getSavedLocale, setMainLocale } from './i18n'
 
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json')
 
@@ -35,7 +35,7 @@ async function readSettings(): Promise<Settings | null> {
 /** prev：重新创建窗口时沿用旧窗口的位置和最大化状态；blank：新窗口不自动打开上次的文件夹 */
 async function createWindow(prev?: { bounds: Electron.Rectangle; maximized: boolean }, blank = false): Promise<BrowserWindow> {
   const settings = await readSettings()
-  setMainLocale(settings?.locale, app.getLocale())
+  setMainLocale(settings?.locale, app.getLocale(), settings?.plugins)
   // 开发时用仓库里的图标；打包后图标已嵌进 exe
   const devIcon = path.join(app.getAppPath(), 'build', 'icon.png')
   const win = new BrowserWindow({
@@ -120,6 +120,7 @@ function registerIpc(): void {
   ipcMain.handle('settings:load', () => readSettings())
   // 界面语言要在页面脚本执行前就知道（界面是启动时一次性搭好的），所以用同步消息
   ipcMain.on('app:locale', (e) => (e.returnValue = getSavedLocale()))
+  ipcMain.on('app:localePack', (e) => (e.returnValue = getLocalePack()))
   // 窗口只发改动过的字段，这里合并进磁盘上的设置：多个窗口各改各的，不会用自己手里的旧副本覆盖别的窗口的修改。
   // 所有保存排成一队执行，读-合并-写之间不会被另一个窗口插进来
   let saving: Promise<void> = Promise.resolve()
@@ -137,7 +138,7 @@ function registerIpc(): void {
         await fs.rm(tmp, { force: true }).catch(() => undefined)
         throw e
       }
-      setMainLocale(merged.locale)
+      setMainLocale(merged.locale, undefined, merged.plugins)
     })
     saving = job.catch(() => undefined)
     return job

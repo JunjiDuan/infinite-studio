@@ -107,10 +107,11 @@ function pack(id) {
   if (m.id !== id || !ID_RE.test(id)) fail(`plugins/${id}: manifest.json 的 id 必须是 "${id}"（小写字母、数字、连字符）`)
   if (!/^\d+\.\d+\.\d+$/.test(m.version)) fail(`${id}: version 必须是 x.y.z 格式`)
   if (m.editor && !existsSync(path.join(dir, m.editor.entry))) fail(`${id}: 找不到编辑器入口 ${m.editor.entry}`)
+  if (m.category === 'locale') checkLocale(id, dir, m)
 
   const files = walk(dir)
-  // SDK 统一从 sdk/ 复制，插件目录里不用放
-  if (!files.some((f) => f.name === 'studio.js')) files.push({ name: 'studio.js', data: readFileSync(path.join(ROOT, 'sdk', 'studio.js')) })
+  // SDK 统一从 sdk/ 复制，插件目录里不用放（语言包没有页面，不需要）
+  if (m.editor && !files.some((f) => f.name === 'studio.js')) files.push({ name: 'studio.js', data: readFileSync(path.join(ROOT, 'sdk', 'studio.js')) })
   files.sort((a, b) => a.name.localeCompare(b.name))
 
   const buf = zip(files)
@@ -143,6 +144,47 @@ function pack(id) {
       size: buf.length
     }
   }
+}
+
+/* ---------------- 语言包 ---------------- */
+
+/** IDE 界面里所有要翻译的文本（键是源码里的中文原文） */
+function sourceStrings() {
+  const grab = (file, marker) => {
+    const src = readFileSync(path.join(ROOT, '..', file), 'utf8')
+    const start = src.indexOf('{', src.indexOf(marker))
+    let depth = 0
+    let end = start
+    for (; end < src.length; end++) {
+      if (src[end] === '{') depth++
+      else if (src[end] === '}' && --depth === 0) break
+    }
+    return new Function(`return (${src.slice(start, end + 1)})`)()
+  }
+  return { ...grab('src/main/i18n.ts', 'const EN'), ...grab('src/renderer/src/i18n-en.ts', 'export const EN') }
+}
+
+/** 检查语言包：翻译表是有效的 JSON，{0} 这类参数和原文一致；列出还没翻译的条目（显示时用英文代替） */
+function checkLocale(id, dir, m) {
+  const l = m.locale
+  if (!l || !/^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$/.test(l.code ?? '') || typeof l.strings !== 'string') fail(`${id}: 语言包的 manifest 需要 locale: { code, name, strings }`)
+  if (!Number.isInteger(m.minApi) || m.minApi < 3) fail(`${id}: 语言包需要 "minApi": 3（更老的 IDE 不认识语言包）`)
+  const file = path.join(dir, l.strings)
+  if (!existsSync(file)) fail(`${id}: 找不到翻译表 ${l.strings}`)
+  let strings
+  try {
+    strings = JSON.parse(readFileSync(file, 'utf8'))
+  } catch (e) {
+    fail(`${id}: ${l.strings} 不是有效的 JSON：${e.message}`)
+  }
+  const src = sourceStrings()
+  const params = (s) => [...String(s).matchAll(/\{\d+\}/g)].map((x) => x[0]).sort().join()
+  const bad = Object.keys(strings).filter((k) => k in src && params(strings[k]) !== params(src[k]))
+  if (bad.length) fail(`${id}: 这些条目的参数和原文不一致：\n  ${bad.join('\n  ')}`)
+  const missing = Object.keys(src).filter((k) => !strings[k])
+  const unknown = Object.keys(strings).filter((k) => !(k in src))
+  if (missing.length) console.warn(`! ${id}: ${missing.length} 条还没翻译（显示英文）：${missing.slice(0, 5).join('、')}${missing.length > 5 ? '…' : ''}`)
+  if (unknown.length) console.warn(`! ${id}: ${unknown.length} 条在 IDE 里已经不用了：${unknown.slice(0, 5).join('、')}${unknown.length > 5 ? '…' : ''}`)
 }
 
 /* ---------------- main ---------------- */

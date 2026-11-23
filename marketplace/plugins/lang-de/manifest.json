@@ -1,0 +1,17 @@
+{
+  "id": "lang-de",
+  "name": "Deutsch",
+  "version": "1.0.0",
+  "publisher": "Infinite Studio",
+  "description": "Infinite Studio auf Deutsch. 德语界面语言包：安装后在“多语言设置”里切换成Deutsch。",
+  "category": "locale",
+  "homepage": "https://github.com/JunjiDuan/infinite-studio/tree/main/marketplace/plugins/lang-de",
+  "minStudio": "0.1.0",
+  "minApi": 3,
+  "icon": "icon.svg",
+  "locale": {
+    "code": "de",
+    "name": "Deutsch",
+    "strings": "strings.json"
+  }
+}

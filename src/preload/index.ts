@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { LocalePack } from '../shared/plugins'
 import type { Api } from '../shared/types'
 
 /** 订阅主进程推送的事件，返回取消订阅函数（不把 event 对象暴露给页面） */
@@ -11,7 +12,8 @@ function subscribe<A extends any[]>(channel: string, cb: (...args: A) => void): 
 
 const api: Api = {
   platform: process.platform,
-  locale: ipcRenderer.sendSync('app:locale') as 'zh' | 'en' | null,
+  locale: ipcRenderer.sendSync('app:locale') as string | null,
+  localePack: ipcRenderer.sendSync('app:localePack') as LocalePack | null,
   win: {
     minimize: () => ipcRenderer.send('win:minimize'),
     toggleMaximize: () => ipcRenderer.send('win:toggleMaximize'),

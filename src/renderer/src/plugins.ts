@@ -20,7 +20,8 @@ const collapsedCats = new Set<PluginCategory>()
 const CATEGORIES: [PluginCategory, string][] = [
   ['llm', '大模型'],
   ['language', '编程语言'],
-  ['productivity', '生产力工具']
+  ['productivity', '生产力工具'],
+  ['locale', '语言##插件分类']
 ]
 let refreshing: Promise<void> | null = null
 onMarketChange(() => changed())
@@ -274,7 +275,7 @@ function matches(def: PluginDef, q: string): boolean {
 
 function category(cat: PluginCategory, title: string, q: string): HTMLElement | null {
   const items = PLUGINS.filter((p) => p.category === cat && matches(p, q))
-  const market = cat === 'productivity' ? marketCards(q) : { items: [], count: 0 }
+  const market = cat === 'productivity' || cat === 'locale' ? marketCards(q, cat) : { items: [], count: 0 }
   const count = items.length + market.count
   // 搜索时隐藏没有匹配项的分类
   if (q && !count) return null
@@ -316,6 +317,13 @@ function toggleCat(cat: PluginCategory, el: HTMLElement): void {
   else collapsedCats.delete(cat)
   el.classList.toggle('collapsed', collapsed)
   el.querySelector('.plg-cat-head')?.setAttribute('aria-expanded', String(!collapsed))
+}
+
+/** 展开并滚动到某个分类（例如从多语言设置跳到“语言”） */
+export function revealCategory(cat: PluginCategory): void {
+  collapsedCats.delete(cat)
+  render()
+  requestAnimationFrame(() => listEl?.querySelector(`.plg-cat[data-cat="${cat}"]`)?.scrollIntoView({ block: 'start', behavior: 'smooth' }))
 }
 
 export function render(): void {

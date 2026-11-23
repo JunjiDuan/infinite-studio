@@ -6,7 +6,8 @@ import { MAX_SIZE, MIN_SIZE, emit, on, persist, saveSettings, setSpace, state } 
 import { ACCENTS, FONTS, THEMES, readableAccent } from './theme'
 import { viewTransition } from './motion'
 import { refreshAgentContext } from './chat'
-import { getLocale, saveLocale, t, type Locale } from './i18n'
+import { getLocale, localeTag, saveLocale, t, type Locale } from './i18n'
+import { localePacks, onMarketChange, reloadInstalled, setLocaleSwitcher } from './market'
 import { anyDirty } from './editor'
 
 /** 设置页的两大类 */
@@ -33,10 +34,34 @@ const SHORTCUTS: [string, string][] = [
   [t('个性化与主题'), 'Ctrl ,']
 ]
 
-const LANGS: [Locale, string, string][] = [
-  ['zh', '简体中文', 'Chinese (Simplified)'],
-  ['en', 'English', '英语']
-]
+/** 可选的界面语言：内置的中文、英文，加上已安装并启用的语言包。[代码, 这种语言自己的名称] */
+function languages(): [Locale, string][] {
+  const out: [Locale, string][] = [
+    ['zh', '简体中文'],
+    ['en', 'English']
+  ]
+  const add = (code: string, name: string) => out.some(([c]) => c === code) || out.push([code, name])
+  for (const m of localePacks()) add(m.locale!.code, m.locale!.name)
+  // 插件列表还没读完时，正在用的语言包也要显示出来
+  const cur = window.api.localePack
+  if (cur && cur.code === getLocale()) add(cur.code, cur.name)
+  return out
+}
+
+function displayName(tag: string, code: string): string {
+  try {
+    return new Intl.DisplayNames([tag], { type: 'language' }).of(code) ?? code
+  } catch {
+    return code
+  }
+}
+
+/** 语言按钮下面的小字：这种语言在当前界面语言里的名称；和按钮上的名称一样时改用英文 */
+function languageSub(code: Locale, label: string): string {
+  const c = code === 'zh' ? 'zh-Hans' : code
+  const sub = displayName(localeTag(), c)
+  return sub.toLocaleLowerCase() === label.toLocaleLowerCase() ? displayName('en', c) : sub
+}
 
 /** 切换界面语言：记下设置后重新加载窗口 */
 export async function switchLocale(l: Locale): Promise<void> {
@@ -62,10 +87,32 @@ let navInk: HTMLElement
 let sysInfo: { recents: HTMLElement; sizes: HTMLElement }
 let pane: SettingsPane = 'appearance'
 let onClose: () => void = () => {}
+let onBrowseLanguages: () => void = () => {}
+let langGrid: HTMLElement | null = null
 
-export function initSettings(container: HTMLElement, closed: () => void): void {
+setLocaleSwitcher((code) => void switchLocale(code))
+onMarketChange(() => renderLanguages())
+
+/** 多语言设置里的语言按钮（安装 / 卸载语言包后重画） */
+function renderLanguages(): void {
+  if (!langGrid) return
+  langGrid.replaceChildren(
+    ...languages().map(([id, label]) =>
+      h(
+        'button',
+        { class: 'opt lang-opt', 'data-locale': id, 'aria-pressed': String(getLocale() === id), lang: localeTag(id), onClick: () => void switchLocale(id) },
+        h('span', { class: 'opt-label' }, label),
+        h('span', { class: 'opt-sub' }, languageSub(id, label))
+      )
+    )
+  )
+}
+
+/** browseLanguages：打开插件面板的“语言”分类 */
+export function initSettings(container: HTMLElement, closed: () => void, browseLanguages?: () => void): void {
   host = container
   onClose = closed
+  if (browseLanguages) onBrowseLanguages = browseLanguages
   on('space', sync)
   on('root', () => page && sync())
 }
@@ -79,6 +126,8 @@ let closeTimer: ReturnType<typeof setTimeout> | undefined
 export function openSettings(which: SettingsPane = pane): void {
   if (!page) build()
   showPane(which)
+  // 读一下已安装的语言包（插件面板还没打开过时列表是空的）
+  if (which === 'language') void reloadInstalled()
   clearTimeout(closeTimer)
   page!.classList.remove('leaving')
   page!.hidden = false
@@ -298,21 +347,17 @@ function build(): void {
     { class: 'set-left' },
     h('div', { class: 'set-intro' }, h('h1', {}, t('多语言设置')), h('p', {}, t('选择界面显示语言。切换后窗口会重新加载。'))),
     section(
-      getLocale() === 'zh' ? '语言 · Language' : 'Language · 语言',
+      getLocale() === 'zh' ? '语言 · Language' : getLocale() === 'en' ? 'Language · 语言' : `${t('语言')} · Language`,
+      (langGrid = h('div', { class: 'grid3 lang-grid' })),
       h(
         'div',
-        { class: 'grid3 lang-grid' },
-        ...LANGS.map(([id, label, sub]) =>
-          h(
-            'button',
-            { class: 'opt lang-opt', 'data-locale': id, 'aria-pressed': String(getLocale() === id), onClick: () => void switchLocale(id) },
-            h('span', { class: 'opt-label' }, label),
-            h('span', { class: 'opt-sub' }, sub)
-          )
-        )
+        { class: 'lang-more' },
+        h('p', { class: 'muted' }, t('更多语言由语言包插件提供：在插件面板的“语言”分类里安装后，就会出现在这里。')),
+        h('button', { class: 'btn small', onClick: () => onBrowseLanguages() }, t('获取更多语言'))
       )
     )
   )
+  renderLanguages()
 
   // ---- 左侧导航 ----
   navInk = h('span', { class: 'set-nav-ink', 'aria-hidden': 'true' })

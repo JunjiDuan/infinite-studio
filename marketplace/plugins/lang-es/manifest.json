@@ -1,0 +1,17 @@
+{
+  "id": "lang-es",
+  "name": "Español",
+  "version": "1.0.0",
+  "publisher": "Infinite Studio",
+  "description": "Interfaz de Infinite Studio en español. 西班牙语界面语言包：安装后在“多语言设置”里切换成Español。",
+  "category": "locale",
+  "homepage": "https://github.com/JunjiDuan/infinite-studio/tree/main/marketplace/plugins/lang-es",
+  "minStudio": "0.1.0",
+  "minApi": 3,
+  "icon": "icon.svg",
+  "locale": {
+    "code": "es",
+    "name": "Español",
+    "strings": "strings.json"
+  }
+}

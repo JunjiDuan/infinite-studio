@@ -1,0 +1,17 @@
+{
+  "id": "lang-ko",
+  "name": "한국어",
+  "version": "1.0.0",
+  "publisher": "Infinite Studio",
+  "description": "Infinite Studio를 한국어로 표시합니다. 韩语界面语言包：安装后在“多语言设置”里切换成한국어。",
+  "category": "locale",
+  "homepage": "https://github.com/JunjiDuan/infinite-studio/tree/main/marketplace/plugins/lang-ko",
+  "minStudio": "0.1.0",
+  "minApi": 3,
+  "icon": "icon.svg",
+  "locale": {
+    "code": "ko",
+    "name": "한국어",
+    "strings": "strings.json"
+  }
+}

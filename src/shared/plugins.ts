@@ -1,6 +1,6 @@
 /** 内置插件定义。主进程只按 id 查这里的命令，不执行页面传来的任意字符串。 */
-/** 插件分类：大模型 / 编程语言 / 生产力工具 */
-export type PluginCategory = 'llm' | 'language' | 'productivity'
+/** 插件分类：大模型 / 编程语言 / 生产力工具 / 语言（界面语言包） */
+export type PluginCategory = 'llm' | 'language' | 'productivity' | 'locale'
 
 export interface PluginDef {
   id: string
@@ -168,6 +168,29 @@ export interface PluginManifest {
   minApi?: number
   /** 额外权限（默认都没有），见 PLUGIN_PERMISSIONS */
   permissions?: PluginPermission[]
+  /** 语言包（category 为 locale）：安装后可在“多语言设置”里切换成这种界面语言 */
+  locale?: LocalePackInfo
+}
+
+/** 语言包 manifest 里的 locale 字段 */
+export interface LocalePackInfo {
+  /** BCP 47 语言代码，例如 "es"、"pt-BR" */
+  code: string
+  /** 这种语言自己的名称，例如 "Español" */
+  name: string
+  /** 包内的翻译表（JSON）：键是界面源码里的中文原文，值是译文；缺的条目显示英文 */
+  strings: string
+}
+
+/** 语言包的语言代码 */
+export const LOCALE_CODE_RE = /^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$/
+
+/** 启动时交给界面的语言包内容（翻译表） */
+export interface LocalePack {
+  id: string
+  code: string
+  name: string
+  strings: Record<string, string>
 }
 
 /**
@@ -176,8 +199,9 @@ export interface PluginManifest {
  *   1  load / save / dirty / theme / export / toast / openExternal / openText / openLink / readAsset
  *   2  call() 通用调用：fs.* / dialog.* / clipboard.* / net.fetch / editor.* / terminal.run / commands；
  *      权限；嵌套预览框；文件监视
+ *   3  语言包（category: locale，manifest.locale）
  */
-export const PLUGIN_API = 2
+export const PLUGIN_API = 3
 
 /** 插件可以声明的权限 */
 export const PLUGIN_PERMISSIONS = ['network', 'eval', 'workspace-write', 'clipboard-read', 'terminal'] as const

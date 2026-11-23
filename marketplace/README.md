@@ -1,6 +1,6 @@
 # Infinite Studio 插件市场
 
-Infinite Studio（无界工作室）的官方插件。IDE 的插件面板里，“生产力工具”一栏的列表就来自这里的 `registry.json`。用户点击“安装”后，IDE 下载 `packages/` 里的插件包（先试 jsDelivr，再试 raw.githubusercontent），校验 sha256，再解压安装。
+Infinite Studio（无界工作室）的官方插件。IDE 的插件面板里，“生产力工具”和“语言”两栏的列表就来自这里的 `registry.json`。用户点击“安装”后，IDE 下载 `packages/` 里的插件包（先试 jsDelivr，再试 raw.githubusercontent），校验 sha256，再解压安装。
 
 这个目录不会被打进 IDE 安装包，IDE 只在运行时从 GitHub 读取它。
 
@@ -10,6 +10,18 @@ Infinite Studio（无界工作室）的官方插件。IDE 的插件面板里，�
 | [Markdown 美化](plugins/markdown) | 打开 `.md` 文件。阅读 / 分栏 / 源码三种模式：标题编号、提示块、代码高亮与复制、任务进度、大纲与阅读进度，分栏滚动同步；四套主题，导出 HTML |
 | [思维导图](plugins/mindmap) | 打开 `.mind` 文件。用键盘快速建主题，拖拽调整结构，可折叠分支，导出 PNG / SVG / Markdown |
 | [演示文稿](plugins/pptx) | 打开和编辑 `.pptx`：按原样式显示（主题、母版、表格、图表、SmartArt），改文字和格式，移动 / 缩放 / 旋转形状，插入文本框、形状、图片、表格，增删 / 复制 / 排序幻灯片，备注，放映 |
+
+语言包（插件面板的“语言”分类）：安装后在 设置 → 多语言设置 里切换界面语言。
+
+| 插件 | 语言 |
+| --- | --- |
+| [العربية](plugins/lang-ar) | 阿拉伯语 `ar` |
+| [Deutsch](plugins/lang-de) | 德语 `de` |
+| [Español](plugins/lang-es) | 西班牙语 `es` |
+| [Français](plugins/lang-fr) | 法语 `fr` |
+| [日本語](plugins/lang-ja) | 日语 `ja` |
+| [한국어](plugins/lang-ko) | 韩语 `ko` |
+| [Русский](plugins/lang-ru) | 俄语 `ru` |
 
 ## 目录结构
 
@@ -79,6 +91,7 @@ IDE 给插件的能力是一套通用接口（文件、对话框、网络、剪�
 | --- | --- |
 | 1 | 打开 / 保存当前文件、主题、导出、提示、打开链接、`readAsset` |
 | 2 | `studio.call` 通用调用：`fs.*`、`dialog.*`、`clipboard.*`、`net.fetch`、`editor.*`、`ui.*`、`terminal.run`、`commands.*`；权限；文件监视 |
+| 3 | 语言包（`category: "locale"` + `locale` 字段） |
 
 插件用到哪个版本的接口，就在 manifest 里写 `"minApi"`。旧 IDE 不会装上用不了的插件（卡片会提示更新 IDE）；新 IDE 永远兼容旧插件。
 
@@ -174,6 +187,36 @@ await studio.commands.register('export-pdf', '导出 PDF', () => exportPdf())
 快捷键：Ctrl S 由 SDK 处理。页面里没处理的 Ctrl 组合键（命令面板、关闭标签等）会转给 IDE。如果插件自己要用某个组合键，请在 `document` 或元素上监听并调用 `preventDefault()`。
 
 插件自己的设置可以存在 `localStorage` 里（每个插件单独一份，不会丢）。
+
+### 语言包
+
+语言包没有页面，只有一张翻译表。IDE 启动窗口时读取它，界面上的每一句话都按它显示。
+
+```json
+{
+  "id": "lang-es",
+  "name": "Español",
+  "version": "1.0.0",
+  "publisher": "Infinite Studio",
+  "description": "…",
+  "category": "locale",
+  "minApi": 3,
+  "icon": "icon.svg",
+  "locale": { "code": "es", "name": "Español", "strings": "strings.json" }
+}
+```
+
+| 字段 | 说明 |
+| --- | --- |
+| `category` | 必须是 `"locale"`，卡片显示在“语言”分类 |
+| `minApi` | 必须是 3（更老的 IDE 不认识语言包） |
+| `locale.code` | BCP 47 语言代码（`es`、`pt-BR`…），也用于日期格式 |
+| `locale.name` | 这种语言自己的名称，显示在多语言设置里 |
+| `locale.strings` | 翻译表 JSON：键是界面源码里的中文原文（`src/renderer/src/i18n-en.ts` 和 `src/main/i18n.ts` 里 EN 表的键），值是译文，`{0}` `{1}` 等参数必须和原文一致 |
+
+IDE 新加的文本在语言包里还没有译文时显示英文，所以语言包不用和 IDE 同步发布。打包脚本会检查参数是否一致，并列出还没翻译的条目；补上译文后改版本号重新发布即可。
+
+插件页面（`studio.t(zh, en)`）在中文以外的界面语言下显示英文，实际界面语言在 load 消息的 `language` 字段里。
 
 ### 安全限制
 

@@ -1,6 +1,6 @@
 import type { AgentStart, ClaudeLoginMethod, LoginEvent, SessionInfo, DailyUsage } from './agents'
 import type { IdeToolResult } from './ide'
-import type { MarketResult, PluginManifest, PluginStatus, RemotePlugin, RunPlan } from './plugins'
+import type { LocalePack, MarketResult, PluginManifest, PluginStatus, RemotePlugin, RunPlan } from './plugins'
 
 export type ThemeId = 'dusk' | 'ink' | 'graphite' | 'paper'
 export type FontId = 'jet' | 'plex' | 'space'
@@ -31,8 +31,8 @@ export interface Settings {
   agentContext?: boolean
   /** 插件 id → 是否启用（未记录视为启用） */
   plugins?: Record<string, boolean>
-  /** 界面语言 */
-  locale?: 'zh' | 'en'
+  /** 界面语言：zh / en，或已安装的语言包的语言代码 */
+  locale?: string
   /** 项目路径 → 资源管理器里展开的文件夹（相对路径） */
   treeExpanded?: Record<string, string[]>
 }
@@ -261,8 +261,10 @@ export interface SysSample {
 
 export interface Api {
   platform: string
-  /** 设置里选的界面语言；没选过为 null */
-  locale: 'zh' | 'en' | null
+  /** 设置里选的界面语言（zh / en / 语言包的代码）；没选过或语言包已不可用时为 null */
+  locale: string | null
+  /** 当前语言包的翻译表；界面语言是中文 / 英文时为 null */
+  localePack: LocalePack | null
   win: {
     minimize(): void
     toggleMaximize(): void

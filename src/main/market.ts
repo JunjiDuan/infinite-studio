@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { inflateRawSync } from 'node:zlib'
-import { MARKET_REPO, PLUGIN_API, PLUGIN_PERMISSIONS, type MarketResult, type PluginManifest, type PluginPermission, type RemotePlugin } from '../shared/plugins'
+import { LOCALE_CODE_RE, MARKET_REPO, PLUGIN_API, PLUGIN_PERMISSIONS, type MarketResult, type PluginManifest, type PluginPermission, type RemotePlugin } from '../shared/plugins'
 import { tm } from './i18n'
 
 export const PLUGIN_SCHEME = 'studio-plugin'
@@ -125,7 +125,12 @@ function validManifest(m: unknown): m is PluginManifest {
   x.minApi = Number.isInteger(x.minApi) && (x.minApi as number) > 0 ? x.minApi : 1
   x.publisher = String(x.publisher ?? '')
   x.description = String(x.description ?? '')
-  x.category = 'productivity'
+  // 语言包：locale 字段齐全才算，否则当普通的生产力工具
+  const l = x.locale
+  if (l && (typeof l.code !== 'string' || !LOCALE_CODE_RE.test(l.code) || typeof l.strings !== 'string' || !safeRel(l.strings))) delete x.locale
+  if (x.locale) x.locale.name = typeof x.locale.name === 'string' && x.locale.name ? x.locale.name : x.locale.code
+  x.category = x.category === 'locale' && x.locale ? 'locale' : 'productivity'
+  if (x.category !== 'locale') delete x.locale
   return true
 }
 
@@ -251,6 +256,7 @@ async function install(id: string, send: (got: number, total: number) => void): 
     if (!mf) throw new Error(tm('插件包里没有 manifest.json'))
     const manifest = JSON.parse(mf.data.toString('utf8')) as unknown
     if (!validManifest(manifest) || manifest.id !== id) throw new Error(tm('插件包的 manifest.json 无效'))
+    if (manifest.locale && !files.some((f) => f.name === manifest.locale!.strings)) throw new Error(tm('插件包的 manifest.json 无效'))
     if ((manifest.minApi ?? 1) > PLUGIN_API) throw new Error(tm('这个插件需要更新 Infinite Studio 才能使用'))
 
     const root = pluginsDir()

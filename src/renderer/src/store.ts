@@ -1,5 +1,6 @@
 import type { FontId, Settings, Space, ThemeId } from '../../shared/types'
 import { isHex } from './theme'
+import { LOCALE_CODE_RE } from '../../shared/plugins'
 
 export const DEFAULT_SPACE: Space = { theme: 'dusk', accent: '#6E9BFF', font: 'jet', size: 14 }
 
@@ -100,7 +101,7 @@ export async function loadSettings(): Promise<void> {
     agentModes: s.agentModes && typeof s.agentModes === 'object' ? { ...s.agentModes } : {},
     agentPrefs: s.agentPrefs && typeof s.agentPrefs === 'object' ? { ...s.agentPrefs } : {},
     agentContext: s.agentContext !== false,
-    locale: s.locale === 'zh' || s.locale === 'en' ? s.locale : undefined,
+    locale: typeof s.locale === 'string' && LOCALE_CODE_RE.test(s.locale) ? s.locale : undefined,
     plugins:
       s.plugins && typeof s.plugins === 'object'
         ? Object.fromEntries(Object.entries(s.plugins).filter(([, v]) => typeof v === 'boolean'))

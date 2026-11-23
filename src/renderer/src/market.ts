@@ -1,8 +1,8 @@
 /**
- * 插件市场（生产力工具）：从 GitHub 插件仓库安装的插件。
+ * 插件市场（生产力工具、语言包）：从 GitHub 插件仓库安装的插件。
  * 插件的编辑器页面放在 iframe 里（studio-plugin://<id>/ 协议，和 IDE 不同源），只能通过 postMessage 和 IDE 通信。
  */
-import { PLUGIN_API, type PluginManifest, type PluginPermission, type RemotePlugin } from '../../shared/plugins'
+import { PLUGIN_API, type PluginCategory, type PluginManifest, type PluginPermission, type RemotePlugin } from '../../shared/plugins'
 import type { TextEncodingInfo } from '../../shared/types'
 import type { Command } from './commands'
 import { basename, h, toast } from './dom'
@@ -18,11 +18,23 @@ let installed: PluginManifest[] = []
 let loading = false
 let error: string | null = null
 const progress = new Map<string, number | 'busy'>()
-let notify: () => void = () => undefined
+const listeners = new Set<() => void>()
+const notify = (): void => listeners.forEach((fn) => fn())
 
-/** 插件列表、安装状态变化时调用（插件面板重绘） */
+/** 插件列表、安装状态变化时调用（插件面板重绘、多语言设置里的语言列表） */
 export function onMarketChange(fn: () => void): void {
-  notify = fn
+  listeners.add(fn)
+}
+
+/** 切换界面语言（由设置页提供，语言包卡片上的“使用此语言”用） */
+let localeSwitcher: ((code: string) => void) | null = null
+export function setLocaleSwitcher(fn: (code: string) => void): void {
+  localeSwitcher = fn
+}
+
+/** 已安装、已启用的语言包 */
+export function localePacks(): PluginManifest[] {
+  return installed.filter((m) => m.category === 'locale' && m.locale && marketEnabled(m.id) && !tooNew(m))
 }
 
 export function marketEnabled(id: string): boolean {
@@ -45,6 +57,12 @@ function cmpVer(a: string, b: string): number {
 
 async function loadInstalled(): Promise<void> {
   installed = await window.api.market.installed().catch(() => [])
+}
+
+/** 只重新读取已安装的插件（不联网） */
+export async function reloadInstalled(): Promise<void> {
+  await loadInstalled()
+  notify()
 }
 
 /** 重新读取已安装的插件和插件仓库的列表 */
@@ -122,8 +140,13 @@ function cmpName(a: string, b: string): number {
   return x < y ? -1 : x > y ? 1 : collator.compare(a, b)
 }
 
-function info(e: Entry): { name: string; publisher: string; description: string; homepage?: string } {
+function info(e: Entry): { name: string; publisher: string; description: string; homepage?: string; category: PluginCategory } {
   return (e.local ?? e.remote)!
+}
+
+/** 卡片放在哪个分类：语言包放“语言”，其余都是“生产力工具” */
+function entryCategory(e: Entry): PluginCategory {
+  return info(e).category === 'locale' ? 'locale' : 'productivity'
 }
 
 /** 插件声明的额外权限（联网等），显示在卡片上 */
@@ -162,11 +185,17 @@ function card(e: Entry): HTMLElement {
   const badge = p
     ? h('span', { class: 'plg-badge' }, p === 'busy' ? t('正在安装…') : `${Math.round(p * 100)}%`)
     : e.local
-      ? h('span', { class: 'plg-badge ok' }, `v${e.local.version}`)
+      ? h('span', { class: 'plg-badge ok', title: `v${e.local.version}` }, e.local.locale && on && getLocale() === e.local.locale.code ? t('当前语言') : `v${e.local.version}`)
       : h('span', { class: 'plg-badge warn' }, t('未安装'))
 
   const actions: HTMLElement[] = []
+  const lang = e.local?.locale
+  const current = !!lang && on && getLocale() === lang.code
   if (!p) {
+    if (lang && on && !current && !needIde && localeSwitcher) {
+      const code = lang.code
+      actions.push(h('button', { class: 'btn small primary', onClick: () => localeSwitcher?.(code) }, t('使用此语言')))
+    }
     if (e.local && on && e.local.newFile) {
       const m = e.local
       actions.push(h('button', { class: 'btn small primary', onClick: () => void newPluginFile(m) }, t('新建{0}', m.newFile!.label)))
@@ -209,9 +238,9 @@ function card(e: Entry): HTMLElement {
   )
 }
 
-/** 生产力工具分类里的内容；q 为小写的搜索词 */
-export function marketCards(q: string): { items: HTMLElement[]; count: number } {
-  const list = entries().filter((e) => matches(e, q))
+/** 生产力工具 / 语言分类里的内容；q 为小写的搜索词 */
+export function marketCards(q: string, cat: PluginCategory = 'productivity'): { items: HTMLElement[]; count: number } {
+  const list = entries().filter((e) => entryCategory(e) === cat && matches(e, q))
   const items = list.map(card)
   if (!q) {
     if (loading && !remote.length) items.push(h('div', { class: 'plg-empty muted' }, t('正在获取插件列表…')))
@@ -346,7 +375,9 @@ function loadMessage(ed: PluginEditor, content: string | ArrayBuffer): Record<st
     path: ed.path,
     relPath: toPluginPath(ed.path, ed.path),
     theme: themePayload(),
-    locale: getLocale(),
+    // 插件页面只有中文 / 英文两套文本（studio.t(zh, en)）：其他界面语言给英文，实际语言放在 language 里
+    locale: getLocale() === 'zh' ? 'zh' : 'en',
+    language: getLocale(),
     api: PLUGIN_API,
     methods: METHODS,
     permissions: ed.manifest.permissions ?? []
@@ -658,7 +689,8 @@ async function call(ed: PluginEditor, method: string, a: unknown[]): Promise<[un
           methods: METHODS,
           permissions: ed.manifest.permissions ?? [],
           platform: window.api.platform,
-          locale: getLocale(),
+          locale: getLocale() === 'zh' ? 'zh' : 'en',
+          language: getLocale(),
           file: { path: toPluginPath(ed.path, ed.path), name: basename(ed.path) },
           workspace: state.root && isUnder(ed.path, state.root) ? { name: basename(state.root) } : null
         },

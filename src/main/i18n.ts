@@ -1,21 +1,89 @@
-/* 主进程里会显示给用户的文本（对话框标题、错误信息）的英文 */
+/* 主进程里会显示给用户的文本（对话框标题、错误信息）的翻译：英文在下面的 EN 表里，其他语言来自语言包插件 */
+import { app } from 'electron'
+import { readdirSync, readFileSync } from 'node:fs'
+import path from 'node:path'
+import { LOCALE_CODE_RE, type LocalePack } from '../shared/plugins'
 
-let locale: 'zh' | 'en' = 'zh'
-/** 设置里明确选过的语言；没选过时为 null（界面跟随系统语言） */
-let saved: 'zh' | 'en' | null = null
+/** 实际显示的语言：zh / en / 语言包的代码 */
+let locale = 'zh'
+/** 设置里明确选过、并且现在可用的语言；没选过时为 null（界面跟随系统语言） */
+let saved: string | null = null
+/** 当前语言包（界面语言不是中文 / 英文时） */
+let pack: LocalePack | null = null
 
-export function setMainLocale(l: unknown, systemLocale?: string): void {
+const ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/
+
+/**
+ * 找已安装、已启用的这种语言的语言包，读出翻译表。
+ * 界面是启动时一次性搭好的，翻译表要在页面脚本执行前就准备好，所以这里同步读文件。
+ */
+function readLocalePack(code: string, disabled: Record<string, boolean> | undefined): LocalePack | null {
+  const dir = path.join(app.getPath('userData'), 'plugins')
+  let names: string[] = []
+  try {
+    names = readdirSync(dir).filter((n) => ID_RE.test(n))
+  } catch {
+    return null
+  }
+  for (const id of names) {
+    if (disabled?.[id] === false) continue
+    try {
+      const m = JSON.parse(readFileSync(path.join(dir, id, 'manifest.json'), 'utf8')) as {
+        id?: string
+        category?: string
+        locale?: { code?: unknown; name?: unknown; strings?: unknown }
+      }
+      const l = m.locale
+      if (m.id !== id || m.category !== 'locale' || !l || l.code !== code || typeof l.strings !== 'string') continue
+      const rel = l.strings.replace(/\\/g, '/')
+      if (!rel || rel.startsWith('/') || rel.split('/').some((x) => x === '..' || x === '')) continue
+      const raw = JSON.parse(readFileSync(path.join(dir, id, ...rel.split('/')), 'utf8')) as unknown
+      if (!raw || typeof raw !== 'object') continue
+      const strings: Record<string, string> = {}
+      for (const [k, v] of Object.entries(raw as Record<string, unknown>)) if (typeof v === 'string' && v) strings[k] = v
+      return { id, code, name: typeof l.name === 'string' ? l.name : code, strings }
+    } catch {
+      /* 坏掉的插件跳过 */
+    }
+  }
+  return null
+}
+
+/**
+ * 按设置决定界面语言。plugins 是设置里的“插件 id → 是否启用”。
+ * 选的是语言包、但语言包已卸载或停用时，当作没选过（跟随系统语言）。
+ */
+export function setMainLocale(l: unknown, systemLocale?: string, plugins?: Record<string, boolean>): void {
   if (l === 'zh' || l === 'en') {
     locale = l
     saved = l
-  } else if (systemLocale) locale = /^zh/i.test(systemLocale) ? 'zh' : 'en'
+    pack = null
+    return
+  }
+  if (typeof l === 'string' && LOCALE_CODE_RE.test(l)) {
+    // 新开窗口时重新读（语言包可能更新过）；保存设置时沿用已读的，除非它刚被停用
+    const p = systemLocale === undefined && pack?.code === l && plugins?.[pack.id] !== false ? pack : readLocalePack(l, plugins)
+    if (p) {
+      locale = l
+      saved = l
+      pack = p
+      return
+    }
+  }
+  pack = null
+  saved = null
+  locale = /^zh/i.test(systemLocale ?? app.getLocale()) ? 'zh' : 'en'
 }
 
-export function getSavedLocale(): 'zh' | 'en' | null {
+export function getSavedLocale(): string | null {
   return saved
 }
 
-export function getMainLocale(): 'zh' | 'en' {
+export function getLocalePack(): LocalePack | null {
+  return pack
+}
+
+export function getMainLocale(): string {
   return locale
 }
 
@@ -83,8 +151,8 @@ const EN: Record<string, string> = {
   "编译失败": "Compilation failed"
 }
 
-/** 和渲染进程的 t() 一样：键是中文原文，{0} 是参数 */
+/** 和渲染进程的 t() 一样：键是中文原文，{0} 是参数；语言包里没有的条目显示英文 */
 export function tm(zh: string, ...args: unknown[]): string {
-  const s = locale === 'en' ? (EN[zh] ?? zh) : zh
+  const s = locale === 'zh' ? zh : ((pack?.strings[zh] ?? EN[zh]) || zh)
   return args.length ? s.replace(/\{(\d+)\}/g, (m, i) => (Number(i) < args.length ? String(args[Number(i)]) : m)) : s
 }

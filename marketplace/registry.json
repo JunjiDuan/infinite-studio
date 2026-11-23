@@ -23,6 +23,125 @@
       "size": 37465
     },
     {
+      "id": "lang-ar",
+      "name": "العربية",
+      "version": "1.0.0",
+      "publisher": "Infinite Studio",
+      "description": "واجهة Infinite Studio باللغة العربية. 阿拉伯语界面语言包：安装后在“多语言设置”里切换成العربية。",
+      "category": "locale",
+      "homepage": "https://github.com/JunjiDuan/infinite-studio/tree/main/marketplace/plugins/lang-ar",
+      "minStudio": "0.1.0",
+      "minApi": 3,
+      "urls": [
+        "https://cdn.jsdelivr.net/gh/JunjiDuan/infinite-studio@main/marketplace/packages/lang-ar-1.0.0.zip",
+        "https://raw.githubusercontent.com/JunjiDuan/infinite-studio/main/marketplace/packages/lang-ar-1.0.0.zip"
+      ],
+      "sha256": "496636f65ce487dfac46ef07e3290513a1b35e6abcc9f39f4d9aeaf1301dcd72",
+      "size": 25239
+    },
+    {
+      "id": "lang-de",
+      "name": "Deutsch",
+      "version": "1.0.0",
+      "publisher": "Infinite Studio",
+      "description": "Infinite Studio auf Deutsch. 德语界面语言包：安装后在“多语言设置”里切换成Deutsch。",
+      "category": "locale",
+      "homepage": "https://github.com/JunjiDuan/infinite-studio/tree/main/marketplace/plugins/lang-de",
+      "minStudio": "0.1.0",
+      "minApi": 3,
+      "urls": [
+        "https://cdn.jsdelivr.net/gh/JunjiDuan/infinite-studio@main/marketplace/packages/lang-de-1.0.0.zip",
+        "https://raw.githubusercontent.com/JunjiDuan/infinite-studio/main/marketplace/packages/lang-de-1.0.0.zip"
+      ],
+      "sha256": "f465c711583f0cc82542a27c72c2d145b51ef69ef863ca138ca573591e1dfacd",
+      "size": 25175
+    },
+    {
+      "id": "lang-es",
+      "name": "Español",
+      "version": "1.0.0",
+      "publisher": "Infinite Studio",
+      "description": "Interfaz de Infinite Studio en español. 西班牙语界面语言包：安装后在“多语言设置”里切换成Español。",
+      "category": "locale",
+      "homepage": "https://github.com/JunjiDuan/infinite-studio/tree/main/marketplace/plugins/lang-es",
+      "minStudio": "0.1.0",
+      "minApi": 3,
+      "urls": [
+        "https://cdn.jsdelivr.net/gh/JunjiDuan/infinite-studio@main/marketplace/packages/lang-es-1.0.0.zip",
+        "https://raw.githubusercontent.com/JunjiDuan/infinite-studio/main/marketplace/packages/lang-es-1.0.0.zip"
+      ],
+      "sha256": "af38780f0cd2d941f4ec6d9d35abbe687a1db93c05f577f0600c64c180891355",
+      "size": 24780
+    },
+    {
+      "id": "lang-fr",
+      "name": "Français",
+      "version": "1.0.0",
+      "publisher": "Infinite Studio",
+      "description": "Interface d’Infinite Studio en français. 法语界面语言包：安装后在“多语言设置”里切换成Français。",
+      "category": "locale",
+      "homepage": "https://github.com/JunjiDuan/infinite-studio/tree/main/marketplace/plugins/lang-fr",
+      "minStudio": "0.1.0",
+      "minApi": 3,
+      "urls": [
+        "https://cdn.jsdelivr.net/gh/JunjiDuan/infinite-studio@main/marketplace/packages/lang-fr-1.0.0.zip",
+        "https://raw.githubusercontent.com/JunjiDuan/infinite-studio/main/marketplace/packages/lang-fr-1.0.0.zip"
+      ],
+      "sha256": "fd328d489cd2e901639bfc63384d87195639f10257914de652a5a2c29a645736",
+      "size": 25334
+    },
+    {
+      "id": "lang-ja",
+      "name": "日本語",
+      "version": "1.0.0",
+      "publisher": "Infinite Studio",
+      "description": "Infinite Studio を日本語で表示します。 日语界面语言包：安装后在“多语言设置”里切换成日本語。",
+      "category": "locale",
+      "homepage": "https://github.com/JunjiDuan/infinite-studio/tree/main/marketplace/plugins/lang-ja",
+      "minStudio": "0.1.0",
+      "minApi": 3,
+      "urls": [
+        "https://cdn.jsdelivr.net/gh/JunjiDuan/infinite-studio@main/marketplace/packages/lang-ja-1.0.0.zip",
+        "https://raw.githubusercontent.com/JunjiDuan/infinite-studio/main/marketplace/packages/lang-ja-1.0.0.zip"
+      ],
+      "sha256": "825b1703e14ad9d01bb47e86a4343aae6e791724755a8c1c0c97290a32fa53b6",
+      "size": 24453
+    },
+    {
+      "id": "lang-ko",
+      "name": "한국어",
+      "version": "1.0.0",
+      "publisher": "Infinite Studio",
+      "description": "Infinite Studio를 한국어로 표시합니다. 韩语界面语言包：安装后在“多语言设置”里切换成한국어。",
+      "category": "locale",
+      "homepage": "https://github.com/JunjiDuan/infinite-studio/tree/main/marketplace/plugins/lang-ko",
+      "minStudio": "0.1.0",
+      "minApi": 3,
+      "urls": [
+        "https://cdn.jsdelivr.net/gh/JunjiDuan/infinite-studio@main/marketplace/packages/lang-ko-1.0.0.zip",
+        "https://raw.githubusercontent.com/JunjiDuan/infinite-studio/main/marketplace/packages/lang-ko-1.0.0.zip"
+      ],
+      "sha256": "534cac125f92f127b8fe9aa40ba938c6d218a6f5ca602b0f0719992c8863b5fe",
+      "size": 24291
+    },
+    {
+      "id": "lang-ru",
+      "name": "Русский",
+      "version": "1.0.0",
+      "publisher": "Infinite Studio",
+      "description": "Интерфейс Infinite Studio на русском языке. 俄语界面语言包：安装后在“多语言设置”里切换成Русский。",
+      "category": "locale",
+      "homepage": "https://github.com/JunjiDuan/infinite-studio/tree/main/marketplace/plugins/lang-ru",
+      "minStudio": "0.1.0",
+      "minApi": 3,
+      "urls": [
+        "https://cdn.jsdelivr.net/gh/JunjiDuan/infinite-studio@main/marketplace/packages/lang-ru-1.0.0.zip",
+        "https://raw.githubusercontent.com/JunjiDuan/infinite-studio/main/marketplace/packages/lang-ru-1.0.0.zip"
+      ],
+      "sha256": "fc2ffebdfdc82d9f7d2c0c2f814348593f36a530dc475bd7ff909a598e1f8087",
+      "size": 27070
+    },
+    {
       "id": "markdown",
       "name": "Markdown 美化",
       "version": "1.0.0",
@@ -71,5 +190,5 @@
       "size": 82253
     }
   ],
-  "updated": "2026-11-22T18:05:24.312Z"
+  "updated": "2026-11-23T00:25:41.755Z"
 }

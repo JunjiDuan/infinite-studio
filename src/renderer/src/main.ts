@@ -43,7 +43,7 @@ import {
 } from './editor'
 import { accountBtn, initAccount, openLoginDialog } from './account'
 import { agentIcons, initChat, insertAtMention, onTabsChanged, toggleChatFocus } from './chat'
-import { createPluginsView, onPluginsChange, pluginCommands, pluginTreeItems, refreshPlugins, render as renderPlugins } from './plugins'
+import { createPluginsView, onPluginsChange, pluginCommands, pluginTreeItems, refreshPlugins, render as renderPlugins, revealCategory } from './plugins'
 import { createDebugView, debugActive, debugOrContinue, debugStatus, debugStep, initDebug, onPluginStateChanged, restartDebug, runActiveFile, runButtons, stopDebug, toggleBreakpointAtCursor } from './debug'
 import { icons } from './icons'
 import { defineTheme, languageName, monaco } from './monaco'
@@ -975,7 +975,15 @@ async function boot(): Promise<void> {
   void initAccount()
   initChat()
   void refreshPlugins()
-  initSettings(body, () => getEditor()?.focus())
+  initSettings(
+    body,
+    () => getEditor()?.focus(),
+    () => {
+      closeSettings()
+      showSideView('plugins')
+      revealCategory('locale')
+    }
+  )
   applySpace()
   renderTabs()
   renderEmptyHint()
