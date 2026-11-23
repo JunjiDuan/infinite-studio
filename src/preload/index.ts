@@ -97,6 +97,22 @@ const api: Api = {
     fetch: (id, url, init) => ipcRenderer.invoke('market:fetch', id, url, init),
     onProgress: (cb) => subscribe('market:progress', cb)
   },
+  webPanel: {
+    create: (opts) => ipcRenderer.invoke('webpanel:create', opts),
+    layout: (id, rect) => ipcRenderer.send('webpanel:layout', id, rect),
+    focus: (id) => ipcRenderer.send('webpanel:focus', id),
+    nav: (id, action) => ipcRenderer.send('webpanel:nav', id, action),
+    zoom: (id, level) => ipcRenderer.send('webpanel:zoom', id, level),
+    capture: (id) => ipcRenderer.invoke('webpanel:capture', id),
+    insert: (id, text) => ipcRenderer.invoke('webpanel:insert', id, text),
+    external: (id) => ipcRenderer.send('webpanel:external', id),
+    devtools: (id) => ipcRenderer.send('webpanel:devtools', id),
+    clearData: (id) => ipcRenderer.invoke('webpanel:clearData', id),
+    destroy: (id) => ipcRenderer.send('webpanel:destroy', id),
+    onState: (cb) => subscribe('webpanel:state', cb),
+    onKey: (cb) => subscribe('webpanel:key', cb),
+    onFocus: (cb) => subscribe('webpanel:focus', cb)
+  },
   plugins: {
     detect: (id) => ipcRenderer.invoke('plugins:detect', id),
     runPlan: (id, file) => ipcRenderer.invoke('plugins:runPlan', id, file)
@@ -142,6 +158,8 @@ const api: Api = {
     kimiLogin: () => ipcRenderer.invoke('agent:kimiLogin'),
     deepseekKeyStatus: () => ipcRenderer.invoke('agent:deepseekKeyStatus'),
     setDeepseekKey: (key) => ipcRenderer.invoke('agent:setDeepseekKey', key),
+    geminiAuthStatus: () => ipcRenderer.invoke('agent:geminiAuthStatus'),
+    setGeminiKey: (key) => ipcRenderer.invoke('agent:setGeminiKey', key),
     deepseekSessionMeta: (ids) => ipcRenderer.invoke('agent:deepseekSessionMeta', ids),
     dailyUsage: (plugin) => ipcRenderer.invoke('agent:dailyUsage', plugin)
   },

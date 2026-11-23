@@ -7,8 +7,9 @@ import { createHash } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { inflateRawSync } from 'node:zlib'
-import { LOCALE_CODE_RE, MARKET_REPO, PLUGIN_API, PLUGIN_PERMISSIONS, type MarketResult, type PluginManifest, type PluginPermission, type RemotePlugin } from '../shared/plugins'
+import { hostMatches, LOCALE_CODE_RE, MARKET_REPO, PLUGIN_API, PLUGIN_PERMISSIONS, WEB_HOST_RE, WEB_SITE_ID_RE, type MarketResult, type PluginManifest, type PluginPermission, type RemotePlugin, type WebPanelInfo, type WebSite } from '../shared/plugins'
 import { tm } from './i18n'
+import { clearWebPanelData } from './webPanel'
 
 export const PLUGIN_SCHEME = 'studio-plugin'
 
@@ -21,7 +22,7 @@ const MAX_PACKAGE = 200 * 1024 * 1024
 const MAX_UNPACKED = 500 * 1024 * 1024
 const ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/
 
-const pluginsDir = () => path.join(app.getPath('userData'), 'plugins')
+export const pluginsDir = () => path.join(app.getPath('userData'), 'plugins')
 const registryCache = () => path.join(pluginsDir(), '.registry.json')
 
 /* ---------------- 版本 ---------------- */
@@ -129,12 +130,50 @@ function validManifest(m: unknown): m is PluginManifest {
   const l = x.locale
   if (l && (typeof l.code !== 'string' || !LOCALE_CODE_RE.test(l.code) || typeof l.strings !== 'string' || !safeRel(l.strings))) delete x.locale
   if (x.locale) x.locale.name = typeof x.locale.name === 'string' && x.locale.name ? x.locale.name : x.locale.code
-  x.category = x.category === 'locale' && x.locale ? 'locale' : 'productivity'
+  x.category = x.category === 'locale' && x.locale ? 'locale' : x.category === 'llm' ? 'llm' : 'productivity'
   if (x.category !== 'locale') delete x.locale
+  // 网页面板：要声明 webPanel 权限，网站列表里只留下字段齐全的
+  const wp = x.permissions.includes('webPanel') ? validWebPanel(x.webPanel) : null
+  if (wp) x.webPanel = wp
+  else delete x.webPanel
   return true
 }
 
-async function readManifest(dir: string): Promise<PluginManifest | null> {
+function validWebPanel(v: unknown): WebPanelInfo | null {
+  const w = v as WebPanelInfo | undefined
+  if (!w || typeof w !== 'object' || !Array.isArray(w.sites)) return null
+  const sites: WebSite[] = []
+  for (const raw of w.sites.slice(0, 32)) {
+    const s = raw as WebSite
+    if (!s || typeof s.id !== 'string' || !WEB_SITE_ID_RE.test(s.id) || sites.some((x) => x.id === s.id)) continue
+    if (typeof s.name !== 'string' || !s.name || typeof s.url !== 'string') continue
+    let home: URL
+    try {
+      home = new URL(s.url)
+    } catch {
+      continue
+    }
+    if (home.protocol !== 'https:') continue
+    const hosts = Array.isArray(s.hosts) ? s.hosts.filter((x): x is string => typeof x === 'string').map((x) => x.toLowerCase()).filter((x) => WEB_HOST_RE.test(x)).slice(0, 64) : []
+    // 首页本身必须在允许的网址里
+    if (!hosts.some((p) => hostMatches(home.hostname, p))) hosts.unshift(home.hostname)
+    const input = Array.isArray(s.input) ? s.input.filter((x): x is string => typeof x === 'string' && x.length > 0 && x.length <= 300).slice(0, 16) : []
+    sites.push({
+      id: s.id,
+      name: s.name.slice(0, 60),
+      url: home.href,
+      icon: typeof s.icon === 'string' && safeRel(s.icon) ? s.icon : undefined,
+      description: typeof s.description === 'string' ? s.description.slice(0, 200) : undefined,
+      hosts,
+      input
+    })
+  }
+  if (!sites.length) return null
+  return { title: typeof w.title === 'string' && w.title ? w.title.slice(0, 60) : undefined, sites }
+}
+
+
+export async function readManifest(dir: string): Promise<PluginManifest | null> {
   try {
     const m = JSON.parse(await fs.readFile(path.join(dir, 'manifest.json'), 'utf8')) as unknown
     return validManifest(m) ? m : null
@@ -395,6 +434,9 @@ export function registerMarketIpc(): void {
   ipcMain.handle('market:uninstall', (_e, id: string) =>
     wrap(async () => {
       if (!ID_RE.test(String(id))) throw new Error(tm('未知插件：{0}', id))
+      // 网页面板的登录状态、缓存也一起删掉
+      const m = await readManifest(path.join(pluginsDir(), id))
+      if (m?.webPanel) await clearWebPanelData(m).catch(() => undefined)
       await fs.rm(path.join(pluginsDir(), id), { recursive: true, force: true })
       permCache.delete(id)
     })

@@ -208,7 +208,27 @@
       ],
       "sha256": "21f128987f78e8feb3ee80da7ab02ba249f2791754b5d6f950bcbaac3833aab9",
       "size": 82253
+    },
+    {
+      "id": "web-ai",
+      "name": "网页大模型助手",
+      "version": "1.0.0",
+      "publisher": "Infinite Studio",
+      "description": "在编辑器右侧分栏里直接使用网页版 Claude、ChatGPT、Gemini、DeepSeek：点右上角的地球按钮选择网站，用你自己的账号登录（登录状态保存在本机，各网站分开保存）。Alt K 把选中的代码或当前文件粘贴进网页的输入框，网页里的外部链接用系统浏览器打开。",
+      "category": "llm",
+      "homepage": "https://github.com/JunjiDuan/infinite-studio/tree/main/marketplace/plugins/web-ai",
+      "minStudio": "0.1.0",
+      "permissions": [
+        "webPanel"
+      ],
+      "minApi": 4,
+      "urls": [
+        "https://cdn.jsdelivr.net/gh/JunjiDuan/infinite-studio@main/marketplace/packages/web-ai-1.0.0.zip",
+        "https://raw.githubusercontent.com/JunjiDuan/infinite-studio/main/marketplace/packages/web-ai-1.0.0.zip"
+      ],
+      "sha256": "9c40cd97b25ae5e22932fc097d573e6e0ff01e17920caf24e852c9d203b3fcb6",
+      "size": 4941
     }
   ],
-  "updated": "2026-11-23T13:43:07.427Z"
+  "updated": "2026-11-23T13:50:18.349Z"
 }

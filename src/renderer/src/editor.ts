@@ -693,6 +693,11 @@ export function closeView(el: HTMLElement): void {
   }
 }
 
+/** 让正在显示这个视图的组成为活动组（不切换标签、不移动焦点）。网页面板被点击时用：点击落在页面之外的原生视图上，组收不到事件 */
+export function activateViewGroup(el: HTMLElement): void {
+  for (const g of groups) if (g.active?.type === 'view' && g.active.spec.el === el) return focusGroup(g)
+}
+
 export function updateView(el: HTMLElement, patch: Partial<Pick<ViewSpec, 'title'>>): void {
   for (const g of groups) for (const it of g.items) if (it.type === 'view' && it.spec.el === el) Object.assign(it.spec, patch)
   emit('tabs')

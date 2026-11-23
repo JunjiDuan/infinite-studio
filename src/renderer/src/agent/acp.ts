@@ -9,11 +9,13 @@ import { basenameOf, clip, readText, rel } from './util'
 import { t } from '../i18n'
 
 /**
- * ACP（Agent Client Protocol）驱动：Kimi Code（`kimi acp`）和 DeepSeek Harness（`dsh --profile acp`）。
+ * ACP（Agent Client Protocol）驱动：Gemini CLI（`gemini --acp`）、Kimi Code（`kimi acp`）和 DeepSeek Harness（`dsh --profile acp`）。
  * 每个对话一个常驻进程，JSON-RPC 2.0：initialize → session/new | session/load | session/resume →
  * session/prompt（期间 agent 推送 session/update、发来 session/request_permission）。
  *
- * 两者的差别：
+ * 各自的差别：
+ * - Gemini：Google 账号登录（authenticate oauth-personal，gemini 自己打开浏览器）或 API Key（IDE 加密保存，启动时传入）；
+ *   有模式（session/set_mode）；没有 session/list，历史列表由主进程读 ~/.gemini 下的会话文件，session/load 回放。
  * - Kimi：需要登录（kimi login 设备码）；有模式（session/set_mode）、斜杠命令、待办计划；session/load 回放历史。
  * - DeepSeek：API Key 存在 ~/.dsh/.credentials.yaml；没有模式（授权由界面按模式应答）；
  *   session/resume 不回放，历史由主进程读本地日志转换成 session/update。
@@ -101,6 +103,15 @@ export class AcpDriver implements Driver {
     return this.plugin === 'kimi'
   }
 
+  private get isGemini(): boolean {
+    return this.plugin === 'gemini'
+  }
+
+  /** 模式由 agent 自己执行（session/set_mode）；DeepSeek 没有模式，由界面应答授权 */
+  private get agentModes(): boolean {
+    return this.isKimi || this.isGemini
+  }
+
   /* ---------------- 进程 / JSON-RPC ---------------- */
 
   async start(): Promise<void> {
@@ -116,10 +127,12 @@ export class AcpDriver implements Driver {
     try {
       await this.ensureSession()
       if (this.isKimi) this.account = t('Kimi 账号')
+      if (this.isGemini) this.account = await this.geminiAccount()
       this.host.capabilities()
     } catch (e) {
       const msg = (e as Error).message
       if (this.isKimi && /auth/i.test(msg)) this.host.note(t('请先登录 Kimi 账号'), 'action')
+      else if (this.isGemini && /auth|api key|credential|login/i.test(msg)) this.host.note(t('请先登录 Gemini：Google 账号或 API Key'), 'action')
       else this.host.note(msg, 'error')
     }
   }
@@ -279,7 +292,7 @@ export class AcpDriver implements Driver {
       }
       const e = this.option('thought_level')
       if (this.effort && e && e.current !== this.effort && e.options.some((o) => o.value === this.effort)) await this.setConfig(e.id, this.effort)
-      if (this.isKimi && this.mode && this.availableModes.includes(this.mode)) await this.request('session/set_mode', { sessionId: sid, modeId: this.mode })
+      if (this.agentModes && this.mode && this.availableModes.includes(this.mode)) await this.request('session/set_mode', { sessionId: sid, modeId: this.mode })
     } catch (err) {
       this.host.note(t('应用设置失败：{0}', (err as Error).message), 'error')
     }
@@ -377,7 +390,7 @@ export class AcpDriver implements Driver {
 
   setMode(id: string): void {
     this.mode = id
-    if (this.isKimi && this.sid && this.availableModes.includes(id)) {
+    if (this.agentModes && this.sid && this.availableModes.includes(id)) {
       this.request('session/set_mode', { sessionId: this.sid, modeId: id }).catch((e) => this.host.note(t('切换模式失败：{0}', (e as Error).message), 'error'))
     }
   }
@@ -389,6 +402,8 @@ export class AcpDriver implements Driver {
   }
 
   async listSessions(): Promise<SessionInfo[]> {
+    // Gemini 的 ACP 不能列出会话：主进程读它保存在本机的会话文件
+    if (this.isGemini) return window.api.agent.sessions(this.plugin, this.host.cwd)
     await this.ensure()
     if (!this.caps?.sessionCapabilities?.list) return []
     const raw: Any[] = []
@@ -465,6 +480,17 @@ export class AcpDriver implements Driver {
   /* ---------------- 登录 ---------------- */
 
   get loginMethods(): LoginMethod[] {
+    if (this.isGemini) {
+      return [
+        { id: 'google', label: t('使用 Google 账号登录'), hint: t('在浏览器中完成登录；个人 Google 账号有免费额度') },
+        {
+          id: 'apiKey',
+          label: t('使用 Gemini API Key'),
+          hint: t('在 aistudio.google.com 创建；用系统密钥存储加密保存在本机'),
+          input: { label: 'Gemini API Key', placeholder: 'AIza…', secret: true }
+        }
+      ]
+    }
     if (this.isKimi) return [{ id: 'kimi', label: t('使用 Kimi 账号登录'), hint: t('在浏览器中确认设备码，Kimi 会员或 Kimi Code 套餐') }]
     return [
       {
@@ -476,7 +502,8 @@ export class AcpDriver implements Driver {
     ]
   }
 
-  async login(_method: string, ui: LoginUi): Promise<void> {
+  async login(method: string, ui: LoginUi): Promise<void> {
+    if (this.isGemini) return this.geminiLogin(method, ui)
     if (!this.isKimi) {
       const key = ui.input?.trim()
       if (!key) throw new Error(t('请输入 API Key'))
@@ -522,7 +549,53 @@ export class AcpDriver implements Driver {
     this.account = t('Kimi 账号')
   }
 
+  /** Gemini 登录：authenticate 一直等到浏览器里登录完成（gemini 自己打开浏览器，在本机端口等回调） */
+  private async geminiLogin(method: string, ui: LoginUi): Promise<void> {
+    let params: Any = { methodId: 'oauth-personal' }
+    if (method === 'apiKey') {
+      const key = ui.input?.trim()
+      if (!key) throw new Error(t('请输入 API Key'))
+      await window.api.agent.setGeminiKey(key)
+      params = { methodId: 'gemini-api-key', _meta: { 'api-key': key } }
+    }
+    await this.ensure()
+    await new Promise<void>((resolve, reject) => {
+      ui.onCancel(() => {
+        this.stopProcess()
+        reject(new Error(t('已取消登录')))
+      })
+      this.request('authenticate', params, 10 * 60_000).then(() => resolve(), reject)
+    })
+    // 已建的会话还拿着旧凭据：重启进程（API Key 由主进程在启动时传入）
+    this.stopProcess()
+    await this.ensureSession()
+    this.account = await this.geminiAccount()
+    this.host.capabilities()
+  }
+
+  /** 显示在界面上的账号：按 gemini 记下的登录方式 */
+  private async geminiAccount(): Promise<string | undefined> {
+    const st = await window.api.agent.geminiAuthStatus().catch(() => null)
+    if (!st) return undefined
+    if (st.authType === 'oauth-personal') return t('Google 账号')
+    if (st.authType === 'vertex-ai') return 'Vertex AI'
+    if (st.key) return t('API Key {0}', st.key.masked)
+    return st.authType ?? undefined
+  }
+
   async logout(): Promise<void> {
+    if (this.isGemini) {
+      const st = await window.api.agent.geminiAuthStatus().catch(() => null)
+      if (st?.authType === 'oauth-personal') throw new Error(t('Google 账号的登录由 Gemini CLI 管理：在终端里运行 gemini，输入 /auth 切换登录方式'))
+      if (st?.key?.source === 'env') throw new Error(t('API Key 来自环境变量 GEMINI_API_KEY，请在那里删除'))
+      await window.api.agent.setGeminiKey(null)
+      this.stopProcess()
+      this.account = undefined
+      this.models = []
+      this.commands = []
+      this.host.capabilities()
+      return
+    }
     if (!this.isKimi) {
       const st = await window.api.agent.deepseekKeyStatus().catch(() => null)
       if (st?.source === 'env') throw new Error(t('API Key 来自环境变量 DEEPSEEK_API_KEY 或 ~/.dsh/.env，请在那里删除'))
@@ -788,7 +861,17 @@ const TOOL_NAMES: Record<string, string> = {
   askuserquestion: 'AskUserQuestion',
   ask_user_question: 'AskUserQuestion',
   exitplanmode: 'ExitPlanMode',
-  enterplanmode: 'EnterPlanMode'
+  enterplanmode: 'EnterPlanMode',
+  // Gemini CLI
+  read_file: 'Read',
+  read_many_files: 'Read',
+  write_file: 'Write',
+  replace: 'Edit',
+  run_shell_command: 'Bash',
+  search_file_content: 'Grep',
+  grep_search: 'Grep',
+  google_web_search: 'WebSearch',
+  write_todos: 'TodoWrite'
 }
 
 const KIND_ICON: Record<string, ToolView['icon']> = { read: 'read', edit: 'edit', delete: 'edit', move: 'edit', search: 'search', execute: 'bash', fetch: 'web', switch_mode: 'plan', think: 'other', other: 'other' }
@@ -930,9 +1013,28 @@ function todosFrom(i: Any): Todo[] {
 }
 
 function rpcError(e: Any): string {
-  const msg = String(e?.message ?? t('请求失败'))
-  const detail = typeof e?.data === 'string' ? e.data : typeof e?.data?.message === 'string' ? e.data.message : ''
+  const msg = readable(String(e?.message ?? t('请求失败')))
+  const detail = readable(typeof e?.data === 'string' ? e.data : typeof e?.data?.message === 'string' ? e.data.message : '')
   return detail && !msg.includes(detail) ? `${msg}: ${detail}` : msg
+}
+
+/** 错误信息本身是 JSON（Gemini 会把接口返回的 JSON 一层层包在 message 里）：取出最里面那句话 */
+function readable(s: string): string {
+  let cur = s
+  for (let i = 0; i < 5; i++) {
+    const text = cur.trim()
+    if (!text.startsWith('{')) break
+    let obj: Any
+    try {
+      obj = JSON.parse(text)
+    } catch {
+      break
+    }
+    const next = obj?.error?.message ?? obj?.message
+    if (typeof next !== 'string' || !next) break
+    cur = next
+  }
+  return cur
 }
 
 function fileUri(p: string): string {

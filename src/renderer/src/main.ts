@@ -43,6 +43,7 @@ import {
 } from './editor'
 import { accountBtn, initAccount, openLoginDialog } from './account'
 import { agentIcons, initChat, insertAtMention, onTabsChanged, toggleChatFocus } from './chat'
+import { initWebPanel, webPanelCommands, webPanelTreeItems } from './webPanel'
 import { createPluginsView, onPluginsChange, pluginCommands, pluginTreeItems, refreshPlugins, render as renderPlugins, revealCategory } from './plugins'
 import { createDebugView, debugActive, debugOrContinue, debugStatus, debugStep, initDebug, onPluginStateChanged, restartDebug, runActiveFile, runButtons, stopDebug, toggleBreakpointAtCursor } from './debug'
 import { icons } from './icons'
@@ -845,8 +846,9 @@ function toggleWrap(): void {
   toast(state.settings.wordWrap ? t('自动换行：开') : t('自动换行：关'))
 }
 
-addTreeMenuItems(({ path }) => pluginTreeItems(path))
+addTreeMenuItems(({ path }) => [...pluginTreeItems(path), ...webPanelTreeItems(path)])
 registerCommands(() => pluginCommands(() => showSideView('plugins')))
+registerCommands(webPanelCommands)
 addTreeMenuItems(({ dir }) => [{ label: t('在终端中打开'), run: () => void newTerminal(dir) }, 'sep'])
 
 /* ---------------- 快捷键 ---------------- */
@@ -974,6 +976,7 @@ async function boot(): Promise<void> {
   initIde()
   void initAccount()
   initChat()
+  initWebPanel()
   void refreshPlugins()
   initSettings(
     body,

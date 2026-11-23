@@ -108,6 +108,7 @@ function pack(id) {
   if (!/^\d+\.\d+\.\d+$/.test(m.version)) fail(`${id}: version 必须是 x.y.z 格式`)
   if (m.editor && !existsSync(path.join(dir, m.editor.entry))) fail(`${id}: 找不到编辑器入口 ${m.editor.entry}`)
   if (m.category === 'locale') checkLocale(id, dir, m)
+  if (m.webPanel) checkWebPanel(id, dir, m)
 
   const files = walk(dir)
   // SDK 统一从 sdk/ 复制，插件目录里不用放（语言包没有页面，不需要）
@@ -185,6 +186,26 @@ function checkLocale(id, dir, m) {
   const unknown = Object.keys(strings).filter((k) => !(k in src))
   if (missing.length) console.warn(`! ${id}: ${missing.length} 条还没翻译（显示英文）：${missing.slice(0, 5).join('、')}${missing.length > 5 ? '…' : ''}`)
   if (unknown.length) console.warn(`! ${id}: ${unknown.length} 条在 IDE 里已经不用了：${unknown.slice(0, 5).join('、')}${unknown.length > 5 ? '…' : ''}`)
+}
+
+/* ---------------- 网页面板 ---------------- */
+
+/** 网页面板：要声明 webPanel 权限和 minApi 4；每个网站要有 id、名称、https 首页，图标文件要在包里 */
+function checkWebPanel(id, dir, m) {
+  if (!m.permissions?.includes('webPanel')) fail(`${id}: 有 webPanel 字段就要在 permissions 里声明 "webPanel"`)
+  if (!Number.isInteger(m.minApi) || m.minApi < 4) fail(`${id}: 网页面板需要 "minApi": 4（更老的 IDE 不认识网页面板）`)
+  const sites = m.webPanel.sites
+  if (!Array.isArray(sites) || !sites.length) fail(`${id}: webPanel.sites 不能为空`)
+  const seen = new Set()
+  for (const s of sites) {
+    if (!/^[a-z0-9][a-z0-9-]{0,31}$/.test(s.id ?? '') || seen.has(s.id)) fail(`${id}: 网站 id 无效或重复：${s.id}`)
+    seen.add(s.id)
+    if (!s.name) fail(`${id}: 网站 ${s.id} 没有 name`)
+    if (!/^https:\/\//.test(s.url ?? '')) fail(`${id}: 网站 ${s.id} 的 url 必须是 https 地址`)
+    if (s.icon && !existsSync(path.join(dir, s.icon))) fail(`${id}: 找不到网站 ${s.id} 的图标 ${s.icon}`)
+    const bad = (s.hosts ?? []).filter((x) => !/^(\*\.)?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(x))
+    if (bad.length) fail(`${id}: 网站 ${s.id} 的 hosts 里有无效的主机名：${bad.join(', ')}`)
+  }
 }
 
 /* ---------------- main ---------------- */

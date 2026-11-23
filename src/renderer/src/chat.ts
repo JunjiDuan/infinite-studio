@@ -24,7 +24,7 @@ import type {
 } from './agent/types'
 import { basenameOf, clip, errText, rel } from './agent/util'
 import { h, relative, toast } from './dom'
-import { fileSelection, onSelection, openFile, openView, recentFile, recentFiles, revealView, tabs, updateView } from './editor'
+import { fileSelection, type FileSelection, onSelection, openFile, openView, recentFile, recentFiles, revealView, tabs, updateView } from './editor'
 import { icons } from './icons'
 import { showMenu } from './menu'
 import { glyph, launchInTerminal, onPluginsChange, usable } from './plugins'
@@ -72,6 +72,49 @@ interface CompletionItem {
 
 const views = new Set<ChatView>()
 let lastActive: ChatView | null = null
+/** 上次用对话面板的时间（和网页面板比谁最近用过） */
+let chatUsedAt = 0
+
+function markActive(v: ChatView): void {
+  lastActive = v
+  chatUsedAt = Date.now()
+}
+
+/**
+ * 别的 AI 面板（网页大模型助手）：和对话面板一起参与 Alt K（引用当前文件 / 选中行）和 Ctrl Esc（切换焦点），
+ * 最近用过的那个优先
+ */
+export interface AssistantTarget {
+  usedAt(): number
+  /** 把焦点移过去；成功返回 true */
+  focus(): boolean
+  mention(sel: FileSelection | null, file: string | null): void
+}
+
+let assistantTargets: () => AssistantTarget[] = () => []
+export function setAssistantTargets(fn: () => AssistantTarget[]): void {
+  assistantTargets = fn
+}
+
+/** 比最近用过的对话面板更近的其他 AI 面板 */
+function recentTarget(): AssistantTarget | null {
+  let best: AssistantTarget | null = null
+  let at = lastActive && views.has(lastActive) ? chatUsedAt : 0
+  for (const x of assistantTargets()) {
+    if (x.usedAt() > at) {
+      best = x
+      at = x.usedAt()
+    }
+  }
+  return best
+}
+
+/** 编辑器右上角 AI 助手按钮后面追加的按钮（网页大模型助手） */
+let extraIcons: () => HTMLElement[] = () => []
+export function setExtraAgentIcons(fn: () => HTMLElement[]): void {
+  extraIcons = fn
+  renderAgentIcons()
+}
 
 export const agentIcons = h('div', { class: 'agent-icons', role: 'toolbar', 'aria-label': t('AI 助手') })
 
@@ -420,7 +463,7 @@ class ChatView implements ChatHost {
 
     this.el = h(
       'div',
-      { class: 'chat', 'data-plugin': def.id, onKeydown: (e: KeyboardEvent) => this.onViewKey(e), onFocusin: () => (lastActive = this) },
+      { class: 'chat', 'data-plugin': def.id, onKeydown: (e: KeyboardEvent) => this.onViewKey(e), onFocusin: () => markActive(this) },
       head,
       this.historyEl,
       this.usagePanel,
@@ -434,7 +477,7 @@ class ChatView implements ChatHost {
     this.renderSend()
     this.updateContext()
     views.add(this)
-    lastActive = this
+    markActive(this)
 
     this.driver
       .start()
@@ -1087,7 +1130,7 @@ class ChatView implements ChatHost {
   /* ================= 视图 ================= */
 
   focus(): void {
-    lastActive = this
+    markActive(this)
     requestAnimationFrame(() => {
       if (this.promptEl.hidden) this.input.focus()
       else this.promptEl.querySelector<HTMLElement>('button, textarea, input')?.focus()
@@ -1168,8 +1211,15 @@ class ChatView implements ChatHost {
     const tips = ACP_ARGS[this.def.id]
       ? [
           ['@', t('引用文件；在编辑器里选中代码后提问会自动附带')],
-          ['/', this.def.id === 'kimi' ? t('打开命令菜单：/compact、/init…') : t('打开命令菜单：/model、/resume、/login…')],
-          [t('模式'), this.def.id === 'kimi' ? t('编辑前询问 / 计划模式 / 自动批准 / 全部批准') : t('编辑前询问 / 自动批准')],
+          [
+            '/',
+            this.def.id === 'kimi'
+              ? t('打开命令菜单：/compact、/init…')
+              : this.def.id === 'gemini'
+                ? t('打开命令菜单：/memory、/init…')
+                : t('打开命令菜单：/model、/resume、/login…')
+          ],
+          [t('模式'), (AGENT_MODES[this.def.id] ?? []).map((m) => t(m.label)).join(' / ')],
           [t('历史'), t('点击标题查看并续接之前的对话')],
           ['Esc', t('中断；Ctrl N 新对话；Alt K 从编辑器插入引用')]
         ]
@@ -2417,6 +2467,8 @@ export function insertAtMention(): void {
   const sel = fileSelection()
   const f = recentFile()
   if (!sel && !f) return toast(t('没有打开的文件'))
+  const ext = recentTarget()
+  if (ext) return ext.mention(sel, sel ? sel.path : f!.path)
   const target = lastActive && views.has(lastActive) ? lastActive : null
   const id = target?.def.id ?? PLUGINS.find(usable)?.id
   if (!id) return toast(t('没有可用的 AI 助手，请先在插件页启用'))
@@ -2431,6 +2483,8 @@ export function insertAtMention(): void {
 export function toggleChatFocus(): boolean {
   const inChat = !!(document.activeElement as HTMLElement | null)?.closest?.('.chat')
   if (inChat) return false
+  const ext = recentTarget()
+  if (ext) return ext.focus()
   const v = lastActive && views.has(lastActive) ? lastActive : null
   if (!v || !revealView(v.el)) return false
   v.focus()
@@ -2448,7 +2502,8 @@ export function renderAgentIcons(): void {
         html: glyph(def.id, 16),
         onClick: () => openChat(def.id)
       })
-    )
+    ),
+    ...extraIcons()
   )
 }
 

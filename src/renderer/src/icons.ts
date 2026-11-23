@@ -78,5 +78,10 @@ export const icons = {
   branch: svg('<circle cx="4.5" cy="3.5" r="1.5"/><circle cx="4.5" cy="12.5" r="1.5"/><circle cx="11.5" cy="5.5" r="1.5"/><path d="M4.5 5v6M11.5 7c0 2.5-3 2.5-6.2 4.6"/>', 14, 1.3),
   activity: svg('<path d="M1.5 8.5h2.75l1.75-4.5 3 8.5 2-5.5 1 1.5h2.5"/>', 18, 1.4),
   target: svg('<circle cx="8" cy="8" r="5.5"/><circle cx="8" cy="8" r="2.25"/>', 14, 1.4),
-  file: svg('<path d="M3.5 2.5h5l3 3v8h-8z"/><path d="M8.5 2.5v3h3"/>', 14, 1.3)
+  file: svg('<path d="M3.5 2.5h5l3 3v8h-8z"/><path d="M8.5 2.5v3h3"/>', 14, 1.3),
+  /* 网页面板 */
+  globe: svg('<circle cx="8" cy="8" r="6"/><path d="M2 8h12M8 2c1.7 1.8 2.5 3.8 2.5 6S9.7 12.2 8 14M8 2C6.3 3.8 5.5 5.8 5.5 8s.8 4.2 2.5 6"/>', 16, 1.3),
+  arrowRight: svg('<path d="M3 8h9.5M8.5 4l4 4-4 4"/>', 14, 1.6),
+  external: svg('<path d="M9.5 2.5h4v4M13.5 2.5L7.5 8.5"/><path d="M11.5 9.5v3a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h3"/>', 13, 1.4),
+  newChat: svg('<path d="M7.5 2.5h-4a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-4"/><path d="M11.5 2l2.5 2.5-5.5 5.5H6V7.5z"/>', 14, 1.4)
 }

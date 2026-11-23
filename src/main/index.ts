@@ -16,6 +16,7 @@ import { registerJupyterIpc } from './jupyter'
 import { registerAgentIpc } from './agents'
 import { registerSysmonIpc } from './sysmon'
 import { registerIdeIpc } from './ide'
+import { registerWebPanelIpc } from './webPanel'
 import { getLocalePack, getSavedLocale, setMainLocale } from './i18n'
 
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json')
@@ -158,6 +159,7 @@ function registerIpc(): void {
   registerAgentIpc()
   registerSysmonIpc()
   registerIdeIpc()
+  registerWebPanelIpc()
 }
 
 Menu.setApplicationMenu(null)

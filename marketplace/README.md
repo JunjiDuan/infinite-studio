@@ -1,6 +1,6 @@
 # Infinite Studio 插件市场
 
-Infinite Studio（无界工作室）的官方插件。IDE 的插件面板里，“生产力工具”和“语言”两栏的列表就来自这里的 `registry.json`。用户点击“安装”后，IDE 下载 `packages/` 里的插件包（先试 jsDelivr，再试 raw.githubusercontent），校验 sha256，再解压安装。
+Infinite Studio（无界工作室）的官方插件。IDE 的插件面板里，“生产力工具”和“多语言支持”两栏，以及“大模型”栏里的市场插件，列表都来自这里的 `registry.json`。用户点击“安装”后，IDE 下载 `packages/` 里的插件包（先试 jsDelivr，再试 raw.githubusercontent），校验 sha256，再解压安装。
 
 这个目录不会被打进 IDE 安装包，IDE 只在运行时从 GitHub 读取它。
 
@@ -10,6 +10,7 @@ Infinite Studio（无界工作室）的官方插件。IDE 的插件面板里，�
 | [LaTeX 编辑器](plugins/latex) | 打开 `.tex` 文件。语法高亮，命令 / 环境 / 标签 / 文献 / 文件名补全，查找替换，大纲。即时预览不用安装 TeX（KaTeX 公式、自动编号、交叉引用、表格、定理、参考文献、图片），双击跳回源码；PDF 模式用本机 TeX 编译（XeLaTeX、pdfLaTeX、LuaLaTeX、latexmk、Tectonic），日志错误定位到行，SyncTeX 双向跳转。需要 `terminal` 权限 |
 | [Markdown 美化](plugins/markdown) | 打开 `.md` 文件。阅读 / 分栏 / 源码三种模式：标题编号、提示块、代码高亮与复制、任务进度、大纲与阅读进度，分栏滚动同步；四套主题，导出 HTML |
 | [思维导图](plugins/mindmap) | 打开 `.mind` 文件。用键盘快速建主题，拖拽调整结构，可折叠分支，导出 PNG / SVG / Markdown |
+| [网页大模型助手](plugins/web-ai) | 在编辑器右侧分栏里使用网页版 Claude、ChatGPT、Gemini、DeepSeek（插件面板的“大模型”分类）。右上角的地球按钮选择网站，各网站的登录状态分开保存在本机；Alt K 把选中的代码或当前文件粘贴进网页的输入框 |
 | [演示文稿](plugins/pptx) | 打开和编辑 `.pptx`：按原样式显示（主题、母版、表格、图表、SmartArt），改文字和格式，移动 / 缩放 / 旋转形状，插入文本框、形状、图片、表格，增删 / 复制 / 排序幻灯片，备注，放映 |
 
 语言包（插件面板的“多语言支持”分类）：安装后在 设置 → 多语言设置 里切换界面语言。
@@ -79,6 +80,7 @@ marketplace/
 | `workspace-write` | 在工作区里写入、新建、移动、删除文件。不声明时只能写**当前打开的文件** |
 | `clipboard-read` | 读取剪贴板（写入不需要权限） |
 | `terminal` | 在 IDE 终端里运行命令。每次 IDE 运行期间，第一次运行前会弹窗问用户 |
+| `webPanel` | 在编辑器分栏里显示 `manifest.webPanel` 声明的网站（见下文“网页面板”） |
 
 不需要权限的：读取工作区里的任何文件、列目录、监视文件、对话框、写剪贴板、打开文件、提示、命令面板。
 
@@ -93,6 +95,7 @@ IDE 给插件的能力是一套通用接口（文件、对话框、网络、剪�
 | 1 | 打开 / 保存当前文件、主题、导出、提示、打开链接、`readAsset` |
 | 2 | `studio.call` 通用调用：`fs.*`、`dialog.*`、`clipboard.*`、`net.fetch`、`editor.*`、`ui.*`、`terminal.run`、`commands.*`；权限；文件监视 |
 | 3 | 语言包（`category: "locale"` + `locale` 字段） |
+| 4 | 网页面板（`webPanel` 字段 + `webPanel` 权限）；市场插件可以放进“大模型”分类（`category: "llm"`） |
 
 插件用到哪个版本的接口，就在 manifest 里写 `"minApi"`。旧 IDE 不会装上用不了的插件（卡片会提示更新 IDE）；新 IDE 永远兼容旧插件。
 
@@ -218,6 +221,50 @@ await studio.commands.register('export-pdf', '导出 PDF', () => exportPdf())
 IDE 新加的文本在语言包里还没有译文时显示英文，所以语言包不用和 IDE 同步发布。打包脚本会检查参数是否一致，并列出还没翻译的条目；补上译文后改版本号重新发布即可。
 
 插件页面（`studio.t(zh, en)`）在中文以外的界面语言下显示英文，实际界面语言在 load 消息的 `language` 字段里。
+
+### 网页面板
+
+有的网站不允许被 iframe 嵌入（网页版大模型都是这样），插件页面里显示不了。声明了 `webPanel` 的插件不需要页面：IDE 在编辑器右上角加一个按钮，点开后选择网站，网站在右侧分栏里打开（IDE 用独立的浏览器视图显示它，不是 iframe）。[网页大模型助手](plugins/web-ai) 就是这样做的。
+
+```json
+{
+  "id": "web-ai",
+  "category": "llm",
+  "minApi": 4,
+  "permissions": ["webPanel"],
+  "webPanel": {
+    "title": "网页大模型助手",
+    "sites": [
+      {
+        "id": "claude",
+        "name": "Claude",
+        "url": "https://claude.ai/new",
+        "icon": "sites/claude.svg",
+        "hosts": ["claude.ai", "*.claude.ai", "*.anthropic.com", "accounts.google.com"],
+        "input": ["div.ProseMirror[contenteditable=\"true\"]"]
+      }
+    ]
+  }
+}
+```
+
+| 字段 | 说明 |
+| --- | --- |
+| `webPanel.title` | 右上角按钮的提示文字和选择弹窗的标题，不写时用插件名 |
+| `sites[].id` | 小写字母、数字、连字符。每个网站的登录状态、缓存单独保存（按插件 id + 网站 id） |
+| `sites[].url` | 首页，必须是 https。工具条上的“新对话”也回到这里 |
+| `sites[].icon` | 包内的图标（SVG / PNG），显示在选择弹窗和标签上 |
+| `sites[].hosts` | 网站自己的域名，以及第三方登录要经过的域名（`accounts.google.com` 等）。`*.example.com` 同时匹配 `example.com` 和它的子域名。网页在新标签页 / 新窗口打开这些域名时留在面板里（登录弹窗），其他链接用系统浏览器打开 |
+| `sites[].input` | 输入框的 CSS 选择器，依次尝试。Alt K（引用当前文件 / 选中行）把内容粘贴进第一个找到的输入框；都找不到时再试页面上的 `textarea` 和可编辑区域，还找不到就把内容放进剪贴板 |
+
+网页面板的规则：
+
+- 每个网站一个独立的会话，和 IDE、和其他网站都隔离；网页运行在沙箱里，拿不到 IDE 的任何接口。卸载插件时清除它的所有网站数据
+- User-Agent 是普通的 Chrome（去掉了 Electron 和 IDE 的标识），否则 Google 等登录页会拒绝
+- 同一页面里的 https 跳转（例如单点登录跳到公司自己的登录页）留在面板里，这时工具条上显示那个网站的域名
+- 麦克风 / 摄像头每次 IDE 运行期间第一次使用时询问用户；通知、定位等其他权限一律拒绝
+- 网页获得焦点时，IDE 的全局快捷键（Ctrl K 命令面板、Ctrl W 关闭标签、Ctrl Tab、Ctrl \` 终端、F5 运行调试、Ctrl Esc 回到编辑器等）仍然归 IDE；复制粘贴、Ctrl F 等留给网页。Ctrl = / - / 0 缩放网页，Ctrl R 刷新，Alt ← / → 后退前进
+- 面板隐藏超过 30 分钟会释放内存，再显示时重新打开原来的网址
 
 ### 安全限制
 

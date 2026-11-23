@@ -1117,5 +1117,46 @@ export const EN: Record<string, string> = {
   '运行全部单元格': 'Run all cells',
   '运行单元格': 'Run cell',
   '运行单元格 (Ctrl Enter)': 'Run cell (Ctrl Enter)',
-  '重启内核': 'Restart kernel'
+  '重启内核': 'Restart kernel',
+  /* ---------- Gemini CLI ---------- */
+  'Google 的开源命令行编程助手，由 Gemini 模型驱动：读懂代码库、改代码、跑命令。用 Google 账号登录即有免费额度。':
+    "Google's open-source command-line coding assistant, powered by Gemini: understands your codebase, edits code and runs commands. Free tier with a Google account.",
+  '请先登录 Gemini：Google 账号或 API Key': 'Sign in to Gemini first: Google account or API key',
+  '使用 Google 账号登录': 'Sign in with Google',
+  '在浏览器中完成登录；个人 Google 账号有免费额度': 'Finish signing in in your browser; personal Google accounts get a free tier',
+  '使用 Gemini API Key': 'Use a Gemini API key',
+  '在 aistudio.google.com 创建；用系统密钥存储加密保存在本机': 'Create one at aistudio.google.com; stored on this computer, encrypted with the system key store',
+  'Google 账号': 'Google account',
+  '打开命令菜单：/memory、/init…': 'Open the command menu: /memory, /init…',
+  'Google 账号的登录由 Gemini CLI 管理：在终端里运行 gemini，输入 /auth 切换登录方式':
+    'Google sign-in is managed by Gemini CLI: run gemini in a terminal and use /auth to switch sign-in method',
+  'API Key 来自环境变量 GEMINI_API_KEY，请在那里删除': 'The API key comes from the GEMINI_API_KEY environment variable; remove it there',
+  /* ---------- 网页面板（网页大模型助手） ---------- */
+  切换网站: 'Switch site',
+  '后退 (Alt ←)': 'Back (Alt ←)',
+  '前进 (Alt →)': 'Forward (Alt →)',
+  '重新加载 (Ctrl R)': 'Reload (Ctrl R)',
+  停止加载: 'Stop loading',
+  '无法打开 {0}': 'Cannot open {0}',
+  页面崩溃了: 'The page crashed',
+  在浏览器中打开: 'Open in browser',
+  '正在打开 {0}…': 'Opening {0}…',
+  '实际大小（现在 {0}%）': 'Actual size (now {0}%)',
+  复制网址: 'Copy URL',
+  已复制网址: 'URL copied',
+  '退出登录并清除 {0} 的数据…': 'Sign out and clear {0} data…',
+  '清除 {0} 在本机保存的登录状态、缓存和网站数据？\n\n清除后需要重新登录。':
+    'Clear the sign-in, cache and site data {0} saved on this computer?\n\nYou will need to sign in again.',
+  '已清除 {0} 的数据': 'Cleared {0} data',
+  '没找到 {0} 的输入框，内容已复制到剪贴板，可以直接粘贴': "Couldn't find the {0} input box. The content is on the clipboard; paste it yourself",
+  已打开: 'Open',
+  '登录状态保存在本机，每个网站分开保存': 'Sign-ins are kept on this computer, separately for each site',
+  '`{0}` 第 {1} 行：': 'Line {1} of `{0}`:',
+  '`{0}` 第 {1}-{2} 行：': 'Lines {1}-{2} of `{0}`:',
+  '`{0}`：': '`{0}`:',
+  '内容太大（超过 {0} 个字符），没有发送。可以只选中需要的部分': 'Too large (over {0} characters), not sent. Select just the part you need',
+  '{0}：打开 {1}': '{0}: Open {1}',
+  '发送当前文件 / 选中内容到 {0}': 'Send current file / selection to {0}',
+  '发送到 {0}': 'Send to {0}',
+  在分栏里显示网页: 'Show web pages in a split pane'
 }

@@ -32,6 +32,17 @@ export function setLocaleSwitcher(fn: (code: string) => void): void {
   localeSwitcher = fn
 }
 
+/** 打开网页面板的选择弹窗（由 webPanel.ts 提供，插件卡片上的“打开”用） */
+let webPanelOpener: ((m: PluginManifest, anchor: HTMLElement) => void) | null = null
+export function setWebPanelOpener(fn: (m: PluginManifest, anchor: HTMLElement) => void): void {
+  webPanelOpener = fn
+}
+
+/** 已安装、已启用、声明了网页面板的插件 */
+export function webPanelPlugins(): PluginManifest[] {
+  return installed.filter((m) => m.webPanel && marketEnabled(m.id) && !tooNew(m))
+}
+
 /** 已安装、已启用的语言包 */
 export function localePacks(): PluginManifest[] {
   return installed.filter((m) => m.category === 'locale' && m.locale && marketEnabled(m.id) && !tooNew(m))
@@ -144,9 +155,10 @@ function info(e: Entry): { name: string; publisher: string; description: string;
   return (e.local ?? e.remote)!
 }
 
-/** 卡片放在哪个分类：语言包放“语言”，其余都是“生产力工具” */
+/** 卡片放在哪个分类：语言包放“语言”，大模型（网页大模型助手等）放“大模型”，其余都是“生产力工具” */
 function entryCategory(e: Entry): PluginCategory {
-  return info(e).category === 'locale' ? 'locale' : 'productivity'
+  const c = info(e).category
+  return c === 'locale' || c === 'llm' ? c : 'productivity'
 }
 
 /** 插件声明的额外权限（联网等），显示在卡片上 */
@@ -161,7 +173,8 @@ const PERM_NAMES: Record<string, () => string> = {
   eval: () => t('动态执行代码'),
   'workspace-write': () => t('修改工作区文件'),
   'clipboard-read': () => t('读取剪贴板'),
-  terminal: () => t('在终端运行命令')
+  terminal: () => t('在终端运行命令'),
+  webPanel: () => t('在分栏里显示网页')
 }
 
 /** 插件要求的接口版本比这个 IDE 新 */
@@ -195,6 +208,11 @@ function card(e: Entry): HTMLElement {
     if (lang && on && !current && !needIde && localeSwitcher) {
       const code = lang.code
       actions.push(h('button', { class: 'btn small primary', onClick: () => localeSwitcher?.(code) }, t('使用此语言')))
+    }
+    if (e.local && on && e.local.webPanel && !needIde && webPanelOpener) {
+      const m = e.local
+      const b: HTMLElement = h('button', { class: 'btn small primary', onClick: () => webPanelOpener?.(m, b) }, t('打开'))
+      actions.push(b)
     }
     if (e.local && on && e.local.newFile) {
       const m = e.local
@@ -238,11 +256,12 @@ function card(e: Entry): HTMLElement {
   )
 }
 
-/** 生产力工具 / 语言分类里的内容；q 为小写的搜索词 */
+/** 生产力工具 / 语言 / 大模型分类里的市场插件；q 为小写的搜索词 */
 export function marketCards(q: string, cat: PluginCategory = 'productivity'): { items: HTMLElement[]; count: number } {
   const list = entries().filter((e) => entryCategory(e) === cat && matches(e, q))
   const items = list.map(card)
-  if (!q) {
+  // “大模型”分类里主要是内置插件，取列表的提示只放在市场自己的分类里
+  if (!q && cat !== 'llm') {
     if (loading && !remote.length) items.push(h('div', { class: 'plg-empty muted' }, t('正在获取插件列表…')))
     else if (error) {
       items.push(

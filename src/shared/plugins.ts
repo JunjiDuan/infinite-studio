@@ -47,6 +47,19 @@ export const PLUGINS: PluginDef[] = [
     homepage: 'https://github.com/openai/codex'
   },
   {
+    id: 'gemini',
+    category: 'llm',
+    name: 'Gemini CLI',
+    publisher: 'Google',
+    description: 'Google 的开源命令行编程助手，由 Gemini 模型驱动：读懂代码库、改代码、跑命令。用 Google 账号登录即有免费额度。',
+    command: 'gemini',
+    npmPackage: '@google/gemini-cli',
+    chat: true,
+    // 依赖按本机 Node 编译的原生模块（钥匙串、终端），不能在 Electron 内置的 Node 里运行
+    systemNode: true,
+    homepage: 'https://github.com/google-gemini/gemini-cli'
+  },
+  {
     id: 'deepseek',
     category: 'llm',
     name: 'DeepSeek Harness',
@@ -170,6 +183,50 @@ export interface PluginManifest {
   permissions?: PluginPermission[]
   /** 语言包（category 为 locale）：安装后可在“多语言设置”里切换成这种界面语言 */
   locale?: LocalePackInfo
+  /** 网页面板（需要 webPanel 权限）：在编辑器右侧的分栏里显示这些网站，例如网页版大模型 */
+  webPanel?: WebPanelInfo
+}
+
+/** manifest 里的 webPanel 字段 */
+export interface WebPanelInfo {
+  /** 编辑器右上角按钮的提示文字；不写时用插件名 */
+  title?: string
+  sites: WebSite[]
+}
+
+/** 网页面板里可以打开的一个网站 */
+export interface WebSite {
+  /** 小写字母、数字、连字符；登录状态按它分开保存 */
+  id: string
+  name: string
+  /** 首页（https），“新对话”也回到这里 */
+  url: string
+  /** 包内的图标文件 */
+  icon?: string
+  /** 一句话介绍，显示在选择弹窗里 */
+  description?: string
+  /**
+   * 可以在面板里打开的主机名（"*.example.com" 同时匹配 example.com 和它的子域名），
+   * 包括登录要经过的网站（例如 accounts.google.com）。其他链接用系统浏览器打开
+   */
+  hosts: string[]
+  /** 输入框的 CSS 选择器，依次尝试。“发送到网页助手”时把内容粘贴进第一个找到的输入框 */
+  input?: string[]
+}
+
+/** 网站 id */
+export const WEB_SITE_ID_RE = /^[a-z0-9][a-z0-9-]{0,31}$/
+/** webPanel.hosts 里的一项 */
+export const WEB_HOST_RE = /^(\*\.)?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/
+
+/** 主机名是否匹配 webPanel.hosts 里的一项（"*.a.com" 同时匹配 a.com 和它的子域名） */
+export function hostMatches(host: string, pattern: string): boolean {
+  const h = host.toLowerCase().replace(/\.$/, '')
+  if (pattern.startsWith('*.')) {
+    const base = pattern.slice(2)
+    return h === base || h.endsWith('.' + base)
+  }
+  return h === pattern
 }
 
 /** 语言包 manifest 里的 locale 字段 */
@@ -200,17 +257,19 @@ export interface LocalePack {
  *   2  call() 通用调用：fs.* / dialog.* / clipboard.* / net.fetch / editor.* / terminal.run / commands；
  *      权限；嵌套预览框；文件监视
  *   3  语言包（category: locale，manifest.locale）
+ *   4  网页面板（manifest.webPanel + webPanel 权限）；市场插件可以放在“大模型”分类（category: llm）
  */
-export const PLUGIN_API = 3
+export const PLUGIN_API = 4
 
 /** 插件可以声明的权限 */
-export const PLUGIN_PERMISSIONS = ['network', 'eval', 'workspace-write', 'clipboard-read', 'terminal'] as const
+export const PLUGIN_PERMISSIONS = ['network', 'eval', 'workspace-write', 'clipboard-read', 'terminal', 'webPanel'] as const
 /**
  *   network          页面可以加载 http(s) 资源；可以用 net.fetch（不受跨域限制）
  *   eval             页面可以用 eval / new Function
  *   workspace-write  可以在工作区里写入、新建、重命名、删除文件（不声明时只能写当前文件）
  *   clipboard-read   可以读取剪贴板（写入不需要权限）
  *   terminal         可以在 IDE 终端里运行命令（每次会话第一次运行前会询问用户）
+ *   webPanel         可以在分栏里显示 manifest.webPanel 声明的网站（独立的登录状态，网页拿不到 IDE 的任何接口）
  */
 export type PluginPermission = (typeof PLUGIN_PERMISSIONS)[number]
 

@@ -148,7 +148,26 @@ const EN: Record<string, string> = {
   "没有找到 C/C++ 编译器，请先在插件页安装 C/C++ 插件": "C/C++ compiler not found; install the C/C++ plugin from the Plugins page",
   "没有安装 debugpy，请在插件页点击 Python 插件的“安装”": "debugpy is not installed; click Install on the Python plugin in the Plugins page",
   "没有找到调试器（gdb），请先在插件页安装 C/C++ 插件": "Debugger (gdb) not found; install the C/C++ plugin from the Plugins page",
-  "编译失败": "Compilation failed"
+  "编译失败": "Compilation failed",
+  /* 网页面板 */
+  允许: 'Allow',
+  拒绝: 'Deny',
+  '{0} 想使用摄像头和麦克风': '{0} wants to use your camera and microphone',
+  '{0} 想使用麦克风': '{0} wants to use your microphone',
+  '本次运行 IDE 期间不再询问': "You won't be asked again until the IDE restarts",
+  添加到词典: 'Add to dictionary',
+  在浏览器中打开链接: 'Open link in browser',
+  复制链接地址: 'Copy link address',
+  复制图片: 'Copy image',
+  剪切: 'Cut',
+  复制: 'Copy',
+  粘贴: 'Paste',
+  全选: 'Select all',
+  后退: 'Back',
+  前进: 'Forward',
+  重新加载: 'Reload',
+  检查元素: 'Inspect element',
+  '插件没有声明这个网站：{0}': 'The plugin does not declare the site: {0}'
 }
 
 /** 和渲染进程的 t() 一样：键是中文原文，{0} 是参数；语言包里没有的条目显示英文 */

@@ -1,7 +1,7 @@
-import { app, ipcMain, type WebContents } from 'electron'
+import { app, ipcMain, safeStorage, type WebContents } from 'electron'
 import { spawn, execFile, type ChildProcess } from 'node:child_process'
 import { createReadStream, promises as fs } from 'node:fs'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import os from 'node:os'
 import path from 'node:path'
 import readline from 'node:readline'
@@ -19,7 +19,7 @@ import { tm } from './i18n'
  *
  * - Claude Code：每个对话一个 `claude -p --input-format stream-json` 常驻进程
  * - Codex：每个对话一个 `codex app-server` 常驻进程（JSON-RPC）
- * - Kimi Code / DeepSeek Harness：每个对话一个 ACP 服务进程（`kimi acp` / `dsh --profile acp`，JSON-RPC）
+ * - Gemini CLI / Kimi Code / DeepSeek Harness：每个对话一个 ACP 服务进程（`gemini --acp` / `kimi acp` / `dsh --profile acp`，JSON-RPC）
  */
 
 interface Run {
@@ -152,6 +152,11 @@ async function start(wc: WebContents, req: AgentStart): Promise<number> {
     if (st?.isDirectory()) cwd = req.cwd
   }
   const env = { ...launch.env }
+  if (req.plugin === 'gemini' && !env.GEMINI_API_KEY) {
+    // 在 IDE 里填过的 API Key（gemini 的 ACP 模式不会自己保存它）
+    const key = await readGeminiKey()
+    if (key) env.GEMINI_API_KEY = key
+  }
   if (req.plugin === 'claude') {
     // 文件检查点：支持“回退代码”
     env.CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING = 'true'
@@ -633,6 +638,126 @@ async function setDeepseekKey(key: string | null): Promise<void> {
   await fs.writeFile(file, next, { encoding: 'utf8', mode: 0o600 })
 }
 
+/* ---------------- Gemini：API Key、登录方式、本地会话记录 ---------------- */
+
+const geminiHome = (): string => path.join(os.homedir(), '.gemini')
+/** 在 IDE 里填的 Gemini API Key：用系统密钥存储加密后放在这里 */
+const geminiKeyFile = (): string => path.join(app.getPath('userData'), 'gemini-api-key.bin')
+
+async function readGeminiKey(): Promise<string | null> {
+  try {
+    if (!safeStorage.isEncryptionAvailable()) return null
+    return safeStorage.decryptString(await fs.readFile(geminiKeyFile())) || null
+  } catch {
+    return null
+  }
+}
+
+async function setGeminiKey(key: string | null): Promise<void> {
+  if (key === null) return fs.rm(geminiKeyFile(), { force: true })
+  key = String(key).trim()
+  if (!key || key.length > 512 || /\s/.test(key)) throw new Error(tm('API Key 格式不正确'))
+  if (!safeStorage.isEncryptionAvailable()) throw new Error(tm('系统密钥存储不可用，无法安全保存登录信息'))
+  await fs.mkdir(path.dirname(geminiKeyFile()), { recursive: true })
+  await fs.writeFile(geminiKeyFile(), safeStorage.encryptString(key), { mode: 0o600 })
+}
+
+/** gemini 记下的登录方式（~/.gemini/settings.json 的 security.auth.selectedType）和可用的 API Key */
+async function geminiAuthStatus(): Promise<{ authType: string | null; key?: { masked: string; source: 'app' | 'env' } }> {
+  // settings.json 允许写注释，不按 JSON 解析，只取这一个字段
+  const text = await fs.readFile(path.join(geminiHome(), 'settings.json'), 'utf8').catch(() => '')
+  const authType = text.match(/"selectedType"\s*:\s*"([\w-]+)"/)?.[1] ?? null
+  const mask = (k: string): string => (k.length > 12 ? `${k.slice(0, 4)}…${k.slice(-4)}` : '••••')
+  const stored = await readGeminiKey()
+  if (stored) return { authType, key: { masked: mask(stored), source: 'app' } }
+  const env = process.env.GEMINI_API_KEY
+  return env ? { authType, key: { masked: mask(env), source: 'env' } } : { authType }
+}
+
+/** 消息内容 → 文本（字符串，或 [{ text }] 这样的分段） */
+function geminiText(c: unknown): string {
+  if (typeof c === 'string') return c
+  if (Array.isArray(c)) return c.map(geminiText).join('')
+  if (c && typeof c === 'object' && typeof (c as { text?: unknown }).text === 'string') return (c as { text: string }).text
+  return ''
+}
+
+/** 一个会话文件（新版是 JSONL：元数据行 + 每条消息一行；旧版是一个 JSON 对象） → 会话 id、标题 */
+async function geminiSessionInfo(file: string): Promise<SessionInfo | null> {
+  const st = await fs.stat(file).catch(() => null)
+  if (!st) return null
+  // 只读开头一段：元数据和第一条用户消息都在前面
+  const fh = await fs.open(file, 'r')
+  const buf = Buffer.alloc(Math.min(st.size, 4 * 1024 * 1024))
+  try {
+    await fh.read(buf, 0, buf.length, 0)
+  } finally {
+    await fh.close()
+  }
+  const text = buf.toString('utf8')
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const records: any[] = []
+  if (file.endsWith('.json')) {
+    try {
+      const obj = JSON.parse(text)
+      records.push(obj, ...(Array.isArray(obj?.messages) ? obj.messages : []))
+    } catch {
+      return null
+    }
+  } else {
+    for (const line of text.split('\n')) {
+      if (!line.trim()) continue
+      try {
+        records.push(JSON.parse(line))
+      } catch {
+        /* 被截断的最后一行 */
+      }
+    }
+  }
+  let id = ''
+  let summary = ''
+  let first = ''
+  for (const r of records) {
+    if (!r || typeof r !== 'object') continue
+    if (typeof r.sessionId === 'string' && !id) id = r.sessionId
+    if (r.kind === 'subagent') return null
+    if (typeof r.summary === 'string' && r.summary.trim()) summary = r.summary
+    if (!first && r.type === 'user') {
+      // 去掉 IDE 自动附带的编辑器上下文，跳过 / 命令
+      const t = geminiText(r.content)
+        .replace(/<(ide_opened_file|ide_selection)>[\s\S]*?<\/\1>/g, '')
+        .trim()
+      if (t && !t.startsWith('/')) first = t
+    }
+  }
+  const title = (summary || first).replace(/\s+/g, ' ').trim()
+  if (!id || !SAFE_ID.test(id) || !title) return null
+  return { id, title: title.slice(0, 120), updatedAt: st.mtimeMs }
+}
+
+/** gemini 在这个文件夹里的对话（~/.gemini/tmp/<项目短名>/chats/session-*.json(l)） */
+async function geminiSessions(cwd: string): Promise<SessionInfo[]> {
+  const root = path.resolve(cwd)
+  const dirs: string[] = []
+  // 项目短名记在 ~/.gemini/projects.json；Windows 上路径按小写记
+  try {
+    const reg = JSON.parse(await fs.readFile(path.join(geminiHome(), 'projects.json'), 'utf8')) as { projects?: Record<string, unknown> }
+    const short = reg.projects?.[process.platform === 'win32' ? root.toLowerCase() : root]
+    if (typeof short === 'string' && SAFE_ID.test(short)) dirs.push(path.join(geminiHome(), 'tmp', short, 'chats'))
+  } catch {
+    /* 还没在这个文件夹里用过 */
+  }
+  // 旧版：按路径的 sha256 命名
+  dirs.push(path.join(geminiHome(), 'tmp', createHash('sha256').update(root).digest('hex'), 'chats'))
+  const out = new Map<string, SessionInfo>()
+  for (const dir of dirs) {
+    const files = (await fs.readdir(dir).catch(() => [] as string[])).filter((f) => f.startsWith('session-') && /\.jsonl?$/.test(f))
+    const infos = await Promise.all(files.map((f) => geminiSessionInfo(path.join(dir, f)).catch(() => null)))
+    for (const s of infos) if (s && (out.get(s.id)?.updatedAt ?? 0) < s.updatedAt) out.set(s.id, s)
+  }
+  return [...out.values()].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 200)
+}
+
 /* ---------------- DeepSeek 历史会话（session/resume 不回放，读本地日志） ---------------- */
 
 /** 日志是若干个 zstd 帧拼起来的 JSONL */
@@ -784,6 +909,8 @@ export function registerAgentIpc(): void {
   ipcMain.handle('agent:deepseekSessionMeta', (_e, ids: string[]) => deepseekSessionMeta(Array.isArray(ids) ? ids : []))
   ipcMain.handle('agent:kimiLogin', (e) => kimiLogin(e.sender))
   ipcMain.handle('agent:deepseekKeyStatus', () => deepseekKeyStatus())
+  ipcMain.handle('agent:geminiAuthStatus', () => geminiAuthStatus())
+  ipcMain.handle('agent:setGeminiKey', (_e, key: string | null) => setGeminiKey(typeof key === 'string' ? key : null))
   ipcMain.handle('agent:setDeepseekKey', (_e, key: string | null) => setDeepseekKey(typeof key === 'string' ? key : null))
   ipcMain.handle('agent:claudeLogin', (e, method: ClaudeLoginMethod) => claudeLogin(e.sender, method === 'console' ? 'console' : 'claudeai'))
   ipcMain.on('agent:loginWrite', (e, id: number, text: string) => {
@@ -816,7 +943,9 @@ export function registerAgentIpc(): void {
 
   // 没打开文件夹时，进程在用户主目录里运行，会话也记在那里
   const dirOf = (cwd: unknown) => (typeof cwd === 'string' && cwd ? cwd : os.homedir())
-  ipcMain.handle('agent:sessions', (_e, plugin: string, cwd: string | null) => (plugin === 'claude' ? claudeSessions(dirOf(cwd)) : []))
+  ipcMain.handle('agent:sessions', (_e, plugin: string, cwd: string | null) =>
+    plugin === 'claude' ? claudeSessions(dirOf(cwd)) : plugin === 'gemini' ? geminiSessions(dirOf(cwd)) : []
+  )
   ipcMain.handle('agent:transcript', (_e, plugin: string, cwd: string | null, id: string) => {
     if (plugin === 'deepseek') return deepseekTranscript(String(id))
     if (plugin !== 'claude') throw new Error('不支持')

@@ -1,0 +1,100 @@
+{
+  "id": "web-ai",
+  "name": "网页大模型助手",
+  "version": "1.0.0",
+  "publisher": "Infinite Studio",
+  "description": "在编辑器右侧分栏里直接使用网页版 Claude、ChatGPT、Gemini、DeepSeek：点右上角的地球按钮选择网站，用你自己的账号登录（登录状态保存在本机，各网站分开保存）。Alt K 把选中的代码或当前文件粘贴进网页的输入框，网页里的外部链接用系统浏览器打开。",
+  "category": "llm",
+  "homepage": "https://github.com/JunjiDuan/infinite-studio/tree/main/marketplace/plugins/web-ai",
+  "minStudio": "0.1.0",
+  "minApi": 4,
+  "icon": "icon.svg",
+  "permissions": [
+    "webPanel"
+  ],
+  "webPanel": {
+    "title": "网页大模型助手",
+    "sites": [
+      {
+        "id": "claude",
+        "name": "Claude",
+        "url": "https://claude.ai/new",
+        "icon": "sites/claude.svg",
+        "hosts": [
+          "claude.ai",
+          "*.claude.ai",
+          "claude.com",
+          "*.claude.com",
+          "*.anthropic.com",
+          "accounts.google.com",
+          "accounts.youtube.com",
+          "appleid.apple.com",
+          "idmsa.apple.com"
+        ],
+        "input": [
+          "div.ProseMirror[contenteditable=\"true\"]",
+          "[contenteditable=\"true\"][role=\"textbox\"]"
+        ]
+      },
+      {
+        "id": "chatgpt",
+        "name": "ChatGPT",
+        "url": "https://chatgpt.com/",
+        "icon": "sites/chatgpt.svg",
+        "hosts": [
+          "chatgpt.com",
+          "*.chatgpt.com",
+          "*.openai.com",
+          "accounts.google.com",
+          "accounts.youtube.com",
+          "login.live.com",
+          "login.microsoftonline.com",
+          "account.live.com",
+          "appleid.apple.com",
+          "idmsa.apple.com"
+        ],
+        "input": [
+          "#prompt-textarea",
+          "div.ProseMirror[contenteditable=\"true\"]",
+          "textarea[name=\"prompt-textarea\"]"
+        ]
+      },
+      {
+        "id": "gemini",
+        "name": "Gemini",
+        "url": "https://gemini.google.com/app",
+        "icon": "sites/gemini.svg",
+        "hosts": [
+          "gemini.google.com",
+          "accounts.google.com",
+          "accounts.youtube.com",
+          "consent.google.com"
+        ],
+        "input": [
+          "rich-textarea div.ql-editor[contenteditable=\"true\"]",
+          "div.ql-editor[contenteditable=\"true\"]",
+          "[contenteditable=\"true\"][role=\"textbox\"]"
+        ]
+      },
+      {
+        "id": "deepseek",
+        "name": "DeepSeek",
+        "url": "https://chat.deepseek.com/",
+        "icon": "sites/deepseek.svg",
+        "hosts": [
+          "chat.deepseek.com",
+          "*.deepseek.com",
+          "accounts.google.com",
+          "accounts.youtube.com",
+          "appleid.apple.com",
+          "idmsa.apple.com",
+          "open.weixin.qq.com"
+        ],
+        "input": [
+          "textarea#chat-input",
+          "textarea[placeholder]"
+        ]
+      }
+    ]
+  }
+}

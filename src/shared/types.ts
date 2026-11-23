@@ -259,6 +259,38 @@ export interface SysSample {
   app: { cpu: number; mem: number; procs: SysProc[] }
 }
 
+/** 网页面板的状态（主进程推送） */
+export interface WebPanelState {
+  url: string
+  title: string
+  loading: boolean
+  canGoBack: boolean
+  canGoForward: boolean
+  /** 主页面加载失败的原因；成功加载后为 null */
+  error: string | null
+  /** 网页进程崩溃了 */
+  crashed: boolean
+  /** 缩放级别（0 为 100%） */
+  zoom: number
+}
+
+/** 网页面板里按下、要交给 IDE 处理的快捷键 */
+export interface WebPanelKey {
+  key: string
+  code: string
+  ctrlKey: boolean
+  shiftKey: boolean
+  altKey: boolean
+  metaKey: boolean
+}
+
+export interface WebPanelRect {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 export interface Api {
   platform: string
   /** 设置里选的界面语言（zh / en / 语言包的代码）；没选过或语言包已不可用时为 null */
@@ -374,6 +406,30 @@ export interface Api {
     ): Promise<{ status: number; statusText: string; url: string; headers: Record<string, string>; body: Uint8Array }>
     onProgress(cb: (id: string, received: number, total: number) => void): () => void
   }
+  /** 网页面板（插件 manifest 里的 webPanel）：网页由主进程的 WebContentsView 显示，叠在页面的占位元素上 */
+  webPanel: {
+    /** 打开插件声明的某个网站，返回面板编号；url 为空时打开首页（不在允许的网址里时也打开首页） */
+    create(opts: { plugin: string; site: string; url?: string; zoom?: number }): Promise<number>
+    /** 占位元素的位置（CSS 像素）；null 表示隐藏 */
+    layout(id: number, rect: WebPanelRect | null): void
+    focus(id: number): void
+    nav(id: number, action: 'back' | 'forward' | 'reload' | 'stop' | 'home'): void
+    zoom(id: number, level: number): void
+    /** 当前画面的截图（data URL），被浮层挡住时代替网页显示 */
+    capture(id: number): Promise<string | null>
+    /** 把文本粘贴进网页的输入框；找不到输入框时文本留在剪贴板里 */
+    insert(id: number, text: string): Promise<'ok' | 'noinput'>
+    /** 用系统浏览器打开当前网址 */
+    external(id: number): void
+    devtools(id: number): void
+    /** 清除这个网站的登录状态和缓存，回到首页 */
+    clearData(id: number): Promise<void>
+    destroy(id: number): void
+    onState(cb: (id: number, s: WebPanelState) => void): () => void
+    onKey(cb: (id: number, key: WebPanelKey) => void): () => void
+    /** 网页获得了键盘焦点（用户点进了网页） */
+    onFocus(cb: (id: number) => void): () => void
+  }
   plugins: {
     /** 检测插件对应的命令行工具是否已安装 */
     detect(id: string): Promise<PluginStatus>
@@ -428,6 +484,10 @@ export interface Api {
     deepseekKeyStatus(): Promise<{ configured: boolean; masked?: string; source?: 'file' | 'env' }>
     /** DeepSeek：保存 API Key 到 ~/.dsh/.credentials.yaml；null 删除 */
     setDeepseekKey(key: string | null): Promise<void>
+    /** Gemini：gemini 记下的登录方式（oauth-personal / gemini-api-key / vertex-ai…），以及可用的 API Key（IDE 里保存的或环境变量） */
+    geminiAuthStatus(): Promise<{ authType: string | null; key?: { masked: string; source: 'app' | 'env' } }>
+    /** Gemini：用系统密钥存储加密保存 API Key（启动 gemini 时作为 GEMINI_API_KEY 传入）；null 删除 */
+    setGeminiKey(key: string | null): Promise<void>
     /** DeepSeek：从本地日志读会话标题和更新时间（空会话不返回） */
     deepseekSessionMeta(ids: string[]): Promise<Record<string, { title: string; updatedAt: number }>>
     /** 按天汇总本地会话记录里的 token 消耗 */
