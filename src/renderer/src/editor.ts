@@ -412,6 +412,13 @@ function removeGroup(g: Group): void {
   // 收起前记下当前宽度：动画期间内容保持这个宽度并被裁剪，整体滑出而不是被挤压重排
   g.el.style.setProperty('--pin-w', `${g.el.getBoundingClientRect().width}px`)
   groups.splice(i, 1)
+  // 把这一组的宽度份额交给相邻的组（优先右侧）。否则拆分时减半的 size 收不回来：
+  // 只剩一组时 flex-grow < 1 只会占据对应比例的宽度，右边留下一大片空白
+  const heir = groups[Math.min(i, groups.length - 1)]
+  const from = heir.size
+  heir.size += g.size
+  heir.el.style.flexGrow = String(heir.size)
+  animate(heir.el, [{ flexGrow: from }, { flexGrow: heir.size }], { duration: DUR.md, easing: EASE.inOut })
   if (activeGroup === g) focusGroup(groups[Math.min(i, groups.length - 1)])
   groupsEl.classList.toggle('multi', groups.length > 1)
   placeTrailing()
@@ -431,6 +438,9 @@ function removeGroup(g: Group): void {
 /** 按顺序排列组，组之间插入可拖动的分隔条 */
 function layoutGroups(): void {
   const children: HTMLElement[] = []
+  // 兜底：份额之和小于 1 时 flex 不会填满整行，按比例放大
+  const total = groups.reduce((n, g) => n + g.size, 0)
+  if (total > 0 && total < 1) for (const g of groups) g.size /= total
   groups.forEach((g, i) => {
     if (i > 0) children.push(makeSash(groups[i - 1], g))
     g.el.style.flexGrow = String(g.size)
