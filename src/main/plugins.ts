@@ -46,7 +46,13 @@ function fallbackPaths(command: string): string[] {
   const home = os.homedir()
   if (isWin) {
     const appData = process.env.APPDATA ?? path.join(home, 'AppData', 'Roaming')
-    return [path.join(home, '.local', 'bin', `${command}.exe`), path.join(appData, 'npm', `${command}.cmd`)]
+    const localAppData = process.env.LOCALAPPDATA ?? path.join(home, 'AppData', 'Local')
+    return [
+      path.join(home, '.local', 'bin', `${command}.exe`),
+      path.join(appData, 'npm', `${command}.cmd`),
+      // Antigravity CLI 的安装脚本放在 %LOCALAPPDATA%gyin
+      path.join(localAppData, command, 'bin', `${command}.exe`)
+    ]
   }
   return [path.join(home, '.local', 'bin', command), path.join('/usr/local/bin', command), path.join('/opt/homebrew/bin', command), path.join(home, '.npm-global', 'bin', command)]
 }
@@ -139,7 +145,11 @@ async function detect(id: string): Promise<PluginStatus> {
   const l = await resolveLaunch(def.command, { systemNode: def.systemNode }).catch(() => null)
   const out = l ? await run(l.file, [...l.pre, '--version'], l.env) : null
   const version = out?.match(/\d+\.\d+\.\d+[\w.-]*/)?.[0]
-  return { installed: true, version, launch: isWin ? path.basename(file) : def.command }
+  // 应用启动之后才装好的工具（例如 agy 装在 %LOCALAPPDATA%\agy\bin）不在终端继承的 PATH 里：用完整路径（不含空格时）
+  const dirs = (process.env.PATH ?? '').split(path.delimiter).map((d) => path.resolve(d).toLowerCase())
+  const onPath = dirs.includes(path.dirname(file).toLowerCase())
+  const launch = !onPath && !/\s/.test(file) ? file : isWin ? path.basename(file) : def.command
+  return { installed: true, version, launch }
 }
 
 export function registerPluginIpc(): void {

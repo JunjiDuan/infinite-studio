@@ -9,13 +9,15 @@ import { basenameOf, clip, readText, rel } from './util'
 import { t } from '../i18n'
 
 /**
- * ACP（Agent Client Protocol）驱动：Gemini CLI（`gemini --acp`）、Kimi Code（`kimi acp`）和 DeepSeek Harness（`dsh --profile acp`）。
+ * ACP（Agent Client Protocol）驱动：Gemini CLI（`gemini --acp`）、Antigravity CLI（`agy acp`）、Kimi Code（`kimi acp`）和 DeepSeek Harness（`dsh --profile acp`）。
  * 每个对话一个常驻进程，JSON-RPC 2.0：initialize → session/new | session/load | session/resume →
  * session/prompt（期间 agent 推送 session/update、发来 session/request_permission）。
  *
  * 各自的差别：
  * - Gemini：Google 账号登录（authenticate oauth-personal，gemini 自己打开浏览器）或 API Key（IDE 加密保存，启动时传入）；
  *   有模式（session/set_mode）；没有 session/list，历史列表由主进程读 ~/.gemini 下的会话文件，session/load 回放。
+ * - Antigravity：Google 账号登录（authenticate oauth-personal，agy 自己打开浏览器；凭据存在系统钥匙串）；
+ *   不用它的模式，授权请求由界面按模式应答；session/list 列出历史，session/load 回放。
  * - Kimi：需要登录（kimi login 设备码）；有模式（session/set_mode）、斜杠命令、待办计划；session/load 回放历史。
  * - DeepSeek：API Key 存在 ~/.dsh/.credentials.yaml；没有模式（授权由界面按模式应答）；
  *   session/resume 不回放，历史由主进程读本地日志转换成 session/update。
@@ -107,6 +109,15 @@ export class AcpDriver implements Driver {
     return this.plugin === 'gemini'
   }
 
+  private get isAntigravity(): boolean {
+    return this.plugin === 'antigravity'
+  }
+
+  /** 授权请求由界面按模式应答（agent 没有可用的模式）：选“自动批准”时直接同意 */
+  private get uiModes(): boolean {
+    return this.plugin === 'deepseek' || this.isAntigravity
+  }
+
   /** 模式由 agent 自己执行（session/set_mode）；DeepSeek 没有模式，由界面应答授权 */
   private get agentModes(): boolean {
     return this.isKimi || this.isGemini
@@ -128,11 +139,13 @@ export class AcpDriver implements Driver {
       await this.ensureSession()
       if (this.isKimi) this.account = t('Kimi 账号')
       if (this.isGemini) this.account = await this.geminiAccount()
+      if (this.isAntigravity) this.account = t('Google 账号')
       this.host.capabilities()
     } catch (e) {
       const msg = (e as Error).message
       if (this.isKimi && /auth/i.test(msg)) this.host.note(t('请先登录 Kimi 账号'), 'action')
       else if (this.isGemini && /auth|api key|credential|login/i.test(msg)) this.host.note(t('请先登录 Gemini：Google 账号或 API Key'), 'action')
+      else if (this.isAntigravity && /auth|credential|login|sign in/i.test(msg)) this.host.note(t('请先登录 Antigravity：使用 Google 账号'), 'action')
       else this.host.note(msg, 'error')
     }
   }
@@ -248,7 +261,7 @@ export class AcpDriver implements Driver {
       this.activeModel = r.models.currentModelId ?? undefined
       this.host.capabilities()
     }
-    if (r?.modes && Array.isArray(r.modes.availableModes)) {
+    if (this.agentModes && r?.modes && Array.isArray(r.modes.availableModes)) {
       this.availableModes = r.modes.availableModes.map((m: Any) => String(m.id))
       const cur = r.modes.currentModeId
       if (cur && cur !== this.mode && !this.availableModes.includes(this.mode)) {
@@ -482,15 +495,16 @@ export class AcpDriver implements Driver {
   get loginMethods(): LoginMethod[] {
     if (this.isGemini) {
       return [
-        { id: 'google', label: t('使用 Google 账号登录'), hint: t('在浏览器中完成登录；个人 Google 账号有免费额度') },
         {
           id: 'apiKey',
           label: t('使用 Gemini API Key'),
           hint: t('在 aistudio.google.com 创建；用系统密钥存储加密保存在本机'),
           input: { label: 'Gemini API Key', placeholder: 'AIza…', secret: true }
-        }
+        },
+        { id: 'google', label: t('使用 Google 账号登录'), hint: t('仅限 Gemini Code Assist 企业版；个人 Google 账号请改用 Antigravity CLI 插件') }
       ]
     }
+    if (this.isAntigravity) return [{ id: 'google', label: t('使用 Google 账号登录'), hint: t('在浏览器中完成登录；个人 Google 账号（免费、Pro、Ultra）都可以使用') }]
     if (this.isKimi) return [{ id: 'kimi', label: t('使用 Kimi 账号登录'), hint: t('在浏览器中确认设备码，Kimi 会员或 Kimi Code 套餐') }]
     return [
       {
@@ -504,6 +518,7 @@ export class AcpDriver implements Driver {
 
   async login(method: string, ui: LoginUi): Promise<void> {
     if (this.isGemini) return this.geminiLogin(method, ui)
+    if (this.isAntigravity) return this.antigravityLogin(ui)
     if (!this.isKimi) {
       const key = ui.input?.trim()
       if (!key) throw new Error(t('请输入 API Key'))
@@ -564,12 +579,34 @@ export class AcpDriver implements Driver {
         this.stopProcess()
         reject(new Error(t('已取消登录')))
       })
-      this.request('authenticate', params, 10 * 60_000).then(() => resolve(), reject)
+      this.request('authenticate', params, 10 * 60_000).then(
+        () => resolve(),
+        (e: Error) =>
+          // 2026-06 起 Google 不再让 Gemini CLI 用个人账号登录（UNSUPPORTED_CLIENT，提示迁移到 Antigravity）
+          reject(/no longer supported|UNSUPPORTED_CLIENT|antigravity/i.test(e.message) ? new Error(t('Google 已停止支持个人账号登录 Gemini CLI。请改用 Gemini API Key，或在插件页安装 Antigravity CLI 用 Google 账号登录')) : e)
+      )
     })
     // 已建的会话还拿着旧凭据：重启进程（API Key 由主进程在启动时传入）
     this.stopProcess()
     await this.ensureSession()
     this.account = await this.geminiAccount()
+    this.host.capabilities()
+  }
+
+  /** Antigravity 登录：authenticate 一直等到浏览器里登录完成（agy 自己打开浏览器），凭据存进系统钥匙串 */
+  private async antigravityLogin(ui: LoginUi): Promise<void> {
+    await this.ensure()
+    await new Promise<void>((resolve, reject) => {
+      ui.onCancel(() => {
+        this.stopProcess()
+        reject(new Error(t('已取消登录')))
+      })
+      this.request('authenticate', { methodId: 'oauth-personal' }, 10 * 60_000).then(() => resolve(), reject)
+    })
+    // 已建的会话还拿着旧凭据：重启进程
+    this.stopProcess()
+    await this.ensureSession()
+    this.account = t('Google 账号')
     this.host.capabilities()
   }
 
@@ -584,6 +621,7 @@ export class AcpDriver implements Driver {
   }
 
   async logout(): Promise<void> {
+    if (this.isAntigravity) throw new Error(t('Google 账号的登录由 Antigravity CLI 管理：在终端里运行 agy，输入 /logout 退出登录'))
     if (this.isGemini) {
       const st = await window.api.agent.geminiAuthStatus().catch(() => null)
       if (st?.authType === 'oauth-personal') throw new Error(t('Google 账号的登录由 Gemini CLI 管理：在终端里运行 gemini，输入 /auth 切换登录方式'))
@@ -706,7 +744,7 @@ export class AcpDriver implements Driver {
         return
       }
       case 'current_mode_update':
-        if (u.currentModeId) {
+        if (this.agentModes && u.currentModeId) {
           this.mode = String(u.currentModeId)
           this.host.setMode(this.mode)
         }
@@ -783,8 +821,8 @@ export class AcpDriver implements Driver {
     }
     const options: Any[] = Array.isArray(p.options) ? p.options : []
     const pick = (kinds: string[]) => options.find((o) => kinds.includes(o.kind))
-    // DeepSeek 的“自动批准”模式：由界面直接同意
-    if (this.plugin === 'deepseek' && this.mode === 'auto') {
+    // DeepSeek / Antigravity 的“自动批准”模式：由界面直接同意
+    if (this.uiModes && this.mode === 'auto') {
       const allow = pick(['allow_always', 'allow_once'])
       if (allow) return this.reply(id, { outcome: { outcome: 'selected', optionId: allow.optionId } })
     }

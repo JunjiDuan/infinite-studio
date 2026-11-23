@@ -12,6 +12,8 @@ export interface PluginDef {
   command: string
   /** npm 全局包名，用于一键安装（大模型插件） */
   npmPackage?: string
+  /** 不走 npm 的大模型插件：官方安装脚本（在终端里执行） */
+  installScript?: { win: string; unix: string }
   /** 大模型插件：有内置对话面板（协议驱动）；没有的只能在终端里运行 */
   chat?: boolean
   /** JS 入口用本机安装的 node 运行（工具拒绝在 Electron 内置的 Node 里运行时） */
@@ -51,13 +53,28 @@ export const PLUGINS: PluginDef[] = [
     category: 'llm',
     name: 'Gemini CLI',
     publisher: 'Google',
-    description: 'Google 的开源命令行编程助手，由 Gemini 模型驱动：读懂代码库、改代码、跑命令。用 Google 账号登录即有免费额度。',
+    description: 'Google 的开源命令行编程助手，由 Gemini 模型驱动：读懂代码库、改代码、跑命令。个人 Google 账号已不能登录，需要 Gemini API Key；用 Google 账号请改用 Antigravity CLI。',
     command: 'gemini',
     npmPackage: '@google/gemini-cli',
     chat: true,
     // 依赖按本机 Node 编译的原生模块（钥匙串、终端），不能在 Electron 内置的 Node 里运行
     systemNode: true,
     homepage: 'https://github.com/google-gemini/gemini-cli'
+  },
+  {
+    id: 'antigravity',
+    category: 'llm',
+    name: 'Antigravity CLI',
+    publisher: 'Google',
+    description: 'Google 的命令行编程助手（agy），Gemini CLI 的后继者：读懂代码库、改代码、跑命令。个人 Google 账号登录即可使用，有免费额度。',
+    command: 'agy',
+    // 官方安装脚本：校验 SHA512 后放到 %LOCALAPPDATA%gyin（Windows）/ ~/.local/bin
+    installScript: {
+      win: 'powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://antigravity.google/cli/install.ps1 | iex"',
+      unix: 'curl -fsSL https://antigravity.google/cli/install.sh | bash'
+    },
+    chat: true,
+    homepage: 'https://antigravity.google/docs/cli'
   },
   {
     id: 'deepseek',
