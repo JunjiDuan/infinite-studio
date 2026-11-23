@@ -1,7 +1,7 @@
 {
   "id": "lang-ko",
   "name": "한국어",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publisher": "Infinite Studio",
   "description": "Infinite Studio를 한국어로 표시합니다. 韩语界面语言包：安装后在“多语言设置”里切换成한국어。",
   "category": "locale",

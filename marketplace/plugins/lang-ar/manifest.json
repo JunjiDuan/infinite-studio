@@ -1,7 +1,7 @@
 {
   "id": "lang-ar",
   "name": "العربية",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publisher": "Infinite Studio",
   "description": "واجهة Infinite Studio باللغة العربية. 阿拉伯语界面语言包：安装后在“多语言设置”里切换成العربية。",
   "category": "locale",

@@ -1,7 +1,7 @@
 {
   "id": "lang-es",
   "name": "Español",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publisher": "Infinite Studio",
   "description": "Interfaz de Infinite Studio en español. 西班牙语界面语言包：安装后在“多语言设置”里切换成Español。",
   "category": "locale",

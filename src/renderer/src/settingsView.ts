@@ -108,7 +108,7 @@ function renderLanguages(): void {
   )
 }
 
-/** browseLanguages：打开插件面板的“语言”分类 */
+/** browseLanguages：打开插件面板的“多语言支持”分类 */
 export function initSettings(container: HTMLElement, closed: () => void, browseLanguages?: () => void): void {
   host = container
   onClose = closed
@@ -352,7 +352,7 @@ function build(): void {
       h(
         'div',
         { class: 'lang-more' },
-        h('p', { class: 'muted' }, t('更多语言由语言包插件提供：在插件面板的“语言”分类里安装后，就会出现在这里。')),
+        h('p', { class: 'muted' }, t('更多语言由语言包插件提供：在插件面板的“多语言支持”分类里安装后，就会出现在这里。')),
         h('button', { class: 'btn small', onClick: () => onBrowseLanguages() }, t('获取更多语言'))
       )
     )

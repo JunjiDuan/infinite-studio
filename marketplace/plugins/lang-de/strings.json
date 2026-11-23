@@ -1124,9 +1124,9 @@
   "没有安装 debugpy，请在插件页点击 Python 插件的“安装”": "debugpy ist nicht installiert; klicke auf der Seite „Plugins“ beim Python-Plugin auf „Installieren“",
   "没有找到调试器（gdb），请先在插件页安装 C/C++ 插件": "Debugger (gdb) nicht gefunden; installiere das C/C++-Plugin auf der Seite „Plugins“",
   "编译失败": "Kompilierung fehlgeschlagen",
-  "语言##插件分类": "Sprachen",
+  "多语言支持": "Sprachen",
   "使用此语言": "Diese Sprache verwenden",
   "当前语言": "Aktuelle Sprache",
-  "更多语言由语言包插件提供：在插件面板的“语言”分类里安装后，就会出现在这里。": "Weitere Sprachen gibt es als Sprachpaket-Plugins. Installiere eines in der Kategorie „Sprachen“ auf der Seite „Plugins“, dann erscheint es hier.",
+  "更多语言由语言包插件提供：在插件面板的“多语言支持”分类里安装后，就会出现在这里。": "Weitere Sprachen gibt es als Sprachpaket-Plugins. Installiere eines in der Kategorie „Sprachen“ auf der Seite „Plugins“, dann erscheint es hier.",
   "获取更多语言": "Weitere Sprachen holen"
 }

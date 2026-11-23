@@ -1124,9 +1124,9 @@
   "没有安装 debugpy，请在插件页点击 Python 插件的“安装”": "debugpy no está instalado; haz clic en Instalar en el complemento Python de la página Complementos",
   "没有找到调试器（gdb），请先在插件页安装 C/C++ 插件": "No se encontró el depurador (gdb); instala el complemento C/C++ desde la página Complementos",
   "编译失败": "Error de compilación",
-  "语言##插件分类": "Idiomas",
+  "多语言支持": "Idiomas",
   "使用此语言": "Usar este idioma",
   "当前语言": "Idioma actual",
-  "更多语言由语言包插件提供：在插件面板的“语言”分类里安装后，就会出现在这里。": "Hay más idiomas disponibles como complementos de paquete de idioma. Instala uno desde la categoría «Idiomas» de la página Complementos y aparecerá aquí.",
+  "更多语言由语言包插件提供：在插件面板的“多语言支持”分类里安装后，就会出现在这里。": "Hay más idiomas disponibles como complementos de paquete de idioma. Instala uno desde la categoría «Idiomas» de la página Complementos y aparecerá aquí.",
   "获取更多语言": "Obtener más idiomas"
 }

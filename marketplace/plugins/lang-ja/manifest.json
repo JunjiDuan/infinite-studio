@@ -1,7 +1,7 @@
 {
   "id": "lang-ja",
   "name": "日本語",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publisher": "Infinite Studio",
   "description": "Infinite Studio を日本語で表示します。 日语界面语言包：安装后在“多语言设置”里切换成日本語。",
   "category": "locale",

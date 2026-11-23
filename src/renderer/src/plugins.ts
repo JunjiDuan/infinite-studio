@@ -21,7 +21,7 @@ const CATEGORIES: [PluginCategory, string][] = [
   ['llm', '大模型'],
   ['language', '编程语言'],
   ['productivity', '生产力工具'],
-  ['locale', '语言##插件分类']
+  ['locale', '多语言支持']
 ]
 let refreshing: Promise<void> | null = null
 onMarketChange(() => changed())

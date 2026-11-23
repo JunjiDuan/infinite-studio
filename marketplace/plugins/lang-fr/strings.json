@@ -1124,9 +1124,9 @@
   "没有安装 debugpy，请在插件页点击 Python 插件的“安装”": "debugpy n’est pas installé ; cliquez sur Installer dans l’extension Python de la page Extensions",
   "没有找到调试器（gdb），请先在插件页安装 C/C++ 插件": "Débogueur (gdb) introuvable ; installez l’extension C/C++ depuis la page Extensions",
   "编译失败": "Échec de la compilation",
-  "语言##插件分类": "Langues",
+  "多语言支持": "Langues",
   "使用此语言": "Utiliser cette langue",
   "当前语言": "Langue actuelle",
-  "更多语言由语言包插件提供：在插件面板的“语言”分类里安装后，就会出现在这里。": "D’autres langues sont disponibles sous forme d’extensions de module linguistique. Installez-en une depuis la catégorie « Langues » de la page Extensions et elle apparaîtra ici.",
+  "更多语言由语言包插件提供：在插件面板的“多语言支持”分类里安装后，就会出现在这里。": "D’autres langues sont disponibles sous forme d’extensions de module linguistique. Installez-en une depuis la catégorie « Langues » de la page Extensions et elle apparaîtra ici.",
   "获取更多语言": "Obtenir d’autres langues"
 }

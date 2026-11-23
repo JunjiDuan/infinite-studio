@@ -1,7 +1,7 @@
 {
   "id": "lang-ru",
   "name": "Русский",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publisher": "Infinite Studio",
   "description": "Интерфейс Infinite Studio на русском языке. 俄语界面语言包：安装后在“多语言设置”里切换成Русский。",
   "category": "locale",
