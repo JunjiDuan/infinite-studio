@@ -1215,9 +1215,7 @@ class ChatView implements ChatHost {
             '/',
             this.def.id === 'kimi'
               ? t('打开命令菜单：/compact、/init…')
-              : this.def.id === 'gemini'
-                ? t('打开命令菜单：/memory、/init…')
-                : t('打开命令菜单：/model、/resume、/login…')
+              : t('打开命令菜单：/model、/resume、/login…')
           ],
           [t('模式'), (AGENT_MODES[this.def.id] ?? []).map((m) => t(m.label)).join(' / ')],
           [t('历史'), t('点击标题查看并续接之前的对话')],

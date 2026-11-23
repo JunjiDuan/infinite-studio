@@ -49,24 +49,11 @@ export const PLUGINS: PluginDef[] = [
     homepage: 'https://github.com/openai/codex'
   },
   {
-    id: 'gemini',
-    category: 'llm',
-    name: 'Gemini CLI',
-    publisher: 'Google',
-    description: 'Google 的开源命令行编程助手，由 Gemini 模型驱动：读懂代码库、改代码、跑命令。个人 Google 账号已不能登录，需要 Gemini API Key；用 Google 账号请改用 Antigravity CLI。',
-    command: 'gemini',
-    npmPackage: '@google/gemini-cli',
-    chat: true,
-    // 依赖按本机 Node 编译的原生模块（钥匙串、终端），不能在 Electron 内置的 Node 里运行
-    systemNode: true,
-    homepage: 'https://github.com/google-gemini/gemini-cli'
-  },
-  {
     id: 'antigravity',
     category: 'llm',
-    name: 'Antigravity CLI',
+    name: 'Gemini',
     publisher: 'Google',
-    description: 'Google 的命令行编程助手（agy），Gemini CLI 的后继者：读懂代码库、改代码、跑命令。个人 Google 账号登录即可使用，有免费额度。',
+    description: 'Google 的命令行编程助手，由 Gemini 模型驱动（Antigravity CLI，命令 agy）：读懂代码库、改代码、跑命令。个人 Google 账号登录即可使用，有免费额度。',
     command: 'agy',
     // 官方安装脚本：校验 SHA512 后放到 %LOCALAPPDATA%gyin（Windows）/ ~/.local/bin
     installScript: {

@@ -484,10 +484,6 @@ export interface Api {
     deepseekKeyStatus(): Promise<{ configured: boolean; masked?: string; source?: 'file' | 'env' }>
     /** DeepSeek：保存 API Key 到 ~/.dsh/.credentials.yaml；null 删除 */
     setDeepseekKey(key: string | null): Promise<void>
-    /** Gemini：gemini 记下的登录方式（oauth-personal / gemini-api-key / vertex-ai…），以及可用的 API Key（IDE 里保存的或环境变量） */
-    geminiAuthStatus(): Promise<{ authType: string | null; key?: { masked: string; source: 'app' | 'env' } }>
-    /** Gemini：用系统密钥存储加密保存 API Key（启动 gemini 时作为 GEMINI_API_KEY 传入）；null 删除 */
-    setGeminiKey(key: string | null): Promise<void>
     /** DeepSeek：从本地日志读会话标题和更新时间（空会话不返回） */
     deepseekSessionMeta(ids: string[]): Promise<Record<string, { title: string; updatedAt: number }>>
     /** 按天汇总本地会话记录里的 token 消耗 */

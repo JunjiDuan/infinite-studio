@@ -158,8 +158,6 @@ const api: Api = {
     kimiLogin: () => ipcRenderer.invoke('agent:kimiLogin'),
     deepseekKeyStatus: () => ipcRenderer.invoke('agent:deepseekKeyStatus'),
     setDeepseekKey: (key) => ipcRenderer.invoke('agent:setDeepseekKey', key),
-    geminiAuthStatus: () => ipcRenderer.invoke('agent:geminiAuthStatus'),
-    setGeminiKey: (key) => ipcRenderer.invoke('agent:setGeminiKey', key),
     deepseekSessionMeta: (ids) => ipcRenderer.invoke('agent:deepseekSessionMeta', ids),
     dailyUsage: (plugin) => ipcRenderer.invoke('agent:dailyUsage', plugin)
   },

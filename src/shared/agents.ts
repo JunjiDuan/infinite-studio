@@ -4,7 +4,7 @@
  * 两个插件都按官方 VS Code 扩展的方式驱动命令行：
  * - Claude Code：常驻 `claude -p --input-format stream-json`，通过 control_request 协议交互；
  * - Codex：常驻 `codex app-server`，JSON-RPC 协议。
- * - Gemini CLI / Antigravity CLI / Kimi Code / DeepSeek Harness：常驻 ACP 服务（`gemini --acp` / `agy acp` / `kimi acp` / `dsh --profile acp`），JSON-RPC 协议。
+ * - Gemini（Antigravity CLI）/ Kimi Code / DeepSeek Harness：常驻 ACP 服务（`agy acp` / `kimi acp` / `dsh --profile acp`），JSON-RPC 协议。
  */
 
 export interface AgentMode {
@@ -41,20 +41,13 @@ export const KIMI_MODES: AgentMode[] = [
   { id: 'yolo', label: '全部批准', hint: '不经确认执行所有操作（包括运行命令），请谨慎使用' }
 ]
 
-/** Gemini CLI 的模式（ACP session/set_mode，id 与 gemini 的 approval mode 一致） */
-export const GEMINI_MODES: AgentMode[] = [
-  { id: 'default', label: '编辑前询问', hint: '修改文件、运行命令前都会征求你的同意' },
-  { id: 'autoEdit', label: '自动编辑', hint: '直接修改文件；运行命令等其它操作仍会询问' },
-  { id: 'yolo', label: '全部批准', hint: '不经确认执行所有操作（包括运行命令），请谨慎使用' }
-]
-
 /** DeepSeek Harness 的 ACP 没有模式，授权请求由界面按模式应答 */
 export const DEEPSEEK_MODES: AgentMode[] = [
   { id: 'ask', label: '编辑前询问', hint: '修改文件、运行命令前都会征求你的同意' },
   { id: 'auto', label: '自动批准', hint: '自动同意所有授权请求（仍受工作区沙箱限制），请谨慎使用' }
 ]
 
-/** Antigravity CLI：不用它的会话模式，授权请求由界面按模式应答（它自己的权限规则仍然生效） */
+/** Gemini（Antigravity CLI，插件 id 仍为 antigravity）：不用它的会话模式，授权请求由界面按模式应答（它自己的权限规则仍然生效） */
 export const ANTIGRAVITY_MODES: AgentMode[] = [
   { id: 'ask', label: '编辑前询问', hint: '修改文件、运行命令前都会征求你的同意' },
   { id: 'auto', label: '自动批准', hint: '自动同意所有授权请求，请谨慎使用' }
@@ -63,14 +56,13 @@ export const ANTIGRAVITY_MODES: AgentMode[] = [
 export const AGENT_MODES: Record<string, AgentMode[]> = {
   claude: CLAUDE_MODES,
   codex: CODEX_MODES,
-  gemini: GEMINI_MODES,
   antigravity: ANTIGRAVITY_MODES,
   kimi: KIMI_MODES,
   deepseek: DEEPSEEK_MODES
 }
 
 /** 走 ACP（Agent Client Protocol）的插件 → 启动参数 */
-export const ACP_ARGS: Record<string, string[]> = { gemini: ['--acp'], antigravity: ['acp'], kimi: ['acp'], deepseek: ['--profile', 'acp'] }
+export const ACP_ARGS: Record<string, string[]> = { antigravity: ['acp'], kimi: ['acp'], deepseek: ['--profile', 'acp'] }
 
 /** 启动一个对话进程 */
 export interface AgentStart {

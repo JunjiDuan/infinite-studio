@@ -1118,29 +1118,15 @@ export const EN: Record<string, string> = {
   '运行单元格': 'Run cell',
   '运行单元格 (Ctrl Enter)': 'Run cell (Ctrl Enter)',
   '重启内核': 'Restart kernel',
-  /* ---------- Gemini CLI ---------- */
-  'Google 的开源命令行编程助手，由 Gemini 模型驱动：读懂代码库、改代码、跑命令。个人 Google 账号已不能登录，需要 Gemini API Key；用 Google 账号请改用 Antigravity CLI。':
-    "Google's open-source command-line coding assistant, powered by Gemini: understands your codebase, edits code and runs commands. Personal Google accounts can no longer sign in, so it needs a Gemini API key; to use a Google account, switch to Antigravity CLI.",
-  '仅限 Gemini Code Assist 企业版；个人 Google 账号请改用 Antigravity CLI 插件': 'Gemini Code Assist Standard/Enterprise only; for a personal Google account use the Antigravity CLI plugin',
-  'Google 已停止支持个人账号登录 Gemini CLI。请改用 Gemini API Key，或在插件页安装 Antigravity CLI 用 Google 账号登录':
-    'Google no longer lets personal accounts sign in to Gemini CLI. Use a Gemini API key, or install Antigravity CLI from the Plugins page and sign in with your Google account',
-  '请先登录 Gemini：Google 账号或 API Key': 'Sign in to Gemini first: Google account or API key',
+  /* ---------- Gemini（Antigravity CLI） ---------- */
+  'Google 的命令行编程助手，由 Gemini 模型驱动（Antigravity CLI，命令 agy）：读懂代码库、改代码、跑命令。个人 Google 账号登录即可使用，有免费额度。':
+    "Google's command-line coding assistant, powered by Gemini (Antigravity CLI, command agy): understands your codebase, edits code and runs commands. Sign in with a personal Google account; free tier included.",
   '使用 Google 账号登录': 'Sign in with Google',
-  '在浏览器中完成登录；个人 Google 账号有免费额度': 'Finish signing in in your browser; personal Google accounts get a free tier',
-  '使用 Gemini API Key': 'Use a Gemini API key',
-  '在 aistudio.google.com 创建；用系统密钥存储加密保存在本机': 'Create one at aistudio.google.com; stored on this computer, encrypted with the system key store',
   'Google 账号': 'Google account',
-  '打开命令菜单：/memory、/init…': 'Open the command menu: /memory, /init…',
-  'Google 账号的登录由 Gemini CLI 管理：在终端里运行 gemini，输入 /auth 切换登录方式':
-    'Google sign-in is managed by Gemini CLI: run gemini in a terminal and use /auth to switch sign-in method',
-  'API Key 来自环境变量 GEMINI_API_KEY，请在那里删除': 'The API key comes from the GEMINI_API_KEY environment variable; remove it there',
-  /* ---------- Antigravity CLI ---------- */
-  'Google 的命令行编程助手（agy），Gemini CLI 的后继者：读懂代码库、改代码、跑命令。个人 Google 账号登录即可使用，有免费额度。':
-    "Google's command-line coding assistant (agy), the successor to Gemini CLI: understands your codebase, edits code and runs commands. Sign in with a personal Google account; free tier included.",
-  '请先登录 Antigravity：使用 Google 账号': 'Sign in to Antigravity first with your Google account',
+  '请先登录 Gemini：使用 Google 账号': 'Sign in to Gemini first with your Google account',
   '在浏览器中完成登录；个人 Google 账号（免费、Pro、Ultra）都可以使用': 'Finish signing in in your browser; works with personal Google accounts (Free, Pro and Ultra)',
-  'Google 账号的登录由 Antigravity CLI 管理：在终端里运行 agy，输入 /logout 退出登录':
-    'Google sign-in is managed by Antigravity CLI: run agy in a terminal and use /logout to sign out',
+  'Google 账号的登录由 Gemini 命令行工具管理：在终端里运行 agy，输入 /logout 退出登录':
+    'Google sign-in is managed by the Gemini command-line tool: run agy in a terminal and use /logout to sign out',
   '自动同意所有授权请求，请谨慎使用': 'Automatically approve every permission request; use with care',
   /* ---------- 网页面板（网页大模型助手） ---------- */
   切换网站: 'Switch site',
