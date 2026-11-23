@@ -99,9 +99,14 @@ function switchUaForGoogleAuth(wc: WebContents): void {
     if (!isMainFrame || isSameDocument || !/^https:/i.test(url)) return
     const want = isGoogleAuth(url) ? firefoxUserAgent() : wc.session.getUserAgent()
     if (wc.getUserAgent() === want) return
-    wc.setUserAgent(want)
-    // navigator.userAgent 在这次跳转开始时就定下了：用新的 User-Agent 重新打开，请求头和页面里看到的才一致
-    void wc.loadURL(url, { userAgent: want }).catch(() => undefined)
+    // 不能在跳转事件里同步发起新的跳转：在 did-redirect-navigation 里直接 loadURL 会让整个主进程崩溃
+    // （例如 Gemini 的“登录”先打开 gemini.google.com/signin，再重定向到 accounts.google.com）。放到下一轮事件循环再做
+    setImmediate(() => {
+      if (wc.isDestroyed() || wc.getUserAgent() === want) return
+      wc.setUserAgent(want)
+      // navigator.userAgent 在这次跳转开始时就定下了：用新的 User-Agent 重新打开，请求头和页面里看到的才一致
+      void wc.loadURL(url, { userAgent: want }).catch(() => undefined)
+    })
   }
   wc.on('did-start-navigation', (d) => {
     const nav = d as unknown as { url: string; isMainFrame: boolean; isSameDocument: boolean }
