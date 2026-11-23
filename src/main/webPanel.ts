@@ -7,7 +7,7 @@
  * - 沙箱、没有 preload、没有 Node：网页拿不到 IDE 的任何接口
  * - 新标签页 / 新窗口：manifest 允许的网址（网站自己、第三方登录）留在面板里，其他链接交给系统浏览器。
  *   同一页面里的 https 跳转都留在面板里（登录、单点登录会经过事先无法列出的网站），页面会在工具条上显示外站的域名
- * - User-Agent 去掉 Electron 和应用名，否则 Google 等登录页会当成“不安全的浏览器”拒绝登录
+ * - User-Agent 去掉 Electron 和应用名；Google 登录页（accounts.google.com）上再换成 Firefox 的，否则会被当成“不安全的浏览器”拒绝登录
  */
 import {
   BrowserWindow,
@@ -67,6 +67,52 @@ export function cleanUserAgent(ua: string): string {
     .join(' ')
 }
 
+/* ---------------- Google 登录 ---------------- */
+
+/**
+ * Google 的登录页即使在去掉 Electron 标识后仍会认出内嵌的 Chromium，提示“此浏览器或应用可能不安全”。
+ * 在 accounts.google.com 上换成 Firefox 的 User-Agent（同时去掉 Firefox 不会发的 Sec-CH-UA 请求头）就能正常登录，
+ * 登录完跳回网站时再换回原来的。
+ */
+const GOOGLE_AUTH_HOSTS = ['accounts.google.com']
+
+function isGoogleAuth(url: string): boolean {
+  try {
+    const u = new URL(url)
+    return u.protocol === 'https:' && GOOGLE_AUTH_HOSTS.includes(u.hostname)
+  } catch {
+    return false
+  }
+}
+
+/** 当前的 Firefox 版本（Firefox 128 于 2024-07-09 发布，之后每 4 周一个版本） */
+function firefoxUserAgent(): string {
+  const ver = 128 + Math.max(0, Math.floor((Date.now() - Date.UTC(2024, 6, 9)) / (28 * 86400_000)))
+  const plat =
+    process.platform === 'win32' ? 'Windows NT 10.0; Win64; x64' : process.platform === 'darwin' ? 'Macintosh; Intel Mac OS X 10.15' : 'X11; Linux x86_64'
+  return `Mozilla/5.0 (${plat}; rv:${ver}.0) Gecko/20100101 Firefox/${ver}.0`
+}
+
+/** 网页（面板或登录弹窗）跳到 / 离开 Google 登录页时切换 User-Agent，并用新的 User-Agent 重新打开这个网址 */
+function switchUaForGoogleAuth(wc: WebContents): void {
+  const check = (url: string, isMainFrame: boolean, isSameDocument: boolean): void => {
+    if (!isMainFrame || isSameDocument || !/^https:/i.test(url)) return
+    const want = isGoogleAuth(url) ? firefoxUserAgent() : wc.session.getUserAgent()
+    if (wc.getUserAgent() === want) return
+    wc.setUserAgent(want)
+    // navigator.userAgent 在这次跳转开始时就定下了：用新的 User-Agent 重新打开，请求头和页面里看到的才一致
+    void wc.loadURL(url, { userAgent: want }).catch(() => undefined)
+  }
+  wc.on('did-start-navigation', (d) => {
+    const nav = d as unknown as { url: string; isMainFrame: boolean; isSameDocument: boolean }
+    check(nav.url, nav.isMainFrame, nav.isSameDocument)
+  })
+  wc.on('did-redirect-navigation', (d) => {
+    const nav = d as unknown as { url: string; isMainFrame: boolean; isSameDocument: boolean }
+    check(nav.url, nav.isMainFrame, nav.isSameDocument)
+  })
+}
+
 function panelOf(wc: WebContents): Panel | undefined {
   for (const p of panels.values()) if (p.view.webContents === wc) return p
   return undefined
@@ -77,6 +123,15 @@ function setupSession(part: string): Session {
   if (configured.has(part)) return ses
   configured.add(part)
   ses.setUserAgent(cleanUserAgent(ses.getUserAgent()))
+  // 用 Firefox 的 User-Agent 时（Google 登录页）去掉 Chromium 才有的 Sec-CH-UA 请求头
+  ses.webRequest.onBeforeSendHeaders((details, cb) => {
+    const h = details.requestHeaders
+    const ua = Object.entries(h).find(([k]) => k.toLowerCase() === 'user-agent')?.[1] ?? ''
+    if (!/ Firefox\//.test(String(ua))) return cb({ requestHeaders: h })
+    const headers: Record<string, string | string[]> = {}
+    for (const [k, v] of Object.entries(h)) if (!/^sec-ch-ua/i.test(k)) headers[k] = v
+    cb({ requestHeaders: headers })
+  })
   ses.setPermissionRequestHandler((wc, permission, cb, details) => {
     // 网页里的“复制”按钮
     if (permission === 'clipboard-sanitized-write') return cb(true)
@@ -281,6 +336,7 @@ function contextMenu(p: Panel, params: Electron.ContextMenuParams): void {
 function guardPopup(p: Panel, child: BrowserWindow): void {
   child.setMenu(null)
   const cw = child.webContents
+  switchUaForGoogleAuth(cw)
   let first = true
   cw.on('did-start-navigation', (d) => {
     const nav = d as unknown as { url: string; isMainFrame: boolean; isSameDocument: boolean }
@@ -425,6 +481,7 @@ function watchOwner(owner: WebContents): void {
 
 function wire(p: Panel): void {
   const wc = p.view.webContents
+  switchUaForGoogleAuth(wc)
   const send = (): void => sendState(p)
   wc.on('did-start-loading', send)
   wc.on('did-stop-loading', () => {
