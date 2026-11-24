@@ -10,6 +10,7 @@ import { PLUGINS } from '../shared/plugins'
 import { ACP_ARGS, CLAUDE_MODES, type AgentStart, type ClaudeLoginMethod, type LoginEvent, type SessionInfo } from '../shared/agents'
 import { resolveLaunch } from './plugins'
 import { PANEL_MCP_SERVER, PANEL_TOOLS } from '../shared/ide'
+import { codexMcpArgs } from './mcpBridge'
 import { dailyUsage } from './usage'
 import { tm } from './i18n'
 
@@ -141,7 +142,9 @@ function kill(r: Run): void {
 async function start(wc: WebContents, req: AgentStart): Promise<number> {
   const def = PLUGINS.find((p) => p.id === req.plugin)
   if (!def) throw new Error(tm('未知插件'))
-  const args = req.plugin === 'claude' ? claudeArgs(req) : req.plugin === 'codex' ? ['app-server'] : (ACP_ARGS[req.plugin] ?? null)
+  // Codex：插件的 AI 工具通过 MCP 桥接提供（失败时照常启动，只是没有这些工具）
+  const codexMcp = req.plugin === 'codex' ? await codexMcpArgs(wc).catch(() => []) : []
+  const args = req.plugin === 'claude' ? claudeArgs(req) : req.plugin === 'codex' ? ['app-server', ...codexMcp] : (ACP_ARGS[req.plugin] ?? null)
   if (!args) throw new Error(tm('未知插件：{0}', req.plugin))
   const launch = await resolveLaunch(def.command, { systemNode: def.systemNode })
   if (!launch) throw new Error(tm('没有找到 {0} 命令行工具，请先在插件页安装', def.name))

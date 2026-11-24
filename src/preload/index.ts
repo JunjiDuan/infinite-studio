@@ -95,7 +95,8 @@ const api: Api = {
     readExternal: (p) => ipcRenderer.invoke('market:readExternal', p),
     clipboard: (id, op, text) => ipcRenderer.invoke('market:clipboard', id, op, text),
     fetch: (id, url, init) => ipcRenderer.invoke('market:fetch', id, url, init),
-    onProgress: (cb) => subscribe('market:progress', cb)
+    onProgress: (cb) => subscribe('market:progress', cb),
+    capture: (rect) => ipcRenderer.invoke('market:capture', rect)
   },
   webPanel: {
     create: (opts) => ipcRenderer.invoke('webpanel:create', opts),
@@ -159,7 +160,13 @@ const api: Api = {
     deepseekKeyStatus: () => ipcRenderer.invoke('agent:deepseekKeyStatus'),
     setDeepseekKey: (key) => ipcRenderer.invoke('agent:setDeepseekKey', key),
     deepseekSessionMeta: (ids) => ipcRenderer.invoke('agent:deepseekSessionMeta', ids),
-    dailyUsage: (plugin) => ipcRenderer.invoke('agent:dailyUsage', plugin)
+    dailyUsage: (plugin) => ipcRenderer.invoke('agent:dailyUsage', plugin),
+    mcpServers: () => ipcRenderer.invoke('agent:mcpServers')
+  },
+  agentTools: {
+    onRequest: (cb) => subscribe('agentTools:request', cb),
+    reply: (id, result) => ipcRenderer.send('agentTools:reply', id, result),
+    awake: (on) => ipcRenderer.send('agentTools:awake', !!on)
   },
   ide: {
     register: () => ipcRenderer.send('ide:register'),

@@ -1,6 +1,7 @@
 import type { LoginEvent, RateWindow, SessionInfo } from '../../../shared/agents'
-import { PANEL_MCP_SERVER, PANEL_TOOLS } from '../../../shared/ide'
-import { captureBaseline, findNewDiagnostics, panelDiagnostics, saveIfDirty } from '../ide'
+import { PANEL_MCP_SERVER } from '../../../shared/ide'
+import { agentToolDefs, agentToolLabel, callAgentTool, isReadOnlyAgentTool, ownToolName } from '../agentTools'
+import { captureBaseline, findNewDiagnostics, saveIfDirty } from '../ide'
 import { listen, unlisten } from './bus'
 import { applyHunks, countChanges, hunksFrom, lineDiff, type Hunk } from './diff'
 import type { ChatHost, DiffInfo, Driver, LoginMethod, LoginUi, ModelOption, PermissionOption, Question, SlashCommand, ToolView, UserInput } from './types'
@@ -609,14 +610,14 @@ export class ClaudeDriver implements Driver {
       case 'ping':
         return reply({ result: {} })
       case 'tools/list':
-        return reply({ result: { tools: PANEL_TOOLS } })
+        // 编辑器的诊断 + 插件提供的工具（PDF、演示文稿、思维导图……）
+        return reply({ result: { tools: agentToolDefs() } })
       case 'tools/call': {
-        const args = p.arguments ?? {}
-        if (p.name === 'getDiagnostics') {
-          const list = panelDiagnostics(typeof args.uri === 'string' && args.uri ? args.uri : undefined, typeof args.minSeverity === 'string' ? args.minSeverity : undefined)
-          return reply({ result: { content: [{ type: 'text', text: JSON.stringify(list) }] } })
-        }
-        return reply({ result: { content: [{ type: 'text', text: `Tool ${p.name} not found` }], isError: true } })
+        const args = p.arguments && typeof p.arguments === 'object' ? p.arguments : {}
+        void callAgentTool(String(p.name ?? ''), args)
+          .then((result) => reply({ result }))
+          .catch((e) => reply({ result: { content: [{ type: 'text', text: String(e?.message ?? e) }], isError: true } }))
+        return
       }
       default:
         return reply({ error: { code: -32601, message: `Method not found: ${msg.method}` } })
@@ -638,6 +639,9 @@ export class ClaudeDriver implements Driver {
     const name: string = r.tool_name
     const input = (r.input ?? {}) as Record<string, Any>
     const suggestions: Any[] = Array.isArray(r.permission_suggestions) ? r.permission_suggestions : []
+    // IDE 自己的只读工具（读 PDF 文字、截图……）不用问
+    const own = ownToolName(name)
+    if (own && isReadOnlyAgentTool(own)) return this.respond(requestId, { behavior: 'allow', updatedInput: input })
     const deny = (feedback?: string) =>
       this.respond(requestId, {
         behavior: 'deny',
@@ -833,6 +837,8 @@ export function describe(name: string, i: Any): Omit<ToolView, 'status'> {
         const path = uri ? decodeURIComponent(uri.replace(/^file:\/\/\/?/i, '')) : ''
         return { icon: 'search', verb: t('查看诊断'), summary: path ? rel(path) : t('所有文件'), path: path || undefined }
       }
+      const label = mcp && mcp[1] === PANEL_MCP_SERVER ? agentToolLabel(mcp[2]) : null
+      if (label) return { icon: 'mcp', verb: label.plugin, summary: typeof i.file === 'string' && i.file ? `${label.tool} · ${rel(i.file)}` : label.tool, input: jsonBrief(i) }
       if (mcp) return { icon: 'mcp', verb: mcp[1].replace(/_/g, ' '), summary: mcp[2], input: jsonBrief(i) }
       const brief = JSON.stringify(i)
       return { icon: 'other', verb: name, summary: brief === '{}' ? '' : clip(brief, 120), input: jsonBrief(i) }

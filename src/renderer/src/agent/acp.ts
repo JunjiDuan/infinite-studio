@@ -166,6 +166,13 @@ export class AcpDriver implements Driver {
     return this.starting
   }
 
+  /** 连回 IDE 的 MCP 桥接：插件提供的 AI 工具（PDF、演示文稿、思维导图……）。拿不到时不带 */
+  private mcp: Promise<Record<string, unknown>[]> | null = null
+  private mcpServers(): Promise<Record<string, unknown>[]> {
+    if (!this.mcp) this.mcp = window.api.agent.mcpServers().catch(() => [])
+    return this.mcp
+  }
+
   private write(msg: Record<string, unknown>): void {
     if (this.runId != null) window.api.agent.write(this.runId, { jsonrpc: '2.0', ...msg })
   }
@@ -229,7 +236,7 @@ export class AcpDriver implements Driver {
     if (this.sid) return this.sid
     if (this.creating) return this.creating
     this.creating = (async () => {
-      const r = await this.request('session/new', { cwd: this.host.cwd ?? '', mcpServers: [] }, 120_000)
+      const r = await this.request('session/new', { cwd: this.host.cwd ?? '', mcpServers: await this.mcpServers() }, 120_000)
       const sid = String(r?.sessionId ?? '')
       if (!sid) throw new Error(t('无法创建会话'))
       this.sid = sid
@@ -444,7 +451,7 @@ export class AcpDriver implements Driver {
       if (this.caps?.loadSession) {
         // Kimi：session/load 期间以 session/update 回放整段历史
         this.sid = id
-        const r = await this.request('session/load', { sessionId: id, cwd, mcpServers: [] }, 120_000)
+        const r = await this.request('session/load', { sessionId: id, cwd, mcpServers: await this.mcpServers() }, 120_000)
         this.flushUser()
         this.onSessionState(r)
       } else {
@@ -453,7 +460,7 @@ export class AcpDriver implements Driver {
         for (const u of updates) this.onUpdate(u)
         this.flushUser()
         this.finishThought()
-        const r = await this.request('session/resume', { sessionId: id, cwd, mcpServers: [] }, 120_000)
+        const r = await this.request('session/resume', { sessionId: id, cwd, mcpServers: await this.mcpServers() }, 120_000)
         this.sid = id
         this.onSessionState(r)
       }

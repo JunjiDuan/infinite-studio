@@ -2,7 +2,8 @@
  * 插件市场（生产力工具、语言包）：从 GitHub 插件仓库安装的插件。
  * 插件的编辑器页面放在 iframe 里（studio-plugin://<id>/ 协议，和 IDE 不同源），只能通过 postMessage 和 IDE 通信。
  */
-import { PLUGIN_API, type PluginCategory, type PluginManifest, type PluginPermission, type RemotePlugin } from '../../shared/plugins'
+import type { McpToolDef } from '../../shared/ide'
+import { PLUGIN_API, type AgentToolDecl, type PluginCategory, type PluginManifest, type PluginPermission, type RemotePlugin } from '../../shared/plugins'
 import type { TextEncodingInfo } from '../../shared/types'
 import type { Command } from './commands'
 import { basename, h, toast } from './dom'
@@ -308,7 +309,7 @@ export function marketCommands(): Command[] {
   const tab = activeTab()
   if (tab) {
     const m = editorFor(tab.path)
-    if (m) out.push({ id: `market.${m.id}.open`, title: t('{0}：打开当前文件', m.name), run: () => openPluginEditor(m, tab.path) })
+    if (m) out.push({ id: `market.${m.id}.open`, title: t('{0}：打开当前文件', m.name), run: () => void openPluginEditor(m, tab.path) })
   }
   // 正在显示的插件编辑器注册的命令
   for (const ed of editors) {
@@ -333,8 +334,16 @@ interface PluginEditor {
   stamp: string
   /** 文本文件原来的编码，保存时按它写回 */
   enc?: TextEncodingInfo
-  pending: Map<number, (v: unknown) => void>
+  /** 等插件回复的请求：id → 收到的 response 消息 */
+  pending: Map<number, (m: Record<string, unknown>) => void>
   seq: number
+  /** 文件内容已经发给页面（load 消息） */
+  loaded: boolean
+  loadWaiters: (() => void)[]
+  /** 上次切到前台的时间（AI 工具没给 file 时用最近看过的那个） */
+  shownAt: number
+  /** AI 工具调用排队执行（同一个文件一次一个） */
+  toolQueue: Promise<unknown>
   /** 插件要求监视的文件：pathKey → 插件给的原路径，变化时发 assetChanged */
   watch?: Map<string, string>
   /** 插件注册的命令（命令面板）：id → 标题 */
@@ -383,6 +392,13 @@ async function sendLoad(ed: PluginEditor): Promise<void> {
   const content = await readContent(ed)
   if (content == null) return toast(t('无法读取 {0}', basename(ed.path)))
   post(ed, loadMessage(ed, content), typeof content === 'string' ? [] : [content])
+  markLoaded(ed)
+}
+
+function markLoaded(ed: PluginEditor): void {
+  ed.loaded = true
+  const list = ed.loadWaiters.splice(0)
+  list.forEach((fn) => fn())
 }
 
 /** load 消息：内容 + 接口版本和能调用的方法（SDK 据此实现 studio.api / studio.has） */
@@ -404,22 +420,32 @@ function loadMessage(ed: PluginEditor, content: string | ArrayBuffer): Record<st
 }
 
 function request(ed: PluginEditor, type: string, timeout = 15000): Promise<unknown> {
+  return requestMsg(ed, { type }, timeout).then((m) => m.value)
+}
+
+/** 发一条带 id 的消息，等插件的 response（整条消息） */
+function requestMsg(ed: PluginEditor, msg: Record<string, unknown>, timeout: number): Promise<Record<string, unknown>> {
   const id = ++ed.seq
   return new Promise((res, rej) => {
     const timer = setTimeout(() => {
       ed.pending.delete(id)
       rej(new Error(t('插件没有响应')))
     }, timeout)
-    ed.pending.set(id, (v) => {
+    ed.pending.set(id, (m) => {
       clearTimeout(timer)
-      res(v)
+      res(m)
     })
-    post(ed, { type, id })
+    post(ed, { ...msg, id })
   })
 }
 
 async function saveEditor(ed: PluginEditor): Promise<boolean> {
-  if (!ed.ready) return false
+  return (await saveEditorError(ed)) == null
+}
+
+/** 保存插件编辑器；成功返回 null，失败返回原因（也会提示用户） */
+async function saveEditorError(ed: PluginEditor): Promise<string | null> {
+  if (!ed.ready) return t('插件还没有加载完')
   try {
     const content = await request(ed, 'getContent')
     if (typeof content === 'string') {
@@ -434,10 +460,11 @@ async function saveEditor(ed: PluginEditor): Promise<boolean> {
     post(ed, { type: 'saved' })
     emit('tabs')
     emit('saved')
-    return true
+    return null
   } catch (e) {
-    toast(t('保存失败：') + String((e as Error)?.message ?? e))
-    return false
+    const msg = String((e as Error)?.message ?? e)
+    toast(t('保存失败：') + msg)
+    return msg
   }
 }
 
@@ -471,7 +498,7 @@ async function onMessage(ed: PluginEditor, m: Record<string, unknown>): Promise<
     case 'response': {
       const fn = ed.pending.get(Number(m.id))
       ed.pending.delete(Number(m.id))
-      fn?.(m.value)
+      fn?.(m)
       break
     }
     case 'save':
@@ -695,7 +722,8 @@ const METHODS = [
   'ui.openExternal',
   'terminal.run',
   'commands.register',
-  'commands.unregister'
+  'commands.unregister',
+  'agent.send'
 ]
 
 async function call(ed: PluginEditor, method: string, a: unknown[]): Promise<[unknown, Transfer]> {
@@ -881,6 +909,13 @@ async function call(ed: PluginEditor, method: string, a: unknown[]): Promise<[un
     case 'commands.unregister':
       ed.commands.delete(String(a[0] ?? ''))
       return [true, []]
+
+    /* ----- AI 对话 ----- */
+    case 'agent.send': {
+      const text = String(a[0] ?? '').slice(0, 200_000)
+      if (!agentSender || !agentSender(text, opt(1).file ? ed.path : null)) throw new CallError('no AI assistant is available')
+      return [true, []]
+    }
   }
   throw new CallError(`unsupported method: ${method}`)
 }
@@ -895,8 +930,8 @@ function setWatch(ed: PluginEditor, list: unknown[], url: boolean): void {
   }
 }
 
-function openPluginEditor(manifest: PluginManifest, path: string): void {
-  for (const ed of editors) if (samePath(ed.path, path) && revealView(ed.spec.el)) return
+function openPluginEditor(manifest: PluginManifest, path: string): PluginEditor {
+  for (const ed of editors) if (samePath(ed.path, path) && revealView(ed.spec.el)) return ed
 
   const frame = document.createElement('iframe')
   frame.className = 'plg-frame'
@@ -915,6 +950,10 @@ function openPluginEditor(manifest: PluginManifest, path: string): void {
     stamp: '',
     pending: new Map(),
     seq: 0,
+    loaded: false,
+    loadWaiters: [],
+    shownAt: Date.now(),
+    toolQueue: Promise.resolve(),
     commands: new Map(),
     close: () => undefined
   }
@@ -935,12 +974,15 @@ function openPluginEditor(manifest: PluginManifest, path: string): void {
     dirty: () => ed.dirty,
     save: () => saveEditor(ed),
     onShow: () => {
+      ed.shownAt = Date.now()
       requestAnimationFrame(() => frame.focus())
       if (ed.ready) post(ed, { type: 'show' })
     },
     onClose: () => {
       window.removeEventListener('message', onMsg)
       editors.delete(ed)
+      for (const fn of ed.pending.values()) fn({ error: t('插件标签已关闭') })
+      ed.pending.clear()
     },
     // 文件改名 / 移动后，保存要写到新路径（否则会在旧位置重新建出一个文件）
     onRename: (p) => {
@@ -953,6 +995,7 @@ function openPluginEditor(manifest: PluginManifest, path: string): void {
   }
   editors.add(ed)
   openView(ed.spec)
+  return ed
 }
 
 /** 启动时调用：读取已安装的插件，注册自定义编辑器 */
@@ -980,14 +1023,256 @@ export async function initMarket(): Promise<void> {
         const hit = paths.map((p) => ed.watch!.get(pathKey(p))).filter((x): x is string => !!x)
         if (hit.length) post(ed, { type: 'assetChanged', paths: [...new Set(hit)] })
       }
-      if (!ed.ready || !paths.some((p) => samePath(p, ed.path))) continue
+      // 第一次加载还没完成：它读到的就是最新内容，不用再发一次（两次 load 重叠会让插件状态错乱）
+      if (!ed.ready || !ed.loaded || !paths.some((p) => samePath(p, ed.path))) continue
       void (async () => {
         const before = ed.stamp
         const content = await readContent(ed)
         if (content == null || ed.stamp === before) return
         if (ed.dirty) return toast(t('“{0}” 在磁盘上被修改了，保存会覆盖它', basename(ed.path)))
         post(ed, loadMessage(ed, content), typeof content === 'string' ? [] : [content])
+        markLoaded(ed)
       })()
     }
   })
+}
+
+/* ---------------- AI 工具（插件接口 v5）：IDE 里的 AI 助手调用插件提供的功能 ---------------- */
+
+/** 插件页面里“发送给 AI”的实现（由对话面板提供）：返回是否成功 */
+let agentSender: ((text: string, file: string | null) => boolean) | null = null
+export function setAgentSender(fn: (text: string, file: string | null) => boolean): void {
+  agentSender = fn
+}
+
+export interface ToolResult {
+  content: Record<string, unknown>[]
+  isError?: boolean
+}
+
+/** 工具名：<插件 id（连字符换成下划线）>_<工具名> */
+function toolPrefix(m: PluginManifest): string {
+  return m.id.replace(/-/g, '_') + '_'
+}
+
+/** 有编辑器页面、启用着的生产力插件都有 AI 工具（至少有截图） */
+function toolPlugins(): PluginManifest[] {
+  return installed.filter((m) => m.editor && m.category === 'productivity' && marketEnabled(m.id) && !tooNew(m))
+}
+
+const SCREENSHOT_DESC =
+  'Take a screenshot of how the file currently looks in its editor tab inside the IDE (the tab is brought to the front first). Use it to check the visual result of your changes.'
+
+/** 插件的工具（screenshot 总是有：manifest 里声明了就合并它的说明和参数） */
+function toolsOf(m: PluginManifest): AgentToolDecl[] {
+  const list = (m.agentTools ?? []).filter((d) => d.name !== 'screenshot')
+  const shot = m.agentTools?.find((d) => d.name === 'screenshot')
+  list.push({
+    name: 'screenshot',
+    description: shot ? `${SCREENSHOT_DESC} ${shot.description}` : SCREENSHOT_DESC,
+    inputSchema: shot?.inputSchema ?? { type: 'object', properties: {} },
+    readOnly: true,
+    timeout: shot?.timeout
+  })
+  return list
+}
+
+function findTool(name: string): { m: PluginManifest; decl: AgentToolDecl } | null {
+  for (const m of toolPlugins()) {
+    const p = toolPrefix(m)
+    if (!name.startsWith(p)) continue
+    const decl = toolsOf(m).find((d) => d.name === name.slice(p.length))
+    if (decl) return { m, decl }
+  }
+  return null
+}
+
+/** 插件提供的 MCP 工具定义（每个都加上 file 参数） */
+export function pluginToolDefs(): McpToolDef[] {
+  const out: McpToolDef[] = []
+  for (const m of toolPlugins()) {
+    const exts = m.editor!.extensions.join(' ')
+    const create = m.newFile ? ` A path that does not exist yet creates a new empty ${m.newFile.extension} file there (tools that modify the document only).` : ''
+    for (const d of toolsOf(m)) {
+      const schema = { ...(d.inputSchema as Record<string, unknown>) }
+      const props = { ...((schema.properties as Record<string, unknown>) ?? {}) }
+      props.file = {
+        type: 'string',
+        description: `The ${exts} file to work on: a path relative to the workspace root, or absolute. Omit it to use the one the user is looking at in the IDE.${create}`
+      }
+      schema.type = 'object'
+      schema.properties = props
+      out.push({
+        name: toolPrefix(m) + d.name,
+        description: `[${m.name} — ${exts}] ${d.description}`,
+        inputSchema: schema,
+        annotations: { title: `${m.name}: ${d.name}`, readOnlyHint: !!d.readOnly }
+      })
+    }
+  }
+  return out
+}
+
+/** 只读的插件工具（不用征求同意） */
+export function isReadOnlyPluginTool(name: string): boolean {
+  return !!findTool(name)?.decl.readOnly
+}
+
+/** 对话里显示用：插件名、工具名 */
+export function pluginToolLabel(name: string): { plugin: string; tool: string } | null {
+  const f = findTool(name)
+  return f ? { plugin: f.m.name, tool: f.decl.name } : null
+}
+
+function errorResult(text: string): ToolResult {
+  return { content: [{ type: 'text', text }], isError: true }
+}
+
+/** AI 给的路径 → 绝对路径（相对路径按工作区根目录） */
+function toolPath(file: string): string {
+  let f = file.trim()
+  if (/^file:\/\//i.test(f)) {
+    try {
+      f = decodeURIComponent(new URL(f).pathname)
+      if (window.api.platform === 'win32') f = f.replace(/^\/([a-zA-Z]:)/, '$1')
+    } catch {
+      throw new Error(`Invalid file URI: ${file}`)
+    }
+  }
+  const abs = window.api.platform === 'win32' ? /^([a-zA-Z]:[\\/]|\\\\)/.test(f) : f.startsWith('/')
+  if (abs) return normPath(f)
+  if (!state.root) throw new Error('No folder is open in the IDE; pass an absolute path.')
+  const sep = window.api.platform === 'win32' ? '\\' : '/'
+  const parts = state.root.replace(/[\\/]+$/, '').split(/[\\/]/)
+  for (const seg of f.split(/[\\/]+/)) {
+    if (!seg || seg === '.') continue
+    if (seg === '..') parts.pop()
+    else parts.push(seg)
+  }
+  return normPath(parts.join(sep))
+}
+
+function waitLoaded(ed: PluginEditor, timeout = 30000): Promise<void> {
+  if (ed.loaded) return Promise.resolve()
+  return new Promise((res, rej) => {
+    const timer = setTimeout(() => rej(new Error(`${ed.manifest.name} did not finish loading ${basename(ed.path)}`)), timeout)
+    ed.loadWaiters.push(() => {
+      clearTimeout(timer)
+      res()
+    })
+  })
+}
+
+/** 找到（必要时打开 / 新建）要操作的文件的插件编辑器 */
+async function editorForTool(m: PluginManifest, file: unknown, mayCreate: boolean): Promise<PluginEditor> {
+  let path: string
+  if (typeof file === 'string' && file.trim()) {
+    path = toolPath(file)
+    const lower = path.toLowerCase()
+    if (!m.editor!.extensions.some((ext) => lower.endsWith(ext))) throw new Error(`${m.name} only works on ${m.editor!.extensions.join(' ')} files, not ${basename(path)}`)
+  } else {
+    // 没给文件：正在显示的那个，否则最近看过的那个
+    const mine = [...editors].filter((e) => e.manifest.id === m.id)
+    const visible = mine.filter((e) => e.spec.el.isConnected && e.spec.el.offsetParent)
+    const pick = (visible.length ? visible : mine).sort((a, b) => b.shownAt - a.shownAt)[0]
+    if (!pick) throw new Error(`No ${m.editor!.extensions.join(' ')} file is open in the IDE. Pass the \`file\` parameter.`)
+    path = pick.path
+  }
+  let ed = [...editors].find((e) => samePath(e.path, path) && e.manifest.id === m.id)
+  if (!ed) {
+    const st = await window.api.market.stat(path)
+    if (st?.type === 'dir') throw new Error(`${path} is a folder`)
+    if (!st) {
+      const nf = m.newFile
+      if (!mayCreate || !nf || !path.toLowerCase().endsWith(nf.extension.toLowerCase())) throw new Error(`File not found: ${path}`)
+      await window.api.market.mkdirp(dirOf(path))
+      await window.api.fs.writeFile(path, nf.template ?? '')
+    }
+    ed = openPluginEditor(m, path)
+  }
+  await waitLoaded(ed)
+  return ed
+}
+
+/** 下一帧（窗口在后台时 requestAnimationFrame 可能不触发：最多等 100 毫秒） */
+function nextFrame(): Promise<void> {
+  return new Promise((r) => {
+    const timer = setTimeout(r, 100)
+    requestAnimationFrame(() => {
+      clearTimeout(timer)
+      r()
+    })
+  })
+}
+
+/** 截取插件标签的画面 */
+async function captureEditor(ed: PluginEditor): Promise<Record<string, unknown>> {
+  revealView(ed.spec.el)
+  await nextFrame()
+  await nextFrame()
+  await new Promise((r) => setTimeout(r, 300))
+  const r = ed.frame.getBoundingClientRect()
+  if (r.width < 8 || r.height < 8) throw new Error('The editor tab is not visible, so it cannot be captured.')
+  const data = await window.api.market.capture({ x: r.left, y: r.top, width: r.width, height: r.height })
+  if (!data)
+    throw new Error(
+      'Could not take a screenshot: the IDE window is minimized or hidden. Ask the user to restore the window, or use a tool that renders without the screen (e.g. pdf_renderPage); the document itself was not affected.'
+    )
+  return { type: 'image', data, mimeType: 'image/png' }
+}
+
+/** AI 调用插件工具 */
+export async function callPluginTool(name: string, args: Record<string, unknown>): Promise<ToolResult> {
+  // 执行期间窗口被挡住、在后台也照常渲染（打开文件、PDF 渲染、截图都要等画面）
+  window.api.agentTools.awake(true)
+  try {
+    return await runPluginTool(name, args)
+  } finally {
+    window.api.agentTools.awake(false)
+  }
+}
+
+async function runPluginTool(name: string, args: Record<string, unknown>): Promise<ToolResult> {
+  const f = findTool(name)
+  if (!f) return errorResult(`Tool ${name} not found (the plugin may have been disabled or uninstalled).`)
+  const { m, decl } = f
+  const { file, ...rest } = args ?? {}
+  let ed: PluginEditor
+  try {
+    ed = await editorForTool(m, file, !decl.readOnly)
+  } catch (e) {
+    return errorResult(String((e as Error)?.message ?? e))
+  }
+  const target = ed
+  const timeout = (decl.timeout ?? 60) * 1000
+  const run = async (): Promise<ToolResult> => {
+    if (decl.name === 'screenshot') {
+      let caption: Record<string, unknown>[] = []
+      // 插件声明了 screenshot：先让它切到要看的位置
+      if (m.agentTools?.some((d) => d.name === 'screenshot')) {
+        revealView(target.spec.el)
+        const r = await requestMsg(target, { type: 'tool', name: 'screenshot', args: rest }, timeout)
+        if (r.error) return errorResult(String(r.error))
+        caption = ((r.value as ToolResult | undefined)?.content ?? []).filter((c) => c.type === 'text' && c.text !== 'OK')
+      }
+      return { content: [await captureEditor(target), ...caption, { type: 'text', text: `File: ${target.path}` }] }
+    }
+    const r = await requestMsg(target, { type: 'tool', name: decl.name, args: rest }, timeout)
+    if (r.error) return errorResult(String(r.error))
+    const value = r.value as ToolResult | undefined
+    const content = Array.isArray(value?.content) ? value!.content.slice(0, 50) : [{ type: 'text', text: 'OK' }]
+    // 修改了文档：保存到磁盘（和 AI 用自己的工具改文件一样，改完就在磁盘上）
+    if (!decl.readOnly && target.dirty) {
+      const err = await saveEditorError(target)
+      content.push({ type: 'text', text: err ? `Warning: the change is shown in the editor but could not be saved to disk: ${err}` : `Saved ${target.path}` })
+    }
+    return { content, isError: value?.isError === true ? true : undefined }
+  }
+  const p = target.toolQueue.then(run, run)
+  target.toolQueue = p.catch(() => undefined)
+  try {
+    return await p
+  } catch (e) {
+    return errorResult(String((e as Error)?.message ?? e))
+  }
 }

@@ -14,6 +14,7 @@ import { registerMarketIpc, registerPluginScheme } from './market'
 import { registerDebugIpc } from './debug'
 import { registerJupyterIpc } from './jupyter'
 import { registerAgentIpc } from './agents'
+import { registerMcpBridgeIpc } from './mcpBridge'
 import { registerSysmonIpc } from './sysmon'
 import { registerIdeIpc } from './ide'
 import { registerWebPanelIpc } from './webPanel'
@@ -157,6 +158,7 @@ function registerIpc(): void {
   registerDebugIpc()
   registerJupyterIpc()
   registerAgentIpc()
+  registerMcpBridgeIpc()
   registerSysmonIpc()
   registerIdeIpc()
   registerWebPanelIpc()

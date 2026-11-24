@@ -405,6 +405,8 @@ export interface Api {
       init: { method?: string; headers?: Record<string, string>; body?: string | Uint8Array; timeout?: number }
     ): Promise<{ status: number; statusText: string; url: string; headers: Record<string, string>; body: Uint8Array }>
     onProgress(cb: (id: string, received: number, total: number) => void): () => void
+    /** 截取窗口里的一块区域（页面坐标），返回 PNG 的 base64；窗口不可见时为 null（AI 工具截图） */
+    capture(rect: { x: number; y: number; width: number; height: number }): Promise<string | null>
   }
   /** 网页面板（插件 manifest 里的 webPanel）：网页由主进程的 WebContentsView 显示，叠在页面的占位元素上 */
   webPanel: {
@@ -488,6 +490,15 @@ export interface Api {
     deepseekSessionMeta(ids: string[]): Promise<Record<string, { title: string; updatedAt: number }>>
     /** 按天汇总本地会话记录里的 token 消耗 */
     dailyUsage(plugin: string): Promise<DailyUsage>
+    /** ACP 对话的 mcpServers：连回 IDE 的 MCP 桥接（插件提供的 AI 工具） */
+    mcpServers(): Promise<{ name: string; command: string; args: string[]; env: { name: string; value: string }[] }[]>
+  }
+  /** AI 工具：Codex / ACP 对话通过 MCP 桥接调用（主进程转发到这里） */
+  agentTools: {
+    onRequest(cb: (id: number, method: 'list' | 'call', params: Record<string, unknown>) => void): () => void
+    reply(id: number, result: unknown): void
+    /** 插件工具开始 / 结束执行：执行期间窗口在后台也不暂停渲染（按次数计） */
+    awake(on: boolean): void
   }
   /** IDE 桥接：终端里的 claude 通过主进程的 WebSocket 服务调用这里的工具 */
   ide: {

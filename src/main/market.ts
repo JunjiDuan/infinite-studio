@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { inflateRawSync } from 'node:zlib'
-import { hostMatches, LOCALE_CODE_RE, MARKET_REPO, PLUGIN_API, PLUGIN_PERMISSIONS, WEB_HOST_RE, WEB_SITE_ID_RE, type MarketResult, type PluginManifest, type PluginPermission, type RemotePlugin, type WebPanelInfo, type WebSite } from '../shared/plugins'
+import { AGENT_TOOL_NAME_RE, hostMatches, LOCALE_CODE_RE, MARKET_REPO, PLUGIN_API, PLUGIN_PERMISSIONS, WEB_HOST_RE, WEB_SITE_ID_RE, type AgentToolDecl, type MarketResult, type PluginManifest, type PluginPermission, type RemotePlugin, type WebPanelInfo, type WebSite } from '../shared/plugins'
 import { tm } from './i18n'
 import { clearWebPanelData } from './webPanel'
 
@@ -136,7 +136,30 @@ function validManifest(m: unknown): m is PluginManifest {
   const wp = x.permissions.includes('webPanel') ? validWebPanel(x.webPanel) : null
   if (wp) x.webPanel = wp
   else delete x.webPanel
+  // AI 工具：只给有编辑器页面的插件
+  const tools = x.editor ? validAgentTools(x.agentTools) : []
+  if (tools.length) x.agentTools = tools
+  else delete x.agentTools
   return true
+}
+
+function validAgentTools(v: unknown): AgentToolDecl[] {
+  if (!Array.isArray(v)) return []
+  const out: AgentToolDecl[] = []
+  for (const raw of v.slice(0, 40)) {
+    const d = raw as AgentToolDecl
+    if (!d || typeof d.name !== 'string' || !AGENT_TOOL_NAME_RE.test(d.name) || out.some((x) => x.name === d.name)) continue
+    if (typeof d.description !== 'string' || !d.description) continue
+    const schema = d.inputSchema && typeof d.inputSchema === 'object' && !Array.isArray(d.inputSchema) ? d.inputSchema : { type: 'object', properties: {} }
+    out.push({
+      name: d.name,
+      description: d.description.slice(0, 4000),
+      inputSchema: schema,
+      readOnly: d.readOnly === true,
+      timeout: typeof d.timeout === 'number' && d.timeout > 0 ? Math.min(900, d.timeout) : undefined
+    })
+  }
+  return out
 }
 
 function validWebPanel(v: unknown): WebPanelInfo | null {
@@ -422,6 +445,20 @@ async function wrap<T>(fn: () => Promise<T>): Promise<MarketResult<T>> {
 
 export function registerMarketIpc(): void {
   serve()
+  // AI 工具的截图：截取插件标签所在的区域，太大的缩小一些（省 token）
+  ipcMain.handle('market:capture', async (e, rect: { x: number; y: number; width: number; height: number }) => {
+    const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.round(v)) : 0)
+    const r = { x: n(rect?.x), y: n(rect?.y), width: n(rect?.width), height: n(rect?.height) }
+    if (r.width < 2 || r.height < 2) return null
+    // 最小化 / 隐藏的窗口截出来是空白的：不要假装截到了
+    const win = BrowserWindow.fromWebContents(e.sender)
+    if (win && (win.isMinimized() || !win.isVisible())) return null
+    const img = await e.sender.capturePage(r).catch(() => null)
+    if (!img || img.isEmpty()) return null
+    const size = img.getSize()
+    const out = size.width > 1600 ? img.resize({ width: 1600, quality: 'good' }) : img
+    return out.toPNG().toString('base64')
+  })
   ipcMain.handle('market:registry', (_e, force: boolean) => wrap(() => fetchRegistry(!!force)))
   ipcMain.handle('market:installed', () => listInstalled())
   ipcMain.handle('market:install', (e, id: string) =>

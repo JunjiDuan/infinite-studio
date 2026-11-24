@@ -1,4 +1,6 @@
 import { CODEX_MODES, type CodexMode, type RateWindow, type SessionInfo } from '../../../shared/agents'
+import { PANEL_MCP_SERVER } from '../../../shared/ide'
+import { agentToolDefs, agentToolLabel, isReadOnlyAgentTool } from '../agentTools'
 import { listen, unlisten } from './bus'
 import { applyHunks, countChanges, parseUnified, type Hunk } from './diff'
 import type { ChatHost, DiffInfo, Driver, LoginMethod, LoginUi, ModelOption, PermissionOption, Question, SlashCommand, Todo, ToolView, UserInput } from './types'
@@ -645,16 +647,19 @@ export class CodexDriver implements Driver {
         })
         return
       }
-      case 'mcpToolCall':
+      case 'mcpToolCall': {
+        const label = it.server === PANEL_MCP_SERVER ? agentToolLabel(String(it.tool ?? '')) : null
+        const file = label && typeof it.arguments?.file === 'string' ? it.arguments.file : ''
         this.host.tool(id, {
           icon: 'mcp',
-          verb: String(it.server ?? 'MCP'),
-          summary: String(it.tool ?? ''),
+          verb: label ? label.plugin : String(it.server ?? 'MCP'),
+          summary: label ? label.tool + (file ? ` · ${rel(file)}` : '') : String(it.tool ?? ''),
           input: it.arguments ? clip(JSON.stringify(it.arguments, null, 2), 2000) : undefined,
           output: it.error?.message ?? mcpText(it.result),
           status: statusOf(it.status, completed, it.error ? 1 : 0)
         })
         return
+      }
       case 'dynamicToolCall':
         this.host.tool(id, { icon: 'other', verb: String(it.tool ?? t('工具')), summary: '', input: it.arguments ? clip(JSON.stringify(it.arguments, null, 2), 2000) : undefined, status: statusOf(it.status, completed, it.success === false ? 1 : 0) })
         return
@@ -740,6 +745,36 @@ export class CodexDriver implements Driver {
           this.reply(id, { answers })
           return
         }
+        case 'mcpServer/elicitation/request': {
+          // MCP 服务要用户确认（例如调用会修改文档的工具）
+          const message = String(p.message ?? '')
+          if (p.mode === 'url') {
+            this.reply(id, { action: 'decline' })
+            return
+          }
+          if (p.serverName === PANEL_MCP_SERVER) {
+            // IDE 自己的只读工具不用问
+            const tool = agentToolDefs().find((d) => message.includes(d.name))
+            if (tool && isReadOnlyAgentTool(tool.name)) {
+              this.reply(id, { action: 'accept', content: {} })
+              return
+            }
+          }
+          const a = await this.host.permission(
+            {
+              title: t('Codex 想要使用 {0} 的工具', p.serverName === PANEL_MCP_SERVER ? 'Infinite Studio' : String(p.serverName ?? 'MCP')),
+              markdown: message || undefined,
+              options: [
+                { id: 'accept', label: t('是') },
+                { id: 'decline', label: t('否，告诉 Codex 该怎么做'), feedback: true }
+              ]
+            },
+            key
+          )
+          this.reply(id, a.option === 'accept' ? { action: 'accept', content: {} } : { action: 'decline' })
+          if (a.option === 'decline' && a.feedback) void this.steer(a.feedback)
+          return
+        }
         case 'execCommandApproval':
         case 'applyPatchApproval':
           this.reply(id, { decision: 'denied' })
@@ -750,6 +785,7 @@ export class CodexDriver implements Driver {
     } catch {
       // 授权被撤回 / 视图关闭
       if (method === 'item/tool/requestUserInput') this.reply(id, { answers: {} })
+      else if (method === 'mcpServer/elicitation/request') this.reply(id, { action: 'cancel' })
       else if (method.endsWith('requestApproval')) this.reply(id, { decision: 'cancel' })
     }
   }

@@ -26,6 +26,7 @@ import { basenameOf, clip, errText, rel } from './agent/util'
 import { h, relative, toast } from './dom'
 import { fileSelection, type FileSelection, onSelection, openFile, openView, recentFile, recentFiles, revealView, tabs, updateView } from './editor'
 import { icons } from './icons'
+import { setAgentSender } from './market'
 import { showMenu } from './menu'
 import { glyph, launchInTerminal, onPluginsChange, usable } from './plugins'
 import { persist, state } from './store'
@@ -2046,6 +2047,15 @@ class ChatView implements ChatHost {
     this.insertText(`@${ref} `)
   }
 
+  /** 插入一段文字（插件页面“发送给 AI”）：单独成段 */
+  insertBlock(text: string): void {
+    const cur = this.input.value
+    const pos = this.input.selectionStart ?? cur.length
+    const before = cur.slice(0, pos)
+    const pad = before && !/\n\s*$/.test(before) ? (/\s$/.test(before) ? '\n' : '\n\n') : ''
+    this.insertText(pad + text.replace(/\s+$/, '') + '\n')
+  }
+
   private insertText(token: string): void {
     const pos = this.input.selectionStart ?? this.input.value.length
     const before = this.input.value.slice(0, pos)
@@ -2510,8 +2520,22 @@ export function refreshAgentContext(): void {
   views.forEach((v) => v.updateContext())
 }
 
+/** 插件页面里的“发送给 AI”：放进最近使用的对话的输入框（不发送）；file 为要一起引用的文件 */
+function sendFromPlugin(text: string, file: string | null): boolean {
+  const target = lastActive && views.has(lastActive) ? lastActive : null
+  const id = target?.def.id ?? PLUGINS.find(usable)?.id
+  if (!id) return false
+  const v = target && revealView(target.el) ? target : openChat(id)
+  if (!v) return false
+  if (file) v.insertMention(file)
+  if (text.trim()) v.insertBlock(text)
+  v.focus()
+  return true
+}
+
 export function initChat(): void {
   initBus()
+  setAgentSender(sendFromPlugin)
   onSelection(() => views.forEach((v) => v.updateContext()))
   onPluginsChange(renderAgentIcons)
   renderAgentIcons()

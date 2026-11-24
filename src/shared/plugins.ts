@@ -189,7 +189,30 @@ export interface PluginManifest {
   locale?: LocalePackInfo
   /** 网页面板（需要 webPanel 权限）：在编辑器右侧的分栏里显示这些网站，例如网页版大模型 */
   webPanel?: WebPanelInfo
+  /** 提供给 IDE 里 AI 助手（Claude Code、Codex 等）的工具，页面里用 studio.tools.register 实现（接口版本 5） */
+  agentTools?: AgentToolDecl[]
 }
+
+/**
+ * manifest 里声明的一个 AI 工具。IDE 把它注册成 MCP 工具 mcp__infinite-studio__<插件 id>_<name>，
+ * 并自动加上 file 参数（要操作的文件）。AI 调用时 IDE 打开这个文件（没打开的话），再交给插件页面执行。
+ * name 为 "screenshot" 时是 IDE 提供的截图工具：先调用页面里同名的处理函数（切到要看的位置），再截取插件标签的画面。
+ */
+export interface AgentToolDecl {
+  /** 字母、数字、下划线，1–48 个字符 */
+  name: string
+  /** 给 AI 看的说明（英文效果最好） */
+  description: string
+  /** 参数的 JSON Schema（type: object）；不用写 file */
+  inputSchema?: Record<string, unknown>
+  /** 只读取、不修改文档：AI 调用时不用征求用户同意，调用后也不保存 */
+  readOnly?: boolean
+  /** 调用最长等多久（秒），默认 60，最多 900 */
+  timeout?: number
+}
+
+/** agentTools[].name */
+export const AGENT_TOOL_NAME_RE = /^[A-Za-z][A-Za-z0-9_]{0,47}$/
 
 /** manifest 里的 webPanel 字段 */
 export interface WebPanelInfo {
@@ -262,8 +285,9 @@ export interface LocalePack {
  *      权限；嵌套预览框；文件监视
  *   3  语言包（category: locale，manifest.locale）
  *   4  网页面板（manifest.webPanel + webPanel 权限）；市场插件可以放在“大模型”分类（category: llm）
+ *   5  AI 工具（manifest.agentTools + studio.tools.register）；studio.agent.send 把内容发到 AI 对话
  */
-export const PLUGIN_API = 4
+export const PLUGIN_API = 5
 
 /** 插件可以声明的权限 */
 export const PLUGIN_PERMISSIONS = ['network', 'eval', 'workspace-write', 'clipboard-read', 'terminal', 'webPanel'] as const
