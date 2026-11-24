@@ -1,15 +1,15 @@
 {
   "id": "pdf",
   "name": "PDF 编辑器",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "publisher": "Infinite Studio",
-  "description": "在 IDE 里打开和编辑 PDF：添加文字、修改原有文字、高亮、白色遮盖、矩形 / 椭圆 / 直线 / 箭头、手绘签名、插入图片，填写表单；页面旋转、删除、复制、拖动排序，插入空白页或合并其他 PDF，导出选中页；修改文档属性。添加的内容保存后再次打开仍可编辑，保存的文件可以直接用任何 PDF 阅读器打开。",
+  "description": "在 IDE 里打开和编辑 PDF：添加文字、修改原有文字、高亮、白色遮盖、矩形 / 椭圆 / 直线 / 箭头、手绘签名、插入图片，填写表单；页面旋转、删除、复制、拖动排序，插入空白页或合并其他 PDF，导出选中页；修改文档属性。添加的内容保存后再次打开仍可编辑，保存的文件可以直接用任何 PDF 阅读器打开。IDE 里的 AI 助手可以读取文字、批注、改字、填表和整理页面。",
   "category": "productivity",
   "homepage": "https://github.com/JunjiDuan/infinite-studio/tree/main/marketplace/plugins/pdf",
   "minStudio": "0.1.0",
   "minApi": 2,
   "icon": "icon.svg",
-  "permissions": [],
+  "permissions": ["workspace-write"],
   "editor": {
     "entry": "index.html",
     "extensions": [".pdf"],
@@ -19,5 +19,206 @@
     "label": "PDF 文档",
     "extension": ".pdf",
     "template": ""
-  }
+  },
+  "agentTools": [
+    {
+      "name": "getInfo",
+      "description": "Page count, each page's size (pt) and rotation, document properties, number of form fields, whether the PDF can be edited, and how many objects were added in the editor. Coordinates used by all PDF tools are in pt (1/72 inch) with the origin at the top-left of the page as displayed, y growing downward; pages are numbered from 1.",
+      "readOnly": true
+    },
+    {
+      "name": "getText",
+      "description": "Extract the text of pages, one line per text line. With positions: true, every line also gets its box (x, y, w, h in pt) and font size, which you can use to place annotations. Scanned pages without a text layer return no text; use pdf_renderPage to look at them.",
+      "readOnly": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "pages": { "type": "string", "description": "Pages to read, e.g. \"1-3,5\". Default: all pages." },
+          "positions": { "type": "boolean", "description": "Include each line's box and font size." }
+        }
+      }
+    },
+    {
+      "name": "renderPage",
+      "description": "Render one page, including everything added in the editor, as an image so you can see it.",
+      "readOnly": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer", "description": "Default: the page the user is on." },
+          "scale": { "type": "number", "description": "Pixels per pt, 0.5–3. Default 1.5." }
+        }
+      }
+    },
+    {
+      "name": "listObjects",
+      "description": "List the objects added in the editor (text, shapes, highlights, white-outs, images, ink) with their ids and boxes. Ids are needed by pdf_editObject.",
+      "readOnly": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer", "description": "Default: all pages that have objects." }
+        }
+      }
+    },
+    {
+      "name": "addObjects",
+      "description": "Add annotations to a page. Object types: text {x, y, text, size, color, font: sans|serif|mono, bold, italic} — (x, y) is the top-left corner, use \\n for line breaks, text does not wrap by itself; rect / ellipse {x, y, w, h, stroke, fill, lineWidth, opacity}; line / arrow {x1, y1, x2, y2, stroke, lineWidth}; highlight {find: \"exact text on the page\", all, caseSensitive} or {x, y, w, h}, color, opacity; whiteout {x, y, w, h, color} to hide content; image {path (image file relative to the workspace root), x, y, w, h — give w or h to keep the aspect ratio; centered by default}. Colors are #rrggbb. Writing Chinese or other non-Latin text asks the user to choose a font file once.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer" },
+          "objects": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": { "type": "string", "enum": ["text", "rect", "ellipse", "line", "arrow", "highlight", "whiteout", "image"] },
+                "x": { "type": "number" },
+                "y": { "type": "number" },
+                "w": { "type": "number" },
+                "h": { "type": "number" },
+                "x1": { "type": "number" },
+                "y1": { "type": "number" },
+                "x2": { "type": "number" },
+                "y2": { "type": "number" },
+                "text": { "type": "string" },
+                "size": { "type": "number", "description": "Font size in pt (text)." },
+                "font": { "type": "string", "enum": ["sans", "serif", "mono"] },
+                "bold": { "type": "boolean" },
+                "italic": { "type": "boolean" },
+                "color": { "type": "string" },
+                "stroke": { "type": "string" },
+                "fill": { "type": "string" },
+                "lineWidth": { "type": "number" },
+                "opacity": { "type": "number" },
+                "find": { "type": "string", "description": "highlight: text to highlight (within one line)." },
+                "all": { "type": "boolean", "description": "highlight: every occurrence on the page, not just the first." },
+                "caseSensitive": { "type": "boolean" },
+                "path": { "type": "string", "description": "image: PNG / JPEG / GIF / WebP / BMP file relative to the workspace root." }
+              },
+              "required": ["type"]
+            }
+          }
+        },
+        "required": ["page", "objects"]
+      }
+    },
+    {
+      "name": "editObject",
+      "description": "Change or delete an object added in the editor (see pdf_listObjects): move it (x, y = new top-left), resize it (w, h), change text, size, font, color, stroke, fill, lineWidth, opacity, or set delete: true. For lines and arrows set x1, y1, x2, y2.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer" },
+          "id": { "type": "string" },
+          "delete": { "type": "boolean" },
+          "x": { "type": "number" },
+          "y": { "type": "number" },
+          "w": { "type": "number" },
+          "h": { "type": "number" },
+          "x1": { "type": "number" },
+          "y1": { "type": "number" },
+          "x2": { "type": "number" },
+          "y2": { "type": "number" },
+          "text": { "type": "string" },
+          "size": { "type": "number" },
+          "font": { "type": "string", "enum": ["sans", "serif", "mono"] },
+          "bold": { "type": "boolean" },
+          "italic": { "type": "boolean" },
+          "color": { "type": "string" },
+          "stroke": { "type": "string" },
+          "fill": { "type": "string" },
+          "lineWidth": { "type": "number" },
+          "opacity": { "type": "number" }
+        },
+        "required": ["page", "id"]
+      }
+    },
+    {
+      "name": "replaceText",
+      "description": "Change text that is printed in the PDF itself: every line containing `find` is covered with its background color and retyped with the replacement, using a similar standard font, size and color. Works line by line (the match must be within one line). The covered lines become editable text objects.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "find": { "type": "string" },
+          "replace": { "type": "string" },
+          "pages": { "type": "string", "description": "e.g. \"2-4\". Default: all pages." },
+          "all": { "type": "boolean", "description": "false: only the first occurrence. Default true." },
+          "caseSensitive": { "type": "boolean" }
+        },
+        "required": ["find", "replace"]
+      }
+    },
+    {
+      "name": "getFormFields",
+      "description": "List the PDF's fillable form fields: name, type (text, checkbox, radio, choice), current value, options and page.",
+      "readOnly": true
+    },
+    {
+      "name": "fillForm",
+      "description": "Fill form fields by name (see pdf_getFormFields). Text fields take strings, checkboxes true / false, radio groups and choice fields one of their options (arrays for multi-select lists).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "values": { "type": "object", "description": "{ \"field name\": value }", "additionalProperties": true }
+        },
+        "required": ["values"]
+      }
+    },
+    {
+      "name": "editPages",
+      "description": "Organize pages. action: rotate {pages, angle: 90|180|270|-90}; delete {pages}; duplicate {pages} (copies go after the last one); move {pages, to: the page number the first moved page will have}; insertBlank {after: page number, 0 = at the start, count, width, height in pt — default the size of the neighboring page}; insertPdf {path: another PDF relative to the workspace root, after} to merge it in.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": { "type": "string", "enum": ["rotate", "delete", "duplicate", "move", "insertBlank", "insertPdf"] },
+          "pages": { "type": "string", "description": "e.g. \"1,3-4\"" },
+          "angle": { "type": "integer" },
+          "to": { "type": "integer" },
+          "after": { "type": "integer" },
+          "count": { "type": "integer" },
+          "width": { "type": "number" },
+          "height": { "type": "number" },
+          "path": { "type": "string" }
+        },
+        "required": ["action"]
+      }
+    },
+    {
+      "name": "exportPages",
+      "description": "Save some pages (with everything added in the editor) as a new PDF file in the workspace, e.g. to split a document. The current file is not changed.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "pages": { "type": "string", "description": "e.g. \"1-3\"" },
+          "path": { "type": "string", "description": "Output .pdf path relative to the workspace root." }
+        },
+        "required": ["pages", "path"]
+      }
+    },
+    {
+      "name": "setProperties",
+      "description": "Set the document properties (title, author, subject, keywords).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "title": { "type": "string" },
+          "author": { "type": "string" },
+          "subject": { "type": "string" },
+          "keywords": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "screenshot",
+      "description": "Pass `page` to scroll to that page first. To see just one page at full size use pdf_renderPage instead.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer" }
+        }
+      }
+    }
+  ]
 }

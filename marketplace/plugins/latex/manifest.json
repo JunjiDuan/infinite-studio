@@ -1,9 +1,9 @@
 {
   "id": "latex",
   "name": "LaTeX 编辑器",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "publisher": "Infinite Studio",
-  "description": "编辑和预览 .tex 文件：语法高亮、命令 / 环境 / 标签 / 文献补全、查找替换。即时预览不用安装 TeX，边写边看排版（公式、编号、交叉引用、表格、定理、参考文献）；PDF 模式调用本机 TeX（XeLaTeX、pdfLaTeX、LuaLaTeX、latexmk、Tectonic）编译，错误定位到行，SyncTeX 双击互相跳转。",
+  "description": "编辑和预览 .tex 文件：语法高亮、命令 / 环境 / 标签 / 文献补全、查找替换。即时预览不用安装 TeX，边写边看排版（公式、编号、交叉引用、表格、定理、参考文献）；PDF 模式调用本机 TeX（XeLaTeX、pdfLaTeX、LuaLaTeX、latexmk、Tectonic）编译，错误定位到行，SyncTeX 双击互相跳转。IDE 里的 AI 助手可以编译并拿到带行号的错误，自己改到通过。",
   "category": "productivity",
   "homepage": "https://github.com/JunjiDuan/infinite-studio/tree/main/marketplace/plugins/latex",
   "minStudio": "0.1.0",
@@ -18,5 +18,33 @@
     "label": "LaTeX 文档",
     "extension": ".tex",
     "template": "\\documentclass[UTF8]{ctexart}\n\\usepackage{amsmath, amssymb, graphicx, hyperref}\n\n\\title{标题}\n\\author{作者}\n\\date{\\today}\n\n\\begin{document}\n\\maketitle\n\n\\section{引言}\n在这里开始写作。行内公式 $E = mc^2$，行间公式：\n\\begin{equation}\n  \\int_0^1 x^2 \\, \\mathrm{d}x = \\frac{1}{3}\n  \\label{eq:first}\n\\end{equation}\n式 \\eqref{eq:first} 会自动编号。\n\n\\end{document}\n"
-  }
+  },
+  "agentTools": [
+    {
+      "name": "compile",
+      "description": "Compile the document to PDF with the local TeX installation (the engine chosen in the editor or by a % !TEX program line; a % !TEX root line points to the main file). Unsaved changes are saved first. Waits for the result and returns errors and warnings with file and line numbers, so you can fix the source with your own edit tools and compile again. The user is asked once per IDE session before the first compile command runs. Edit the .tex source with your normal file tools; this plugin is for building and checking it.",
+      "timeout": 900
+    },
+    {
+      "name": "getProblems",
+      "description": "Errors and warnings from the last compile log (with file and line), plus commands the instant preview could not render.",
+      "readOnly": true
+    },
+    {
+      "name": "getOutline",
+      "description": "Structure of the document: sections with line numbers, labels, bibliography keys, word count, main file and engine.",
+      "readOnly": true
+    },
+    {
+      "name": "screenshot",
+      "description": "Choose what to show: view \"live\" (instant HTML preview, no TeX needed), \"pdf\" (the compiled PDF) or \"source\", and optionally `line` to scroll there (in the PDF via SyncTeX).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "view": { "type": "string", "enum": ["live", "pdf", "source"] },
+          "line": { "type": "integer" }
+        }
+      }
+    }
+  ]
 }

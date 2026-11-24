@@ -214,6 +214,14 @@
     return task.promise
   }
 
+  /** pdf.js 6 的文档对象没有 destroy()，要通过 loadingTask 释放 */
+  function destroyDoc(d) {
+    try {
+      if (d && d.loadingTask) d.loadingTask.destroy()
+      else if (d && d.destroy) d.destroy()
+    } catch (e) {}
+  }
+
   async function pageInfos(doc) {
     var list = []
     for (var i = 1; i <= doc.numPages; i++) list.push(doc.getPage(i))
@@ -479,9 +487,7 @@
     busy(t('正在打开…', 'Opening…'))
     $('error').hidden = true
     Object.keys(S.docs).forEach(function (k) {
-      try {
-        S.docs[k].destroy()
-      } catch (e) {}
+      destroyDoc(S.docs[k])
     })
     Object.keys(S.images).forEach(function (k) {
       if (S.images[k].url) URL.revokeObjectURL(S.images[k].url)
@@ -498,19 +504,26 @@
     S.selPages = new Set()
     S.cur = 0
     S.file = (info && info.fileName) || S.file
+    S.pages = []
     var fresh = false
+    // 又来了一次 load（文件在磁盘上变了）：旧的这次作废，不能再改状态
+    var gen = ++openGen
     try {
       if (!bytes.byteLength) {
         bytes = await W.blank()
         fresh = true
       }
       var prep = await W.prepare(bytes)
+      if (gen !== openGen) return
+      var base = await loadPdf(prep.base.slice())
+      if (gen !== openGen) return destroyDoc(base)
+      var infos = await pageInfos(base)
+      if (gen !== openGen) return destroyDoc(base)
       S.editable = prep.editable
       S.reason = prep.reason || ''
       S.base = prep.base
       S.meta = prep.meta
-      S.docs.base = await loadPdf(prep.base.slice())
-      var infos = await pageInfos(S.docs.base)
+      S.docs.base = base
       S.pages = infos.map(function (p, i) {
         return newPage('base', i, p, prep.overlays[i])
       })
@@ -525,11 +538,13 @@
       layout()
       $('view').scrollTop = 0
     } catch (e) {
+      if (gen !== openGen) return
       busy(false)
       S.loading = false
       showError(e)
     }
   }
+  var openGen = 0
 
   function newPage(src, index, p, overlay) {
     var objs = []
@@ -638,7 +653,7 @@
       ctx.fillStyle = '#fff'
       ctx.fillRect(0, 0, canvas.width, canvas.height)
       await page.render({ canvasContext: ctx, canvas: canvas, viewport: vp }).promise
-      if (bytes) doc.destroy()
+      if (bytes) destroyDoc(doc)
       var blob = await new Promise(function (r) {
         canvas.toBlob(r, 'image/png')
       })
@@ -1294,8 +1309,10 @@
                   return a.subtype === 'Widget' && a.fieldName && !a.hidden && !a.pushButton && (a.fieldType === 'Tx' || a.fieldType === 'Btn' || a.fieldType === 'Ch')
                 })
                 .map(function (a) {
-                  var r = vp.convertToViewportRectangle(a.rect)
-                  a.box = { x: Math.min(r[0], r[2]), y: Math.min(r[1], r[3]), w: Math.abs(r[2] - r[0]), h: Math.abs(r[3] - r[1]) }
+                  // pdf.js 6 去掉了 convertToViewportRectangle：用两个角换算
+                  var p1 = vp.convertToViewportPoint(a.rect[0], a.rect[1])
+                  var p2 = vp.convertToViewportPoint(a.rect[2], a.rect[3])
+                  a.box = { x: Math.min(p1[0], p2[0]), y: Math.min(p1[1], p2[1]), w: Math.abs(p2[0] - p1[0]), h: Math.abs(p2[1] - p1[1]) }
                   return a
                 })
             })
@@ -2955,6 +2972,628 @@
     updateProps()
   })
 
+  /* ---------------- AI 工具（IDE 里的 AI 助手调用） ----------------
+   * 坐标都是“显示出来的页面”上的 pt（1/72 英寸），左上角为原点，y 向下（和截图看到的方向一致）；页码从 1 开始。
+   */
+
+  function r1(v) {
+    return Math.round(v * 10) / 10
+  }
+  function needPdf() {
+    if (S.loading) throw new Error('The PDF is still loading')
+    if (!S.pages.length) {
+      var shown = $('error')
+      throw new Error('The PDF could not be opened' + (shown && !shown.hidden && shown.textContent ? ': ' + shown.textContent : ''))
+    }
+  }
+  function needEditable() {
+    needPdf()
+    if (!S.editable) throw new Error('This PDF is view-only (' + (S.reason || 'encrypted or unsupported') + '); it cannot be modified')
+  }
+  function pageArg(n) {
+    var i = Math.floor(Number(n)) - 1
+    if (!(i >= 0 && i < S.pages.length)) throw new Error('Page ' + n + ' does not exist (the PDF has ' + S.pages.length + ' pages)')
+    return S.pages[i]
+  }
+  /** "1-3,5" / [1, 2] / 3 → 页面列表；空时为全部 */
+  function pagesArg(v) {
+    if (v == null || v === '') return S.pages.slice()
+    var nums = []
+    ;(Array.isArray(v) ? v : String(v).split(',')).forEach(function (x) {
+      var m = /^\s*(\d+)\s*(?:-\s*(\d+)\s*)?$/.exec(String(x))
+      if (!m) throw new Error('Invalid page list: ' + v)
+      var a = +m[1]
+      var b = m[2] ? +m[2] : a
+      for (var i = Math.min(a, b); i <= Math.max(a, b); i++) nums.push(i)
+    })
+    var out = []
+    nums.forEach(function (n) {
+      var pg = pageArg(n)
+      if (out.indexOf(pg) < 0) out.push(pg)
+    })
+    return out
+  }
+  function pageNo(pg) {
+    return S.pages.indexOf(pg) + 1
+  }
+  /** 未旋转的页面坐标里的框 → 显示坐标里的框 */
+  function toDispBox(pg, b) {
+    var a = toDisp(pg, b.x, b.y)
+    var c = toDisp(pg, b.x + b.w, b.y + b.h)
+    return { x: Math.min(a.x, c.x), y: Math.min(a.y, c.y), w: Math.abs(c.x - a.x), h: Math.abs(c.y - a.y) }
+  }
+  function fromDispBox(pg, b) {
+    var a = fromDisp(pg, b.x, b.y)
+    var c = fromDisp(pg, b.x + b.w, b.y + b.h)
+    return { x: Math.min(a.x, c.x), y: Math.min(a.y, c.y), w: Math.abs(c.x - a.x), h: Math.abs(c.y - a.y) }
+  }
+  function roundBox(b) {
+    return { x: r1(b.x), y: r1(b.y), w: r1(b.w), h: r1(b.h) }
+  }
+  function num(v, d) {
+    var n = Number(v)
+    return v != null && v !== '' && isFinite(n) ? n : d
+  }
+  function color(v, d) {
+    if (v === null || v === 'none' || v === 'transparent') return null
+    if (typeof v !== 'string') return d
+    var s = v.trim()
+    if (/^#[0-9a-f]{3}$/i.test(s)) s = '#' + s[1] + s[1] + s[2] + s[2] + s[3] + s[3]
+    return /^#[0-9a-f]{6}$/i.test(s) ? s.toLowerCase() : d
+  }
+  function toolPath(p) {
+    if (typeof p !== 'string' || !p.trim()) throw new Error('`path` is required')
+    return '/' + p.trim().replace(/\\/g, '/').replace(/^\/+/, '')
+  }
+  /** 非拉丁文字需要先选一个 Unicode 字体（会弹出对话框让用户选） */
+  async function ensureFontFor(text) {
+    if (F.isWinAnsi(text || '') || F.get()) return
+    studio.toast(t('要写入中文等文字，请选择一个支持它的字体文件', 'Choose a font file that supports this text'))
+    await pickFont()
+    if (!F.get()) throw new Error('This text needs a Unicode font, and the user did not choose one. Ask the user to run "PDF: Choose Unicode font…" from the command palette (e.g. C:\\Windows\\Fonts\\msyh.ttc), then try again.')
+  }
+  function afterChange(pages) {
+    pages.forEach(function (pg) {
+      drawPage(pg)
+    })
+    renderThumbs()
+    commit()
+    updateProps()
+  }
+  function describeObj(pg, o) {
+    var d = { id: o.id, type: o.type === 'rect' && o.fill === '#ffffff' && !o.stroke ? 'whiteout' : o.type, box: roundBox(toDispBox(pg, bbox(o))) }
+    if (o.type === 'text') {
+      d.text = o.text
+      d.size = o.size
+      d.color = o.color
+      d.font = o.font
+      if (o.bold) d.bold = true
+      if (o.italic) d.italic = true
+      if (o.cover) d.replacesOriginalText = true
+    }
+    if (o.stroke) d.stroke = o.stroke
+    if (o.fill && o.type !== 'text') d.fill = o.fill
+    if (o.lw) d.lineWidth = o.lw
+    if (o.opacity != null && o.opacity !== 1) d.opacity = o.opacity
+    return d
+  }
+  function findIn(str, find, caseSensitive) {
+    return caseSensitive ? str.indexOf(find) : str.toLowerCase().indexOf(find.toLowerCase())
+  }
+  /** 页面上所有出现 find 的位置（未旋转坐标的框，按字符数估算） */
+  async function findBoxes(pg, find, caseSensitive) {
+    var lines = await textRuns(pg)
+    var out = []
+    lines.forEach(function (l) {
+      var from = 0
+      var i
+      while ((i = findIn(l.str.slice(from), find, caseSensitive)) >= 0) {
+        var at = from + i
+        var k = l.w / Math.max(1, l.str.length)
+        out.push({ line: l, x: l.x + at * k, y: l.y, w: Math.max(1, find.length * k), h: l.h })
+        from = at + find.length
+      }
+    })
+    return out
+  }
+
+  function newTextObj(pg, a) {
+    var size = num(a.size, style.text.size)
+    var o = {
+      id: uid('o'),
+      type: 'text',
+      text: String(a.text == null ? '' : a.text),
+      size: Math.max(2, Math.min(400, size)),
+      font: a.font === 'serif' || a.font === 'mono' ? a.font : 'sans',
+      bold: !!a.bold,
+      italic: !!a.italic,
+      color: color(a.color, '#000000') || '#000000',
+      rot: upright(pg)
+    }
+    o.x = 0
+    o.y = 0
+    measure(o)
+    // (x, y) 是文字框（显示出来的）左上角：把框的显示位置挪过去
+    var b = toDispBox(pg, tbox(o))
+    var want = fromDisp(pg, num(a.x, 72), num(a.y, 72))
+    var have = fromDisp(pg, b.x, b.y)
+    o.x += want.x - have.x
+    o.y += want.y - have.y
+    return o
+  }
+
+  async function newObj(pg, a) {
+    var type = String(a.type || '')
+    if (type === 'text') {
+      if (!String(a.text || '').trim()) throw new Error('text objects need `text`')
+      await ensureFontFor(a.text)
+      return [newTextObj(pg, a)]
+    }
+    if (type === 'rect' || type === 'ellipse' || type === 'whiteout') {
+      var b = fromDispBox(pg, { x: num(a.x, 72), y: num(a.y, 72), w: Math.max(1, num(a.w, 120)), h: Math.max(1, num(a.h, 80)) })
+      if (type === 'whiteout') return [Object.assign({ id: uid('o'), type: 'rect', fill: color(a.color, '#ffffff') || '#ffffff', stroke: null, lw: 0, opacity: 1 }, b)]
+      var st = style[type]
+      return [Object.assign({ id: uid('o'), type: type, stroke: color(a.stroke, st.stroke), fill: color(a.fill, null), lw: Math.max(0, num(a.lineWidth, st.lw)), opacity: Math.max(0.05, Math.min(1, num(a.opacity, 1))) }, b)]
+    }
+    if (type === 'line' || type === 'arrow') {
+      var p1 = fromDisp(pg, num(a.x1, 72), num(a.y1, 72))
+      var p2 = fromDisp(pg, num(a.x2, 200), num(a.y2, 72))
+      var ls = style[type]
+      return [{ id: uid('o'), type: type, x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y, stroke: color(a.stroke, ls.stroke) || ls.stroke, lw: Math.max(0.2, num(a.lineWidth, ls.lw)), opacity: Math.max(0.05, Math.min(1, num(a.opacity, 1))) }]
+    }
+    if (type === 'highlight') {
+      var fill = color(a.color, style.highlight.fill) || style.highlight.fill
+      var op = Math.max(0.05, Math.min(1, num(a.opacity, style.highlight.opacity)))
+      var rects
+      if (typeof a.find === 'string' && a.find) {
+        var hits = await findBoxes(pg, a.find, !!a.caseSensitive)
+        if (!hits.length) throw new Error('"' + a.find + '" was not found on page ' + pageNo(pg) + ' (text split across lines cannot be matched; try a shorter phrase)')
+        rects = a.all ? hits : hits.slice(0, 1)
+      } else rects = [fromDispBox(pg, { x: num(a.x, 72), y: num(a.y, 72), w: Math.max(1, num(a.w, 100)), h: Math.max(1, num(a.h, 14)) })]
+      return rects.map(function (r) {
+        return { id: uid('o'), type: 'highlight', x: r.x, y: r.y, w: r.w, h: r.h, fill: fill, opacity: op }
+      })
+    }
+    if (type === 'image') {
+      var data = await studio.fs.read(toolPath(a.path))
+      var img = await normalizeImage(data)
+      var id = uid('i')
+      addImageData(id, img.type, img.bytes)
+      var w = img.w * 0.75
+      var hh = img.h * 0.75
+      if (a.w && a.h) {
+        w = num(a.w, w)
+        hh = num(a.h, hh)
+      } else if (a.w) {
+        hh = (hh * num(a.w, w)) / w
+        w = num(a.w, w)
+      } else if (a.h) {
+        w = (w * num(a.h, hh)) / hh
+        hh = num(a.h, hh)
+      } else {
+        var dd = dispSize(pg)
+        var k = Math.min(1, (dd[0] * 0.6) / w, (dd[1] * 0.6) / hh)
+        w *= k
+        hh *= k
+      }
+      var rot = upright(pg)
+      var dsz = dispSize(pg)
+      var x = a.x != null ? num(a.x, 0) : (dsz[0] - w) / 2
+      var y = a.y != null ? num(a.y, 0) : (dsz[1] - hh) / 2
+      var bx = fromDispBox(pg, { x: x, y: y, w: w, h: hh })
+      var sw = rot % 180
+      return [{ id: uid('o'), type: 'image', img: id, x: bx.x, y: bx.y, w: sw ? bx.h : bx.w, h: sw ? bx.w : bx.h, rot: rot, opacity: Math.max(0.05, Math.min(1, num(a.opacity, 1))) }]
+    }
+    throw new Error('Unknown object type "' + type + '" (use text, rect, ellipse, line, arrow, highlight, whiteout or image)')
+  }
+
+  studio.tools.register('getInfo', async function () {
+    needPdf()
+    var fields = 0
+    var pages = await Promise.all(
+      S.pages.map(async function (pg, i) {
+        var d = dispSize(pg)
+        var list = await widgets(pg)
+        fields += list.length
+        var o = { page: i + 1, width: r1(d[0]), height: r1(d[1]) }
+        if (total(pg)) o.rotation = total(pg)
+        if (pg.objs.length) o.addedObjects = pg.objs.length
+        if (!pg.src) o.blank = true
+        return o
+      })
+    )
+    return {
+      file: S.file,
+      pageCount: S.pages.length,
+      editable: S.editable,
+      reason: S.editable ? undefined : S.reason,
+      properties: S.meta ? { title: S.meta.title || '', author: S.meta.author || '', subject: S.meta.subject || '', keywords: S.meta.keywords || '', creator: S.meta.creator || '' } : null,
+      formFields: fields,
+      unicodeFont: F.get() ? F.get().name : null,
+      currentPage: S.cur + 1,
+      pages: pages,
+      units: 'pt (1/72 inch); origin at the top-left of the page as displayed, y grows downward'
+    }
+  })
+
+  studio.tools.register('getText', async function (a) {
+    needPdf()
+    var list = pagesArg(a.pages)
+    var out = []
+    var budget = 200000
+    for (var i = 0; i < list.length; i++) {
+      var pg = list[i]
+      var lines = await textRuns(pg)
+      var d = dispSize(pg)
+      var p = { page: pageNo(pg), width: r1(d[0]), height: r1(d[1]) }
+      if (a.positions) {
+        p.lines = lines.map(function (l) {
+          var b = roundBox(toDispBox(pg, l))
+          return { text: l.str, x: b.x, y: b.y, w: b.w, h: b.h, size: r1(l.fs) }
+        })
+      } else
+        p.text = lines
+          .map(function (l) {
+            return l.str
+          })
+          .join('\n')
+      var added = pg.objs.filter(function (o) {
+        return o.type === 'text' && (o.text || '').trim()
+      })
+      if (added.length)
+        p.addedText = added.map(function (o) {
+          return { id: o.id, text: o.text }
+        })
+      if (!lines.length && pg.src) p.note = 'No text layer (scanned image?)'
+      var size = JSON.stringify(p).length
+      if (size > budget) {
+        out.push({ page: p.page, truncated: true, note: 'Output limit reached; request fewer pages' })
+        break
+      }
+      budget -= size
+      out.push(p)
+    }
+    return { pages: out }
+  })
+
+  studio.tools.register('renderPage', async function (a) {
+    needPdf()
+    var pg = pageArg(a.page == null ? S.cur + 1 : a.page)
+    var scale = Math.max(0.5, Math.min(3, num(a.scale, 1.5)))
+    var bytes = S.editable ? await buildBytes([pg]) : null
+    var doc = bytes ? await loadPdf(bytes) : S.docs[pg.src]
+    if (!doc) throw new Error('This page cannot be rendered')
+    try {
+      var page = await doc.getPage(bytes ? 1 : pg.index + 1)
+      var vp = page.getViewport({ scale: scale, rotation: bytes ? page.rotate : total(pg) })
+      var k = Math.min(1, 2000 / vp.width, 2000 / vp.height)
+      if (k < 1) vp = page.getViewport({ scale: scale * k, rotation: bytes ? page.rotate : total(pg) })
+      var canvas = h('canvas')
+      canvas.width = Math.ceil(vp.width)
+      canvas.height = Math.ceil(vp.height)
+      var ctx = canvas.getContext('2d')
+      ctx.fillStyle = '#fff'
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      await page.render({ canvasContext: ctx, canvas: canvas, viewport: vp }).promise
+      var d = dispSize(pg)
+      return studio.tools.image(canvas, 'Page ' + pageNo(pg) + ' of ' + S.pages.length + ' (' + r1(d[0]) + ' × ' + r1(d[1]) + ' pt; 1 pt = ' + r1(canvas.width / d[0]) + ' px in this image)')
+    } finally {
+      if (bytes) destroyDoc(doc)
+    }
+  })
+
+  studio.tools.register('listObjects', function (a) {
+    needPdf()
+    var list = a.page != null ? [pageArg(a.page)] : S.pages
+    return {
+      pages: list
+        .filter(function (pg) {
+          return pg.objs.length || a.page != null
+        })
+        .map(function (pg) {
+          return {
+            page: pageNo(pg),
+            objects: pg.objs.map(function (o) {
+              return describeObj(pg, o)
+            })
+          }
+        })
+    }
+  })
+
+  studio.tools.register('addObjects', async function (a) {
+    needEditable()
+    var pg = pageArg(a.page)
+    var list = Array.isArray(a.objects) ? a.objects : [a]
+    var made = []
+    for (var i = 0; i < list.length; i++) made = made.concat(await newObj(pg, list[i] || {}))
+    made.forEach(function (o) {
+      pg.objs.push(o)
+    })
+    afterChange([pg])
+    return {
+      page: pageNo(pg),
+      added: made.map(function (o) {
+        return describeObj(pg, o)
+      })
+    }
+  })
+
+  studio.tools.register('editObject', async function (a) {
+    needEditable()
+    var pg = pageArg(a.page)
+    var f = findObj({ key: pg.key, id: String(a.id || '') })
+    if (!f) throw new Error('No object "' + a.id + '" on page ' + pageNo(pg) + '. Call pdf_listObjects to see the ids.')
+    var o = f.o
+    if (a.delete) {
+      if (S.editing && S.editing.id === o.id) finishEdit(true)
+      pg.objs.splice(f.i, 1)
+      if (S.sel && S.sel.id === o.id) S.sel = null
+      afterChange([pg])
+      return 'Deleted ' + o.id
+    }
+    if (o.type === 'text') {
+      if (typeof a.text === 'string') {
+        await ensureFontFor(a.text)
+        o.text = a.text
+      }
+      if (a.size != null) o.size = Math.max(2, Math.min(400, num(a.size, o.size)))
+      if (a.color != null) o.color = color(a.color, o.color) || o.color
+      if (a.font === 'sans' || a.font === 'serif' || a.font === 'mono') o.font = a.font
+      if (a.bold != null) o.bold = !!a.bold
+      if (a.italic != null) o.italic = !!a.italic
+      measure(o)
+    } else {
+      if (a.stroke !== undefined && o.type !== 'highlight' && o.type !== 'image') o.stroke = color(a.stroke, o.stroke)
+      if (a.fill !== undefined && o.type !== 'line' && o.type !== 'arrow' && o.type !== 'image') o.fill = color(a.fill, o.fill)
+      if (a.color !== undefined && (o.type === 'highlight' || (o.type === 'rect' && !o.stroke))) o.fill = color(a.color, o.fill)
+      if (a.lineWidth != null) o.lw = Math.max(0, num(a.lineWidth, o.lw))
+    }
+    if (a.opacity != null && o.type !== 'text') o.opacity = Math.max(0.05, Math.min(1, num(a.opacity, 1)))
+    if (o.type === 'line' || o.type === 'arrow') {
+      if (a.x1 != null || a.y1 != null) {
+        var c1 = toDisp(pg, o.x1, o.y1)
+        var n1 = fromDisp(pg, num(a.x1, c1.x), num(a.y1, c1.y))
+        o.x1 = n1.x
+        o.y1 = n1.y
+      }
+      if (a.x2 != null || a.y2 != null) {
+        var c2 = toDisp(pg, o.x2, o.y2)
+        var n2 = fromDisp(pg, num(a.x2, c2.x), num(a.y2, c2.y))
+        o.x2 = n2.x
+        o.y2 = n2.y
+      }
+    } else if (a.x != null || a.y != null || a.w != null || a.h != null) {
+      var cur = toDispBox(pg, bbox(o))
+      var nb = fromDispBox(pg, { x: num(a.x, cur.x), y: num(a.y, cur.y), w: Math.max(1, num(a.w, cur.w)), h: Math.max(1, num(a.h, cur.h)) })
+      var ob = bbox(o)
+      var resized = (a.w != null || a.h != null) && o.type !== 'text'
+      if (resized) setBox(o, clone(o), nb)
+      else moveObj(o, nb.x - ob.x, nb.y - ob.y)
+    }
+    afterChange([pg])
+    return describeObj(pg, o)
+  })
+
+  studio.tools.register('replaceText', async function (a) {
+    needEditable()
+    var find = String(a.find || '')
+    if (!find) throw new Error('`find` is required')
+    var repl = String(a.replace == null ? '' : a.replace)
+    await ensureFontFor(repl)
+    var list = pagesArg(a.pages)
+    var done = []
+    var changed = []
+    for (var i = 0; i < list.length; i++) {
+      var pg = list[i]
+      var lines = await textRuns(pg)
+      var covered = pg.objs.filter(function (o) {
+        return o.cover
+      })
+      var hits = lines.filter(function (l) {
+        if (findIn(l.str, find, !!a.caseSensitive) < 0) return false
+        return !covered.some(function (o) {
+          var c = o.cover
+          return l.x >= c.x - 1 && l.y >= c.y - 1 && l.x + l.w <= c.x + c.w + 1 && l.y + l.h <= c.y + c.h + 1
+        })
+      })
+      if (!hits.length) continue
+      // 取原文字的颜色和背景色要用渲染好的页面
+      await renderPage(pg).catch(function () {})
+      for (var j = 0; j < hits.length; j++) {
+        var l = hits[j]
+        var re = new RegExp(find.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), a.caseSensitive ? 'g' : 'gi')
+        var newText = a.all === false ? l.str.replace(new RegExp(re.source, re.flags.replace('g', '')), repl) : l.str.replace(re, function () {
+          return repl
+        })
+        var col = sampleColors(pg, l)
+        var size = Math.round(l.fs * 2) / 2
+        var o = { id: uid('o'), type: 'text', text: newText, size: size, font: l.family, bold: l.bold, italic: l.italic, color: col.fg, rot: 0, x: l.x, y: l.base - F.BASELINE * size, cover: { x: l.x - 1, y: l.y - 1, w: l.w + 2, h: l.h + 2, color: col.bg } }
+        measure(o)
+        pg.objs.push(o)
+        done.push({ page: pageNo(pg), id: o.id, before: l.str, after: newText })
+        if (a.all === false) break
+      }
+      changed.push(pg)
+      if (a.all === false && done.length) break
+    }
+    if (!done.length) throw new Error('"' + find + '" was not found' + (a.pages ? ' on the given pages' : '') + '. Text split across lines cannot be matched; use pdf_getText to see how the text is laid out.')
+    afterChange(changed)
+    return { replacedLines: done, note: 'Each changed line is covered and retyped with a similar standard font; use pdf_renderPage to check how it looks.' }
+  })
+
+  studio.tools.register('getFormFields', async function () {
+    needPdf()
+    var out = []
+    var seen = {}
+    for (var i = 0; i < S.pages.length; i++) {
+      var list = await widgets(S.pages[i])
+      list.forEach(function (w) {
+        var type = w.fieldType === 'Tx' ? 'text' : w.fieldType === 'Ch' ? 'choice' : w.radioButton ? 'radio' : 'checkbox'
+        var v = fieldValue(w)
+        if (seen[w.fieldName]) {
+          if (type === 'radio' && w.buttonValue && seen[w.fieldName].options.indexOf(w.buttonValue) < 0) seen[w.fieldName].options.push(w.buttonValue)
+          return
+        }
+        var f = { name: w.fieldName, type: type, page: i + 1, value: type === 'radio' ? (typeof v === 'string' ? v : null) : v == null ? '' : v }
+        if (type === 'radio') f.options = w.buttonValue ? [w.buttonValue] : []
+        if (type === 'choice')
+          f.options = (w.options || []).map(function (o) {
+            return o.exportValue
+          })
+        if (type === 'choice' && w.multiSelect) f.multiple = true
+        if (w.readOnly) f.readOnly = true
+        if (w.alternativeText) f.label = w.alternativeText
+        seen[w.fieldName] = f
+        out.push(f)
+      })
+    }
+    return { fields: out }
+  })
+
+  studio.tools.register('fillForm', async function (a) {
+    needEditable()
+    var values = a.values && typeof a.values === 'object' ? a.values : null
+    if (!values) throw new Error('`values` is required: { fieldName: value }')
+    var known = {}
+    for (var i = 0; i < S.pages.length; i++) {
+      ;(await widgets(S.pages[i])).forEach(function (w) {
+        known[w.fieldName] = w
+      })
+    }
+    var missing = Object.keys(values).filter(function (k) {
+      return !known[k]
+    })
+    if (missing.length) throw new Error('Unknown field(s): ' + missing.join(', ') + '. Call pdf_getFormFields to see the names.')
+    var text = Object.keys(values)
+      .map(function (k) {
+        return typeof values[k] === 'string' ? values[k] : ''
+      })
+      .join('')
+    await ensureFontFor(text)
+    Object.keys(values).forEach(function (k) {
+      var w = known[k]
+      var v = values[k]
+      if (w.fieldType === 'Btn' && !w.radioButton) v = v === true || v === 'true' || v === 'Yes' || v === 'On' || v === 1
+      else if (w.fieldType === 'Ch' && w.multiSelect) v = Array.isArray(v) ? v.map(String) : [String(v)]
+      else v = v == null ? '' : String(v)
+      setField(k, v, null, false)
+    })
+    S.pages.forEach(function (pg) {
+      drawForms(pg)
+    })
+    commit()
+    return { filled: Object.keys(values).length }
+  })
+
+  studio.tools.register('editPages', async function (a) {
+    needEditable()
+    var action = String(a.action || '')
+    var before = S.pages.length
+    if (action === 'insertBlank') {
+      var after = Math.max(0, Math.min(S.pages.length, Math.floor(num(a.after, S.pages.length))))
+      var ref = S.pages[Math.max(0, after - 1)]
+      var d = ref ? dispSize(ref) : [595.28, 841.89]
+      var w = Math.max(36, num(a.width, d[0]))
+      var hh = Math.max(36, num(a.height, d[1]))
+      var count = Math.max(1, Math.min(100, Math.floor(num(a.count, 1))))
+      var blanks = []
+      for (var i = 0; i < count; i++) blanks.push({ key: uid('p'), src: null, index: 0, rot: 0, baseRot: 0, vx: 0, vy: 0, w: w, h: hh, objs: [] })
+      S.pages.splice.apply(S.pages, [after, 0].concat(blanks))
+      S.cur = after
+    } else if (action === 'insertPdf') {
+      var data = await studio.fs.read(toolPath(a.path))
+      var at = a.after == null ? S.pages.length : Math.max(0, Math.min(S.pages.length, Math.floor(num(a.after, S.pages.length))))
+      await insertPdfFiles([{ name: String(a.path), data: data }], at)
+      if (S.pages.length === before) throw new Error('Nothing was inserted (the PDF may be encrypted or unreadable)')
+      return { inserted: S.pages.length - before, pageCount: S.pages.length }
+    } else {
+      var list = pagesArg(a.pages)
+      if (!list.length) throw new Error('`pages` is required')
+      if (action === 'rotate') {
+        var deg = num(a.angle, 90)
+        if (deg % 90) throw new Error('angle must be a multiple of 90')
+        list.forEach(function (pg) {
+          pg.rot = ((((pg.rot || 0) + deg) % 360) + 360) % 360
+        })
+        rerenderVisible()
+      } else if (action === 'delete') {
+        if (list.length >= S.pages.length) throw new Error('A PDF needs at least one page')
+        S.pages = S.pages.filter(function (pg) {
+          return list.indexOf(pg) < 0
+        })
+        if (S.sel && !findObj(S.sel)) S.sel = null
+      } else if (action === 'duplicate') {
+        var last = Math.max.apply(
+          null,
+          list.map(function (pg) {
+            return S.pages.indexOf(pg)
+          })
+        )
+        S.pages.splice.apply(S.pages, [last + 1, 0].concat(list.map(copyPage)))
+      } else if (action === 'move') {
+        var rest = S.pages.filter(function (pg) {
+          return list.indexOf(pg) < 0
+        })
+        var to = Math.max(1, Math.min(rest.length + 1, Math.floor(num(a.to, 1))))
+        rest.splice.apply(rest, [to - 1, 0].concat(list))
+        S.pages = rest
+      } else throw new Error('Unknown action "' + action + '" (rotate, delete, duplicate, move, insertBlank, insertPdf)')
+    }
+    S.selPages.clear()
+    S.cur = Math.min(Math.max(0, S.cur), S.pages.length - 1)
+    commit()
+    layout()
+    return { pageCount: S.pages.length }
+  })
+
+  studio.tools.register('exportPages', async function (a) {
+    needEditable()
+    var list = pagesArg(a.pages)
+    var out = toolPath(a.path)
+    if (!/\.pdf$/i.test(out)) throw new Error('`path` must end with .pdf')
+    var bytes = await buildBytes(list)
+    await studio.fs.write(out, bytes)
+    return 'Wrote ' + list.length + ' page(s) to ' + out.slice(1)
+  })
+
+  studio.tools.register('setProperties', function (a) {
+    needEditable()
+    var m = Object.assign({}, S.meta || {})
+    ;['title', 'author', 'subject', 'keywords'].forEach(function (k) {
+      if (typeof a[k] === 'string') m[k] = a[k]
+    })
+    S.meta = m
+    commit()
+    return { title: m.title || '', author: m.author || '', subject: m.subject || '', keywords: m.keywords || '' }
+  })
+
+  studio.tools.register('screenshot', async function (a) {
+    needPdf()
+    var pg = pageArg(a.page == null ? S.cur + 1 : a.page)
+    var i = S.pages.indexOf(pg)
+    setCur(i, true)
+    await renderPage(pg).catch(function () {})
+    return 'Page ' + (i + 1) + ' of ' + S.pages.length
+  })
+
+  async function askAi() {
+    var pg = S.pages[S.cur]
+    if (!pg) return
+    var lines = await textRuns(pg).catch(function () {
+      return []
+    })
+    var text = lines
+      .map(function (l) {
+        return l.str
+      })
+      .join('\n')
+    var head = t('（第 {0} 页）', '(page {0})').replace('{0}', S.cur + 1)
+    studio.agent.send(head + (text ? '\n' + text : ''), { file: true }).catch(function (e) {
+      studio.toast(e.message)
+    })
+  }
+
   var registered = false
   function registerCommands() {
     if (registered || !studio.has('commands.register')) return
@@ -2966,15 +3605,17 @@
       ['export-png', t('导出当前页为 PNG…', 'Export current page as PNG…'), exportPng],
       ['properties', t('文档属性…', 'Document properties…'), showProps],
       ['unicode-font', t('选择中文字体…', 'Choose Unicode font…'), pickFont]
-    ].forEach(function (c) {
-      studio.commands.register(c[0], c[1], c[2]).catch(function () {})
-    })
+    ]
+      .concat(studio.has('agent.send') ? [['ask-ai', t('把当前页的文字发给 AI 助手', 'Send the current page text to the AI assistant'), askAi]] : [])
+      .forEach(function (c) {
+        studio.commands.register(c[0], c[1], c[2]).catch(function () {})
+      })
   }
 
   studio.onLoad(function (content, info) {
     var bytes = content instanceof ArrayBuffer ? new Uint8Array(content) : new Uint8Array(0)
     registerCommands()
-    open(bytes, info)
+    return open(bytes, info)
   })
 
   buildBar()

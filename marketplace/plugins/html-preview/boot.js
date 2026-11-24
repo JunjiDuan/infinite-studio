@@ -376,6 +376,30 @@
         delete pend[m.id]
       } else if (m.t === 'scroll' && top) {
         window.scrollTo(m.x, m.y)
+      } else if (m.t === 'eval' && top) {
+        // AI 助手要在预览的网页里执行一段脚本（查 DOM、试交互）：结果转成文字发回去
+        Promise.resolve()
+          .then(function () {
+            return (0, eval)(String(m.code))
+          })
+          .then(
+            function (v) {
+              var out
+              if (typeof Element !== 'undefined' && v instanceof Element) out = v.outerHTML
+              else if (v && typeof v === 'object' && typeof v.length === 'number' && v.length && typeof Element !== 'undefined' && v[0] instanceof Element)
+                out = Array.prototype.slice
+                  .call(v, 0, 50)
+                  .map(function (x) {
+                    return x.outerHTML
+                  })
+                  .join('\n')
+              else out = fmt(v)
+              post({ t: 'evalResult', id: m.id, ok: true, value: String(out).slice(0, 100000) })
+            },
+            function (err) {
+              post({ t: 'evalResult', id: m.id, ok: false, value: fmt(err) })
+            }
+          )
       }
     })
 

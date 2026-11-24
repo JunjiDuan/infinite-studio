@@ -33,6 +33,12 @@
  *   studio.commands.register(id, title, fn)   在命令面板里加命令（插件编辑器显示时）
  *   studio.onShow(fn)                         插件标签切到前台
  *
+ * AI 联动（接口版本 5）
+ *   studio.tools.register(name, fn)           实现 manifest.agentTools 里声明的工具：fn(args) → 结果（可以返回 Promise）
+ *                                             结果：字符串 / 可 JSON 化的对象 / { content: [...] }（MCP 格式）；抛错表示失败
+ *   studio.tools.image(src, caption)          把 canvas / Blob / data URL 转成图片结果（Promise）
+ *   studio.agent.send(text, { file })         把文字放进 IDE 里 AI 对话的输入框；file: true 时一起 @ 当前文件
+ *
  * 路径：相对于当前文件；以 / 开头时相对于工作区根目录。只能访问工作区里的文件。
  */
 ;(function () {
@@ -40,6 +46,9 @@
   var parentOrigin = '*'
   var handlers = { load: null, save: null, theme: [], saved: [], asset: [], show: [] }
   var commands = {}
+  var tools = {}
+  /** 最近一次 onLoad 处理完（onLoad 返回 Promise 时等它）：AI 工具在这之后才执行 */
+  var loaded = null
   var seq = 0
   var pending = {}
   var dirty = false
@@ -96,7 +105,16 @@
         studio.permissions = Array.isArray(m.permissions) ? m.permissions : []
         applyTheme(m.theme)
         dirty = false
-        if (handlers.load) handlers.load(m.content, { fileName: m.fileName, path: m.path, relPath: m.relPath || null })
+        var ret = null
+        try {
+          if (handlers.load) ret = handlers.load(m.content, { fileName: m.fileName, path: m.path, relPath: m.relPath || null })
+        } catch (err) {
+          console.error(err)
+        }
+        loaded = Promise.resolve(ret).catch(function () {})
+        break
+      case 'tool':
+        runTool(m)
         break
       case 'theme':
         applyTheme(m.theme)
@@ -166,6 +184,71 @@
     e.preventDefault()
     send({ type: 'key', key: e.key, code: e.code, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey, metaKey: e.metaKey })
   })
+
+  /* ---------------- AI 工具 ---------------- */
+
+  function toolResult(v) {
+    if (v && typeof v === 'object' && Array.isArray(v.content)) return v
+    if (v === undefined || v === null) return { content: [{ type: 'text', text: 'OK' }] }
+    if (typeof v === 'string') return { content: [{ type: 'text', text: v }] }
+    return { content: [{ type: 'text', text: JSON.stringify(v, null, 1) }] }
+  }
+
+  function runTool(m) {
+    var fn = tools[m.name]
+    var wait = loaded || new Promise(function (r) {
+      // 文件还没加载：等 load 消息
+      var timer = setInterval(function () {
+        if (loaded) {
+          clearInterval(timer)
+          r(loaded)
+        }
+      }, 50)
+    })
+    Promise.resolve(wait)
+      .then(function () {
+        if (!fn) throw new Error('This plugin does not implement the tool "' + m.name + '"')
+        return fn(m.args && typeof m.args === 'object' ? m.args : {})
+      })
+      .then(function (v) {
+        send({ type: 'response', id: m.id, value: toolResult(v) })
+      })
+      .catch(function (err) {
+        send({ type: 'response', id: m.id, error: String((err && err.message) || err) })
+      })
+  }
+
+  function blobToBase64(b) {
+    return new Promise(function (resolve, reject) {
+      var fr = new FileReader()
+      fr.onload = function () {
+        resolve(String(fr.result))
+      }
+      fr.onerror = function () {
+        reject(fr.error)
+      }
+      fr.readAsDataURL(b)
+    })
+  }
+
+  /** canvas / Blob / data URL → { content: [image, text?] } */
+  function toolImage(src, caption) {
+    var p
+    if (typeof src === 'string') p = Promise.resolve(src)
+    else if (typeof Blob !== 'undefined' && src instanceof Blob) p = blobToBase64(src)
+    else if (src && typeof src.toBlob === 'function')
+      p = new Promise(function (r) {
+        src.toBlob(r, 'image/png')
+      }).then(blobToBase64)
+    else return Promise.reject(new Error('image source must be a canvas, Blob or data URL'))
+    return p.then(function (url) {
+      var mm = /^data:([^;,]+);base64,(.*)$/.exec(url)
+      if (!mm) throw new Error('invalid image')
+      var content = [{ type: 'image', data: mm[2], mimeType: mm[1] }]
+      if (caption) content.push({ type: 'text', text: String(caption) })
+      return { content: content }
+    })
+  }
 
   /** Blob / Uint8Array → ArrayBuffer（字符串原样） */
   function toData(d) {
@@ -373,6 +456,19 @@
       /** 需要 terminal 权限；每次 IDE 运行期间第一次会询问用户。opts: { cwd, title } */
       run: function (command, opts) {
         return call('terminal.run', String(command), opts || {})
+      }
+    },
+    tools: {
+      /** 实现 manifest.agentTools 里的工具 */
+      register: function (name, fn) {
+        tools[String(name)] = fn
+      },
+      image: toolImage
+    },
+    agent: {
+      /** 把文字放进 AI 对话的输入框（不会自动发送）；opts.file: true 时一起引用当前文件 */
+      send: function (text, opts) {
+        return call('agent.send', String(text == null ? '' : text), opts || {})
       }
     },
     commands: {

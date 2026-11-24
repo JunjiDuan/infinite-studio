@@ -1,12 +1,13 @@
 {
   "id": "pptx",
   "name": "演示文稿",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "publisher": "Infinite Studio",
-  "description": "在 IDE 里打开和编辑 PowerPoint（.pptx）：按原样式显示幻灯片，可以改文字、移动和缩放形状、插入文本框 / 形状 / 图片 / 表格，增删、复制、拖动排序幻灯片，编辑备注，全屏放映。保存的文件可以直接用 PowerPoint 打开。",
+  "description": "在 IDE 里打开和编辑 PowerPoint（.pptx）：按原样式显示幻灯片，可以改文字、移动和缩放形状、插入文本框 / 形状 / 图片 / 表格，增删、复制、拖动排序幻灯片，编辑备注，全屏放映。保存的文件可以直接用 PowerPoint 打开。IDE 里的 AI 助手可以读取幻灯片、按版式新建幻灯片、改文字和排版。",
   "category": "productivity",
   "homepage": "https://github.com/JunjiDuan/infinite-studio/tree/main/marketplace/plugins/pptx",
   "minStudio": "0.1.0",
+  "minApi": 2,
   "icon": "icon.svg",
   "editor": {
     "entry": "index.html",
@@ -17,5 +18,146 @@
     "label": "演示文稿",
     "extension": ".pptx",
     "template": ""
-  }
+  },
+  "agentTools": [
+    {
+      "name": "getSlides",
+      "description": "Read the presentation: slide size, available layouts, and for every slide its layout, speaker notes and shapes — each shape with its id, name, kind (textbox, shape, picture, table, line, group, chart/diagram), placeholder role (title, subtitle, body…), position and size in pt, and its text (tables: cells). Shape ids or placeholder roles are used by the other tools.",
+      "readOnly": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "slides": { "type": "string", "description": "e.g. \"1-3,5\". Default: all slides." }
+        }
+      }
+    },
+    {
+      "name": "addSlide",
+      "description": "Add a slide based on one of the presentation's layouts (see the layouts list in pptx_getSlides; default: \"Title and Content\", or the title layout for the first slide) and fill its placeholders. Body text: one paragraph per line; indent a line with 2 spaces per level for sub-bullets — bullets come from the layout, so do not type \"-\" yourself. A new empty .pptx file path creates a blank presentation first.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "position": { "type": "integer", "description": "Slide number the new slide gets. Default: at the end." },
+          "layout": { "type": "string", "description": "Layout name or type, e.g. \"Title Slide\", \"title\", \"obj\", \"Two Content\", \"Title Only\", \"Blank\", or its number in the list." },
+          "title": { "type": "string" },
+          "subtitle": { "type": "string" },
+          "body": { "type": "string", "description": "Text of the first content placeholder." },
+          "texts": { "type": "object", "description": "More placeholders: { \"body:2\": \"…\", \"<shape name>\": \"…\" }", "additionalProperties": { "type": "string" } },
+          "notes": { "type": "string", "description": "Speaker notes." }
+        }
+      }
+    },
+    {
+      "name": "editSlides",
+      "description": "Delete, duplicate, hide / show slides, or move one slide to another position.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": { "type": "string", "enum": ["delete", "duplicate", "move", "hide", "show"] },
+          "slides": { "type": "string", "description": "e.g. \"2\" or \"3-5\"" },
+          "to": { "type": "integer", "description": "move: the slide number it should end up with." }
+        },
+        "required": ["action", "slides"]
+      }
+    },
+    {
+      "name": "setText",
+      "description": "Replace the text of a shape or placeholder and / or format all of its text. One paragraph per line; 2 leading spaces per indent level. For tables pass `cells` (rows of cell texts; rows and columns are added when needed). Formatting keeps the current style unless given: size (pt), bold, italic, underline, color (#rrggbb), align (left, center, right, justify), verticalAlign (top, middle, bottom).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "slide": { "type": "integer" },
+          "shape": { "type": "string", "description": "Shape id, shape name, or placeholder role: title, subtitle, body, body:2 …" },
+          "text": { "type": "string" },
+          "cells": { "type": "array", "items": { "type": "array", "items": { "type": "string" } } },
+          "size": { "type": "number" },
+          "bold": { "type": "boolean" },
+          "italic": { "type": "boolean" },
+          "underline": { "type": "boolean" },
+          "color": { "type": "string" },
+          "align": { "type": "string", "enum": ["left", "center", "right", "justify"] },
+          "verticalAlign": { "type": "string", "enum": ["top", "middle", "bottom"] }
+        },
+        "required": ["slide", "shape"]
+      }
+    },
+    {
+      "name": "addShape",
+      "description": "Insert something on a slide. kind: textbox {text}; shape {geometry: a preset like rect, roundRect, ellipse, triangle, diamond, rightArrow, chevron, star5, wedgeRectCallout, flowChartDecision…, text}; line / arrow {x1, y1, x2, y2}; image {path: image file relative to the workspace root; give w or h to keep the aspect ratio}; table {rows, cols, cells}. Position and size (x, y, w, h) in pt; centered by default. Optional fill, line (#rrggbb or \"none\"), lineWidth (pt) and text formatting (size, bold, italic, color, align).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "slide": { "type": "integer" },
+          "kind": { "type": "string", "enum": ["textbox", "shape", "line", "arrow", "image", "table"] },
+          "text": { "type": "string" },
+          "geometry": { "type": "string" },
+          "path": { "type": "string" },
+          "rows": { "type": "integer" },
+          "cols": { "type": "integer" },
+          "cells": { "type": "array", "items": { "type": "array", "items": { "type": "string" } } },
+          "x": { "type": "number" },
+          "y": { "type": "number" },
+          "w": { "type": "number" },
+          "h": { "type": "number" },
+          "x1": { "type": "number" },
+          "y1": { "type": "number" },
+          "x2": { "type": "number" },
+          "y2": { "type": "number" },
+          "fill": { "type": "string" },
+          "line": { "type": "string" },
+          "lineWidth": { "type": "number" },
+          "size": { "type": "number" },
+          "bold": { "type": "boolean" },
+          "italic": { "type": "boolean" },
+          "color": { "type": "string" },
+          "align": { "type": "string", "enum": ["left", "center", "right", "justify"] }
+        },
+        "required": ["slide", "kind"]
+      }
+    },
+    {
+      "name": "editShape",
+      "description": "Move, resize or rotate a shape (x, y, w, h in pt, rotation in degrees), change its fill / outline color (#rrggbb or \"none\") and outline width, change the stacking order (front, back, forward, backward), or delete it.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "slide": { "type": "integer" },
+          "shape": { "type": "string", "description": "Shape id, name, or placeholder role." },
+          "x": { "type": "number" },
+          "y": { "type": "number" },
+          "w": { "type": "number" },
+          "h": { "type": "number" },
+          "rotation": { "type": "number" },
+          "fill": { "type": "string" },
+          "line": { "type": "string" },
+          "lineWidth": { "type": "number" },
+          "order": { "type": "string", "enum": ["front", "back", "forward", "backward"] },
+          "delete": { "type": "boolean" }
+        },
+        "required": ["slide", "shape"]
+      }
+    },
+    {
+      "name": "setNotes",
+      "description": "Replace the speaker notes of a slide.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "slide": { "type": "integer" },
+          "text": { "type": "string" }
+        },
+        "required": ["slide", "text"]
+      }
+    },
+    {
+      "name": "screenshot",
+      "description": "Pass `slide` to show that slide first (default: the current slide).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "slide": { "type": "integer" }
+        }
+      }
+    }
+  ]
 }

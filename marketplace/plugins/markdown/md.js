@@ -1343,6 +1343,17 @@
   }
 
   function exportHtml() {
+    buildHtml()
+      .then(function (html) {
+        return studio.exportFile(fileName.replace(/\.[^.]+$/, '') + '.html', html)
+      })
+      .catch(function (e) {
+        studio.toast(T('导出失败：', 'Export failed: ') + (e && e.message))
+      })
+  }
+
+  /** 排版好的文档 → 独立的 HTML 文件（样式、图片都内嵌） */
+  function buildHtml() {
     if (settings.mode === 'source') renderDoc()
     var clone = docEl.cloneNode(true)
     clone.querySelectorAll('.code-head button').forEach(function (b) {
@@ -1360,7 +1371,7 @@
         return v + ':' + cs.getPropertyValue(v).trim() + ';'
       })
       .join('')
-    Promise.all([
+    return Promise.all([
       fetch('md.css').then(function (r) {
         return r.text()
       }),
@@ -1381,16 +1392,90 @@
           '\nhtml,body{height:auto;overflow:auto}body{display:block}\n#main#main{display:block;min-height:100vh;padding:48px 24px 96px;' + rootVars + '}\n</style>\n</head>\n<body>\n<div id="main" data-theme="' + main.dataset.theme + '" data-number="' + main.dataset.number + '" data-lineno="' + main.dataset.lineno + '" data-width="' + main.dataset.width + '">\n<article class="md">' +
           clone.innerHTML +
           '</article>\n</div>\n</body>\n</html>\n'
-        return studio.exportFile(fileName.replace(/\.[^.]+$/, '') + '.html', html)
-      })
-      .catch(function (e) {
-        studio.toast(T('导出失败：', 'Export failed: ') + (e && e.message))
+        return html
       })
   }
 
+  /* ---------------- AI 工具（IDE 里的 AI 助手调用） ---------------- */
+
+  function blockLine(node) {
+    var b = node.closest ? node.closest('.blk') : null
+    return b ? (Number(b.getAttribute('data-line')) || 0) + 1 : null
+  }
+
+  studio.tools.register('getOutline', function () {
+    if (settings.mode === 'source') renderDoc()
+    var c = countText(docEl.textContent || '')
+    var boxes = docEl.querySelectorAll('input[type="checkbox"]')
+    var done = Array.prototype.filter.call(boxes, function (b) { return b.checked }).length
+    var fm = frontMatter(text)
+    var links = []
+    docEl.querySelectorAll('a[href]').forEach(function (a) {
+      var href = a.getAttribute('href')
+      if (href && href[0] !== '#' && links.indexOf(href) < 0 && links.length < 200) links.push(href)
+    })
+    return {
+      file: fileName,
+      headings: headings.map(function (hd) {
+        return { level: hd.level, text: hd.text, line: blockLine(hd.el) }
+      }),
+      words: c.cjk + c.words,
+      readingTime: readingTime(),
+      codeBlocks: docEl.querySelectorAll('.code').length,
+      tasks: boxes.length ? { done: done, total: boxes.length } : undefined,
+      frontMatter: fm.meta && fm.meta.length ? fm.meta.map(function (x) { return x.key }) : undefined,
+      links: links.length ? links : undefined,
+      brokenImages: Array.prototype.map.call(docEl.querySelectorAll('img.broken'), function (i) { return i.getAttribute('data-src') || '' })
+    }
+  })
+
+  studio.tools.register('exportHtml', async function (a) {
+    var p = typeof a.path === 'string' && a.path.trim() ? a.path.trim().replace(/\\/g, '/') : ''
+    if (!p) throw new Error('`path` is required (an .html file relative to the workspace root)')
+    if (!/\.html?$/i.test(p)) throw new Error('`path` must end with .html')
+    var html = await buildHtml()
+    await studio.fs.write('/' + p.replace(/^\/+/, ''), html)
+    return 'Wrote ' + p + ' (' + Math.round(html.length / 1024) + ' KB, styles and images inlined, theme: ' + main.dataset.theme + ')'
+  })
+
+  studio.tools.register('screenshot', function (a) {
+    if (a.mode === 'read' || a.mode === 'split' || a.mode === 'source') setMode(a.mode)
+    else if (settings.mode === 'source') setMode('read')
+    var line = Math.floor(Number(a.line))
+    // 窗口在后台时 requestAnimationFrame 可能不触发：用定时器
+    return new Promise(function (r) {
+      setTimeout(function () {
+        if (line > 0 && settings.mode !== 'source') scrollDocToLine(line - 1)
+        setTimeout(function () {
+          r((settings.mode === 'read' ? 'Reading view' : settings.mode === 'split' ? 'Split view' : 'Source') + (line > 0 ? ' at line ' + line : ''))
+        }, 150)
+      }, 30)
+    })
+  })
+
   /* ---------------- 和 IDE 的连接 ---------------- */
 
+  var askDone = false
+  function registerAsk() {
+    if (askDone || !studio.has('agent.send')) return
+    askDone = true
+    studio.commands
+      .register('ask-ai', T('把选中的内容发给 AI 助手', 'Send the selection to the AI assistant'), function () {
+        var sel = document.activeElement === srcEl ? srcEl.value.slice(srcEl.selectionStart, srcEl.selectionEnd) : String(window.getSelection() || '')
+        var quote = sel.trim()
+          ? sel
+              .trim()
+              .split('\n')
+              .map(function (l) { return '> ' + l })
+              .join('\n')
+          : ''
+        studio.agent.send(quote, { file: true }).catch(function (e) { studio.toast(e.message) })
+      })
+      .catch(function () {})
+  }
+
   studio.onLoad(function (content, info) {
+    registerAsk()
     var hasCr = content.indexOf('\r\n') >= 0
     var hasBom = content.charCodeAt(0) === 0xfeff
     var norm = (hasBom ? content.slice(1) : content).replace(/\r\n?/g, '\n')

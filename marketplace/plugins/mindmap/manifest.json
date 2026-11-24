@@ -1,12 +1,13 @@
 {
   "id": "mindmap",
   "name": "思维导图",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "publisher": "Infinite Studio",
-  "description": "在 IDE 里画思维导图：键盘快速建节点、拖拽调整结构、折叠分支，可导出 PNG / SVG / Markdown。文件保存为 .mind（JSON），方便用 Git 管理。",
+  "description": "在 IDE 里画思维导图：键盘快速建节点、拖拽调整结构、折叠分支，可导出 PNG / SVG / Markdown。文件保存为 .mind（JSON），方便用 Git 管理。IDE 里的 AI 助手可以读取和编辑导图。",
   "category": "productivity",
   "homepage": "https://github.com/JunjiDuan/infinite-studio/tree/main/marketplace/plugins/mindmap",
   "minStudio": "0.1.0",
+  "minApi": 2,
   "icon": "icon.svg",
   "editor": {
     "entry": "index.html",
@@ -16,5 +17,107 @@
     "label": "思维导图",
     "extension": ".mind",
     "template": ""
-  }
+  },
+  "agentTools": [
+    {
+      "name": "getMap",
+      "description": "Read the whole mind map as a JSON tree: every node has an `id` (needed by the other tools), `text`, and `children`. Pass format \"markdown\" to get a Markdown outline instead.",
+      "readOnly": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "format": { "type": "string", "enum": ["json", "markdown"], "description": "Default json." }
+        }
+      }
+    },
+    {
+      "name": "addNodes",
+      "description": "Add one or more nodes (with sub-branches) under a parent node. Give either `outline` — an indented Markdown list such as \"- A\\n  - A1\\n- B\" — or `nodes`. Returns the new nodes' ids.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "parent": { "type": "string", "description": "Id of the parent node. Default: the root." },
+          "outline": { "type": "string", "description": "Indented list (\"- \" items, 2 spaces per level) or Markdown headings." },
+          "nodes": {
+            "type": "array",
+            "description": "Alternative to outline: strings, or objects { text, children: [...] }.",
+            "items": { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "text": { "type": "string" }, "children": { "type": "array" } }, "required": ["text"] }] }
+          },
+          "index": { "type": "integer", "description": "Position among the parent's children (0 = first). Default: at the end." }
+        }
+      }
+    },
+    {
+      "name": "updateNodes",
+      "description": "Change nodes: rename them, collapse / expand branches, or put a top-level branch on the left or right of the root. Pass one change directly (id, text, ...) or several in `updates`.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "text": { "type": "string", "description": "New text (may contain line breaks)." },
+          "collapsed": { "type": "boolean" },
+          "side": { "type": "string", "enum": ["left", "right", "auto"], "description": "Only for children of the root." },
+          "updates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string" },
+                "text": { "type": "string" },
+                "collapsed": { "type": "boolean" },
+                "side": { "type": "string", "enum": ["left", "right", "auto"] }
+              },
+              "required": ["id"]
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "moveNode",
+      "description": "Move a node (with its whole branch) under another parent, or to another position among its siblings.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "parent": { "type": "string", "description": "Id of the new parent. Default: the root." },
+          "index": { "type": "integer", "description": "Position among the new parent's children. Default: at the end." }
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "deleteNodes",
+      "description": "Delete nodes together with their branches.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "ids": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["ids"]
+      }
+    },
+    {
+      "name": "setMap",
+      "description": "Replace the whole mind map with a new one. With a single top-level item in `outline`, that item becomes the central topic; otherwise pass `title` for the central topic and the top-level items become its branches. Use this to create a map from scratch.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "outline": { "type": "string", "description": "Indented \"- \" list or Markdown headings." },
+          "nodes": { "type": "array", "description": "Alternative to outline: strings or { text, children } objects." },
+          "title": { "type": "string", "description": "Text of the central topic." }
+        }
+      }
+    },
+    {
+      "name": "screenshot",
+      "description": "By default the whole map is fitted into view; pass `id` to center a node instead.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "description": "Node to center and select." }
+        }
+      }
+    }
+  ]
 }

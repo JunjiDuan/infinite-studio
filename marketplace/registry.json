@@ -21,9 +21,9 @@
     {
       "id": "html-preview",
       "name": "HTML 预览器",
-      "version": "1.0.1",
+      "version": "1.1.0",
       "publisher": "Infinite Studio",
-      "description": "打开 .html 文件时直接显示成网页：本地的 CSS、JS、图片、字体自动加载，脚本照常运行。可切换预览 / 分栏 / 源码，分栏时边写边刷新；桌面、平板、手机尺寸预览，内置控制台显示 console 输出和报错；引用的文件改动后自动刷新，可导出单文件 HTML。",
+      "description": "打开 .html 文件时直接显示成网页：本地的 CSS、JS、图片、字体自动加载，脚本照常运行。可切换预览 / 分栏 / 源码，分栏时边写边刷新；桌面、平板、手机尺寸预览，内置控制台显示 console 输出和报错；引用的文件改动后自动刷新，可导出单文件 HTML。IDE 里的 AI 助手可以查看页面效果、读取控制台报错、在页面里运行脚本检查 DOM。",
       "category": "productivity",
       "homepage": "https://github.com/JunjiDuan/infinite-studio/tree/main/marketplace/plugins/html-preview",
       "minStudio": "0.1.0",
@@ -33,11 +33,11 @@
       ],
       "minApi": 2,
       "urls": [
-        "https://cdn.jsdelivr.net/gh/JunjiDuan/infinite-studio@main/marketplace/packages/html-preview-1.0.1.zip",
-        "https://raw.githubusercontent.com/JunjiDuan/infinite-studio/main/marketplace/packages/html-preview-1.0.1.zip"
+        "https://cdn.jsdelivr.net/gh/JunjiDuan/infinite-studio@main/marketplace/packages/html-preview-1.1.0.zip",
+        "https://raw.githubusercontent.com/JunjiDuan/infinite-studio/main/marketplace/packages/html-preview-1.1.0.zip"
       ],
-      "sha256": "5ed1c0963db0a56f87ccc94aad4b2a0d483bb05151730483c516165f994b0ed2",
-      "size": 37465
+      "sha256": "46b2b26b9ad91e8c6f2281e68083fc7bca48dd7c0cc9efe29a766176113bee32",
+      "size": 41383
     },
     {
       "id": "lang-ar",
@@ -161,9 +161,9 @@
     {
       "id": "latex",
       "name": "LaTeX 编辑器",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "publisher": "Infinite Studio",
-      "description": "编辑和预览 .tex 文件：语法高亮、命令 / 环境 / 标签 / 文献补全、查找替换。即时预览不用安装 TeX，边写边看排版（公式、编号、交叉引用、表格、定理、参考文献）；PDF 模式调用本机 TeX（XeLaTeX、pdfLaTeX、LuaLaTeX、latexmk、Tectonic）编译，错误定位到行，SyncTeX 双击互相跳转。",
+      "description": "编辑和预览 .tex 文件：语法高亮、命令 / 环境 / 标签 / 文献补全、查找替换。即时预览不用安装 TeX，边写边看排版（公式、编号、交叉引用、表格、定理、参考文献）；PDF 模式调用本机 TeX（XeLaTeX、pdfLaTeX、LuaLaTeX、latexmk、Tectonic）编译，错误定位到行，SyncTeX 双击互相跳转。IDE 里的 AI 助手可以编译并拿到带行号的错误，自己改到通过。",
       "category": "productivity",
       "homepage": "https://github.com/JunjiDuan/infinite-studio/tree/main/marketplace/plugins/latex",
       "minStudio": "0.1.0",
@@ -172,76 +172,85 @@
       ],
       "minApi": 2,
       "urls": [
-        "https://cdn.jsdelivr.net/gh/JunjiDuan/infinite-studio@main/marketplace/packages/latex-1.0.0.zip",
-        "https://raw.githubusercontent.com/JunjiDuan/infinite-studio/main/marketplace/packages/latex-1.0.0.zip"
+        "https://cdn.jsdelivr.net/gh/JunjiDuan/infinite-studio@main/marketplace/packages/latex-1.1.0.zip",
+        "https://raw.githubusercontent.com/JunjiDuan/infinite-studio/main/marketplace/packages/latex-1.1.0.zip"
       ],
-      "sha256": "22586e5b0e0ffacb41b795d83d78a69bb1d35b068453c2ab841c433f9429717a",
-      "size": 958355
+      "sha256": "97ccdf9ada377457fb80aab317a093abc9a476661598924f05e2db0bf27d2412",
+      "size": 961843
     },
     {
       "id": "markdown",
       "name": "Markdown 美化",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "publisher": "Infinite Studio",
-      "description": "把 .md 文件排版成易读的文档：标题编号、提示块、带行号和复制按钮的代码块、任务进度、右侧大纲和阅读进度。支持阅读 / 分栏 / 源码三种模式，边写边看，滚动同步；墨夜、纸白、书卷、终端四套主题，可导出 HTML。",
+      "description": "把 .md 文件排版成易读的文档：标题编号、提示块、带行号和复制按钮的代码块、任务进度、右侧大纲和阅读进度。支持阅读 / 分栏 / 源码三种模式，边写边看，滚动同步；墨夜、纸白、书卷、终端四套主题，可导出 HTML。IDE 里的 AI 助手可以查看排版效果、读取大纲、导出 HTML。",
       "category": "productivity",
       "homepage": "https://github.com/JunjiDuan/infinite-studio/tree/main/marketplace/plugins/markdown",
       "minStudio": "0.1.0",
-      "urls": [
-        "https://cdn.jsdelivr.net/gh/JunjiDuan/infinite-studio@main/marketplace/packages/markdown-1.0.0.zip",
-        "https://raw.githubusercontent.com/JunjiDuan/infinite-studio/main/marketplace/packages/markdown-1.0.0.zip"
+      "permissions": [
+        "workspace-write"
       ],
-      "sha256": "98ee79326838be2da4ba8f11372ae8fc1ec73cdfb8caacf24f5eef8a70c7144d",
-      "size": 68626
+      "minApi": 2,
+      "urls": [
+        "https://cdn.jsdelivr.net/gh/JunjiDuan/infinite-studio@main/marketplace/packages/markdown-1.1.0.zip",
+        "https://raw.githubusercontent.com/JunjiDuan/infinite-studio/main/marketplace/packages/markdown-1.1.0.zip"
+      ],
+      "sha256": "b5a8a82bf1a2342ed461a72aa8bda09ecda3050c31484db5fce48ba3a229ff7c",
+      "size": 73915
     },
     {
       "id": "mindmap",
       "name": "思维导图",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "publisher": "Infinite Studio",
-      "description": "在 IDE 里画思维导图：键盘快速建节点、拖拽调整结构、折叠分支，可导出 PNG / SVG / Markdown。文件保存为 .mind（JSON），方便用 Git 管理。",
+      "description": "在 IDE 里画思维导图：键盘快速建节点、拖拽调整结构、折叠分支，可导出 PNG / SVG / Markdown。文件保存为 .mind（JSON），方便用 Git 管理。IDE 里的 AI 助手可以读取和编辑导图。",
       "category": "productivity",
       "homepage": "https://github.com/JunjiDuan/infinite-studio/tree/main/marketplace/plugins/mindmap",
       "minStudio": "0.1.0",
+      "minApi": 2,
       "urls": [
-        "https://cdn.jsdelivr.net/gh/JunjiDuan/infinite-studio@main/marketplace/packages/mindmap-1.0.0.zip",
-        "https://raw.githubusercontent.com/JunjiDuan/infinite-studio/main/marketplace/packages/mindmap-1.0.0.zip"
+        "https://cdn.jsdelivr.net/gh/JunjiDuan/infinite-studio@main/marketplace/packages/mindmap-1.1.0.zip",
+        "https://raw.githubusercontent.com/JunjiDuan/infinite-studio/main/marketplace/packages/mindmap-1.1.0.zip"
       ],
-      "sha256": "efd660abaeb7142c19bdefc57b918cfd9214d4d0dc72132c4ee5812615845fab",
-      "size": 17144
+      "sha256": "eba19013b39f42d5a8ac593808b296253f70909054c742aae7c318b1d72133d7",
+      "size": 23767
     },
     {
       "id": "pdf",
       "name": "PDF 编辑器",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "publisher": "Infinite Studio",
-      "description": "在 IDE 里打开和编辑 PDF：添加文字、修改原有文字、高亮、白色遮盖、矩形 / 椭圆 / 直线 / 箭头、手绘签名、插入图片，填写表单；页面旋转、删除、复制、拖动排序，插入空白页或合并其他 PDF，导出选中页；修改文档属性。添加的内容保存后再次打开仍可编辑，保存的文件可以直接用任何 PDF 阅读器打开。",
+      "description": "在 IDE 里打开和编辑 PDF：添加文字、修改原有文字、高亮、白色遮盖、矩形 / 椭圆 / 直线 / 箭头、手绘签名、插入图片，填写表单；页面旋转、删除、复制、拖动排序，插入空白页或合并其他 PDF，导出选中页；修改文档属性。添加的内容保存后再次打开仍可编辑，保存的文件可以直接用任何 PDF 阅读器打开。IDE 里的 AI 助手可以读取文字、批注、改字、填表和整理页面。",
       "category": "productivity",
       "homepage": "https://github.com/JunjiDuan/infinite-studio/tree/main/marketplace/plugins/pdf",
       "minStudio": "0.1.0",
+      "permissions": [
+        "workspace-write"
+      ],
       "minApi": 2,
       "urls": [
-        "https://cdn.jsdelivr.net/gh/JunjiDuan/infinite-studio@main/marketplace/packages/pdf-1.0.0.zip",
-        "https://raw.githubusercontent.com/JunjiDuan/infinite-studio/main/marketplace/packages/pdf-1.0.0.zip"
+        "https://cdn.jsdelivr.net/gh/JunjiDuan/infinite-studio@main/marketplace/packages/pdf-1.1.0.zip",
+        "https://raw.githubusercontent.com/JunjiDuan/infinite-studio/main/marketplace/packages/pdf-1.1.0.zip"
       ],
-      "sha256": "4579b1af966d294ef42df08005c04ab9b73115d21e7e5f4ecf204b4b5fbdeb40",
-      "size": 2838440
+      "sha256": "4593459a0c5c2ae19e0eede19b5a65cd13b3defc61be485fe69c5bb7c244323b",
+      "size": 2849877
     },
     {
       "id": "pptx",
       "name": "演示文稿",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "publisher": "Infinite Studio",
-      "description": "在 IDE 里打开和编辑 PowerPoint（.pptx）：按原样式显示幻灯片，可以改文字、移动和缩放形状、插入文本框 / 形状 / 图片 / 表格，增删、复制、拖动排序幻灯片，编辑备注，全屏放映。保存的文件可以直接用 PowerPoint 打开。",
+      "description": "在 IDE 里打开和编辑 PowerPoint（.pptx）：按原样式显示幻灯片，可以改文字、移动和缩放形状、插入文本框 / 形状 / 图片 / 表格，增删、复制、拖动排序幻灯片，编辑备注，全屏放映。保存的文件可以直接用 PowerPoint 打开。IDE 里的 AI 助手可以读取幻灯片、按版式新建幻灯片、改文字和排版。",
       "category": "productivity",
       "homepage": "https://github.com/JunjiDuan/infinite-studio/tree/main/marketplace/plugins/pptx",
       "minStudio": "0.1.0",
+      "minApi": 2,
       "urls": [
-        "https://cdn.jsdelivr.net/gh/JunjiDuan/infinite-studio@main/marketplace/packages/pptx-1.0.0.zip",
-        "https://raw.githubusercontent.com/JunjiDuan/infinite-studio/main/marketplace/packages/pptx-1.0.0.zip"
+        "https://cdn.jsdelivr.net/gh/JunjiDuan/infinite-studio@main/marketplace/packages/pptx-1.1.0.zip",
+        "https://raw.githubusercontent.com/JunjiDuan/infinite-studio/main/marketplace/packages/pptx-1.1.0.zip"
       ],
-      "sha256": "21f128987f78e8feb3ee80da7ab02ba249f2791754b5d6f950bcbaac3833aab9",
-      "size": 82253
+      "sha256": "3a735db69fe8c936e190aee6bbc1cc4d5e4fb170b5432dbc4d05ef02c5ba4ab7",
+      "size": 94383
     },
     {
       "id": "web-ai",

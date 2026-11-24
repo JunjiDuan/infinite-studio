@@ -1326,7 +1326,7 @@
       })
       return { url: URL.createObjectURL(blob), wPt: vp1.width }
     } finally {
-      doc.destroy()
+      destroyDoc(doc)
     }
   }
 
@@ -1498,6 +1498,13 @@
 
   var CSS_UNITS = 96 / 72
   var pdfjsP = null
+  /** pdf.js 6 的文档对象没有 destroy()，要通过 loadingTask 释放 */
+  function destroyDoc(d) {
+    try {
+      if (d && d.loadingTask) d.loadingTask.destroy()
+      else if (d && d.destroy) d.destroy()
+    } catch (e) {}
+  }
   function loadPdfjs() {
     if (!pdfjsP)
       pdfjsP = import('./vendor/pdfjs/pdf.min.mjs').then(function (lib) {
@@ -1525,7 +1532,7 @@
     if (!st) {
       pdf.path = path
       if (pdf.doc) {
-        pdf.doc.destroy()
+        destroyDoc(pdf.doc)
         pdf.doc = null
       }
       pdfPagesEl.replaceChildren()
@@ -1551,7 +1558,7 @@
       return
     }
     if (gen !== pdf.gen) {
-      doc.destroy()
+      destroyDoc(doc)
       return
     }
     var keepPage = currentPdfPage()
@@ -1563,7 +1570,7 @@
     pdf.mtime = st.mtime
     pdfEmpty.hidden = true
     await buildPages()
-    if (old) old.destroy()
+    if (old) destroyDoc(old)
     if (pdf.pages.length) pdfScroll.scrollTop = keepRatio * pdfScroll.scrollHeight
     pdfScroll.scrollLeft = keepLeft
     void keepPage
@@ -2749,6 +2756,107 @@
     if (settings.view === 'pdf' && settings.mode !== 'source' && !compiling) loadPdf(false)
   })
 
+  /* ================= AI 工具（IDE 里的 AI 助手调用） ================= */
+
+  function sleep(ms) {
+    return new Promise(function (r) {
+      setTimeout(r, ms)
+    })
+  }
+  function problemList(list, max) {
+    return list.slice(0, max).map(function (p) {
+      var o = { severity: p.severity, message: p.message }
+      if (p.path) o.file = p.path.replace(/^\//, '')
+      if (p.line) o.line = p.line
+      return o
+    })
+  }
+  function compileSummary() {
+    var errs = problems.filter(function (p) { return p.severity === 'error' })
+    var warns = problems.filter(function (p) { return p.severity === 'warning' })
+    var ri = rootInfo()
+    return {
+      mainFile: ri.root.replace(/^\//, ''),
+      pdf: pdfPathOf(ri).replace(/^\//, ''),
+      lastCompile: lastCompile ? { ok: lastCompile.ok, pdfWritten: lastCompile.pdf, seconds: +lastCompile.secs, at: lastCompile.at.toISOString() } : null,
+      errors: problemList(errs, 50),
+      warnings: problemList(warns, 30),
+      badBoxes: problems.length - errs.length - warns.length
+    }
+  }
+
+  studio.tools.register('compile', async function () {
+    if (!studio.has('terminal.run')) throw new Error('This version of Infinite Studio cannot run the TeX compiler')
+    if (compiling) throw new Error('A compile is already running; wait for it and call latex_getProblems')
+    var notes = []
+    var orig = studio.toast
+    studio.toast = function (m) {
+      notes.push(String(m))
+      orig(m)
+    }
+    var before = lastCompile
+    try {
+      await compile()
+    } finally {
+      studio.toast = orig
+    }
+    // compile() 启动终端命令后就返回了：等日志 / PDF 出来
+    var t0 = Date.now()
+    while (compiling && Date.now() - t0 < 14 * 60 * 1000) await sleep(400)
+    if (lastCompile === before) {
+      var why = notes.join(' ') || (compileState && compileState.text) || 'unknown reason'
+      throw new Error('The compile did not run or produced no result: ' + why + '. If TeX is not installed, the user can install TeX Live / MiKTeX, or use Tectonic.')
+    }
+    var out = compileSummary()
+    out.engine = engineName(engineFor(rootInfo().program))
+    if (!out.lastCompile.pdfWritten) out.note = 'No new PDF was written; see errors (and the IDE terminal for the full output).'
+    return out
+  })
+
+  studio.tools.register('getProblems', function () {
+    var out = compileSummary()
+    if (lastRender && lastRender.warnings.length)
+      out.livePreviewWarnings = lastRender.warnings.slice(0, 30).map(function (w) {
+        return w.kind + (w.cmd ? ' \\' + w.cmd : '') + (w.count > 1 ? ' ×' + w.count : '')
+      })
+    return out
+  })
+
+  studio.tools.register('getOutline', function () {
+    refreshOutlineCache()
+    var ri = rootInfo()
+    return {
+      file: relPath.replace(/^\//, ''),
+      mainFile: ri.root.replace(/^\//, ''),
+      engine: engineName(engineFor(ri.program)),
+      words: wordCount,
+      sections: outline.map(function (o) {
+        return { level: ['part', 'chapter', 'section', 'subsection', 'subsubsection'][o.level], title: o.title, line: o.line + 1, starred: o.star || undefined }
+      }),
+      labels: labelsNow(),
+      bibKeys: bibKeysNow()
+    }
+  })
+
+  studio.tools.register('screenshot', async function (a) {
+    var view = a.view === 'pdf' || a.view === 'live' || a.view === 'source' ? a.view : null
+    if (view === 'source') setMode('source')
+    else {
+      if (settings.mode === 'source') setMode('split')
+      if (view) setView(view)
+    }
+    if (settings.view === 'pdf' && settings.mode !== 'source') await loadPdf(false)
+    await sleep(80)
+    var line = Math.floor(Number(a.line))
+    if (line > 0) {
+      if (settings.mode !== 'preview') jumpToLine(line - 1)
+      if (settings.view === 'live' && settings.mode !== 'source') scrollLiveToLine(line - 1)
+      if (settings.view === 'pdf' && settings.mode !== 'source') await syncToPdf().catch(function () {})
+    }
+    await sleep(200)
+    return (settings.mode === 'source' ? 'Source' : settings.view === 'pdf' ? 'PDF preview' : 'Live preview') + (line > 0 ? ' at line ' + line : '')
+  })
+
   var commandsDone = false
   function registerCommands() {
     if (commandsDone || !studio.has('commands.register')) return
@@ -2763,6 +2871,16 @@
     reg('export-html', T('导出 HTML', 'Export HTML'), exportHtml)
     reg('export-pdf', T('导出 PDF', 'Export PDF'), exportPdf)
     reg('log', T('显示编译日志', 'Show compile log'), function () { toggleProblems(true) })
+    if (studio.has('agent.send')) {
+      reg('ask-ai', T('请 AI 助手修复编译错误', 'Ask the AI assistant to fix the compile errors'), function () {
+        var errs = problems.filter(function (p) { return p.severity === 'error' })
+        var lines = errs.slice(0, 20).map(function (p) {
+          return '- ' + (p.path ? p.path.replace(/^\//, '') : '') + (p.line ? ':' + p.line : '') + ' ' + p.message
+        })
+        var msg = errs.length ? T('编译 LaTeX 时出现了这些错误，请帮我修复：', 'Compiling this LaTeX file failed with these errors, please fix them:') + '\n' + lines.join('\n') : T('请检查这个 LaTeX 文件。', 'Please review this LaTeX file.')
+        studio.agent.send(msg, { file: true }).catch(function (e) { studio.toast(e.message) })
+      })
+    }
   }
 
   // 页面里的快捷键（焦点不在编辑器时也有效）

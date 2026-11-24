@@ -389,8 +389,20 @@
         if (isCurrent) {
           var ms = Math.round(performance.now() - started)
           $('#status').textContent = T('已加载 · ', 'Loaded · ') + ms + ' ms'
+          lastLoad = { token: m.__hp, ms: ms, title: typeof m.title === 'string' ? m.title : '' }
+          loadWaiters.splice(0).forEach(function (fn) {
+            fn()
+          })
         }
         break
+      case 'evalResult': {
+        var w = evalWaiters[m.id]
+        if (w) {
+          delete evalWaiters[m.id]
+          w(m)
+        }
+        break
+      }
       case 'key':
         onFrameKey(m)
         break
@@ -708,9 +720,128 @@
     toggleConsole(false)
   })
 
+  /* ---------------- AI 工具（IDE 里的 AI 助手调用） ---------------- */
+
+  var lastLoad = null
+  var loadWaiters = []
+  var evalWaiters = {}
+  var evalSeq = 0
+
+  function sleep(ms) {
+    return new Promise(function (r) {
+      setTimeout(r, ms)
+    })
+  }
+  function consoleDump(max) {
+    var list = logs.slice(-max).map(function (l) {
+      var o = { level: l.level, message: l.msg.length > 4000 ? l.msg.slice(0, 4000) + '…' : l.msg }
+      if (l.where) o.where = l.where
+      if (l.count > 1) o.count = l.count
+      return o
+    })
+    return { errors: counts.error, warnings: counts.warn, total: logs.length, messages: list }
+  }
+  /** 等当前的预览加载完（最多 timeout 毫秒） */
+  function waitLoad(timeout) {
+    return new Promise(function (r) {
+      var done = false
+      var finish = function () {
+        if (done) return
+        done = true
+        r()
+      }
+      loadWaiters.push(finish)
+      setTimeout(finish, timeout)
+    })
+  }
+  function previewOn() {
+    if (settings.mode === 'source') setMode('preview')
+  }
+
+  studio.tools.register('getConsole', function (a) {
+    var out = consoleDump(Math.max(1, Math.min(500, Number(a.limit) || 100)))
+    out.page = lastLoad ? { title: lastLoad.title, loadMs: lastLoad.ms } : null
+    if (!settings.scripts) out.note = 'Scripts are turned off in the preview settings, so nothing is logged.'
+    if (a.clear) clearLog()
+    return out
+  })
+
+  studio.tools.register('reload', async function (a) {
+    previewOn()
+    var wait = waitLoad(Math.max(1000, Math.min(30000, Number(a.timeout) || 8000)))
+    refresh(true)
+    await wait
+    await sleep(Math.max(0, Math.min(10000, Number(a.wait) || 500)))
+    var out = consoleDump(200)
+    out.page = lastLoad ? { title: lastLoad.title, loadMs: lastLoad.ms } : null
+    return out
+  })
+
+  studio.tools.register('evaluate', async function (a) {
+    var code = String(a.expression || '').trim()
+    if (!code) throw new Error('`expression` is required')
+    if (!settings.scripts) throw new Error('Scripts are turned off in the preview settings')
+    previewOn()
+    if (!current) await waitLoad(8000)
+    if (!current) throw new Error('The preview has not loaded yet')
+    var id = ++evalSeq
+    var rec = current
+    var res = await new Promise(function (resolve) {
+      var timer = setTimeout(function () {
+        delete evalWaiters[id]
+        resolve({ ok: false, value: 'Timed out after 15 s (did the page block, or does it forbid eval in its Content-Security-Policy?)' })
+      }, 15000)
+      evalWaiters[id] = function (m) {
+        clearTimeout(timer)
+        resolve(m)
+      }
+      rec.frame.contentWindow.postMessage({ __hp: rec.token, t: 'eval', id: id, code: code }, '*')
+    })
+    if (!res.ok) throw new Error(String(res.value))
+    return String(res.value)
+  })
+
+  studio.tools.register('screenshot', async function (a) {
+    if (a.mode === 'preview' || a.mode === 'split' || a.mode === 'source') setMode(a.mode)
+    else previewOn()
+    if (a.device && DEVICES[a.device]) {
+      settings.device = a.device
+      if (a.landscape != null) settings.landscape = !!a.landscape
+      saveSettings()
+      layoutDevice()
+      buildBar()
+    }
+    if (!current) await waitLoad(8000)
+    if (current && a.scrollY != null) current.frame.contentWindow.postMessage({ __hp: current.token, t: 'scroll', x: 0, y: Number(a.scrollY) || 0 }, '*')
+    await sleep(250)
+    var d = DEVICES[settings.device] || DEVICES.fill
+    return 'Device: ' + (d.w ? (settings.landscape && settings.device !== 'desktop' && settings.device !== 'laptop' ? d.h + '×' + d.w : d.w + '×' + d.h) : 'fit to editor')
+  })
+
+  var askDone = false
+  function registerAsk() {
+    if (askDone || !studio.has('agent.send')) return
+    askDone = true
+    studio.commands
+      .register('ask-ai', T('把控制台的报错发给 AI 助手', 'Send the console errors to the AI assistant'), function () {
+        var errs = logs.filter(function (l) { return l.level === 'error' || l.level === 'warn' })
+        var msg = errs.length
+          ? T('预览这个网页时控制台里有这些报错，请帮我修复：', 'The page preview logged these errors, please fix them:') +
+            '\n' +
+            errs
+              .slice(-20)
+              .map(function (l) { return '- [' + l.level + '] ' + l.msg.split('\n')[0] + (l.where ? ' (' + l.where + ')' : '') })
+              .join('\n')
+          : ''
+        studio.agent.send(msg, { file: true }).catch(function (e) { studio.toast(e.message) })
+      })
+      .catch(function () {})
+  }
+
   /* ---------------- 和 IDE 的连接 ---------------- */
 
   studio.onLoad(function (content, info) {
+    registerAsk()
     var hasCr = content.indexOf('\r\n') >= 0
     var hasBom = content.charCodeAt(0) === 0xfeff
     var norm = (hasBom ? content.slice(1) : content).replace(/\r\n?/g, '\n')

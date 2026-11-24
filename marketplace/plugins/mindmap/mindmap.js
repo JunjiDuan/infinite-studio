@@ -979,6 +979,162 @@
     if (handled) e.preventDefault()
   })
 
+  /* ---------------- AI 工具（IDE 里的 AI 助手调用） ---------------- */
+
+  function needDoc() {
+    if (!doc) throw new Error('The mind map file could not be parsed; fix it as text first.')
+  }
+  function treeOf(n) {
+    var o = { id: n.id, text: n.text }
+    if (n.collapsed) o.collapsed = true
+    if (n.side) o.side = n.side
+    if (n.children.length) o.children = n.children.map(treeOf)
+    return o
+  }
+  function nodeArg(id, what) {
+    if (id == null || id === '') return index.get(doc.root.id)
+    var e = index.get(String(id))
+    if (!e) throw new Error('No node with id "' + id + '"' + (what ? ' (' + what + ')' : '') + '. Call mindmap_getMap to see the ids.')
+    return e
+  }
+  /** texts（字符串数组，或 { text, children } 对象数组）/ outline（缩进列表）→ 新节点 */
+  function nodesFrom(args) {
+    if (typeof args.outline === 'string' && args.outline.trim()) return parseOutline(args.outline)
+    if (Array.isArray(args.nodes)) {
+      return args.nodes.map(function conv(x) {
+        if (typeof x === 'string') return newNode(x)
+        var n = newNode(String((x && x.text) || ''))
+        if (x && Array.isArray(x.children)) n.children = x.children.map(conv)
+        return n
+      })
+    }
+    throw new Error('Pass `outline` (an indented "- " list) or `nodes`.')
+  }
+  function idsOf(list) {
+    return list.map(function (n) {
+      var o = { id: n.id, text: n.text }
+      if (n.children.length) o.children = idsOf(n.children)
+      return o
+    })
+  }
+  function clampIndex(i, len) {
+    return typeof i === 'number' && isFinite(i) ? Math.max(0, Math.min(len, Math.floor(i))) : len
+  }
+
+  studio.tools.register('getMap', function (args) {
+    needDoc()
+    var out = { root: treeOf(doc.root), nodeCount: countAll(doc.root) + 1, selected: selected }
+    if (args.format === 'markdown') return toMarkdown()
+    return out
+  })
+
+  studio.tools.register('addNodes', function (args) {
+    needDoc()
+    var parent = nodeArg(args.parent, 'parent').node
+    var list = nodesFrom(args)
+    if (!list.length) throw new Error('Nothing to add')
+    commit(function () {
+      delete parent.collapsed
+      var at = clampIndex(args.index, parent.children.length)
+      parent.children.splice.apply(parent.children, [at, 0].concat(list))
+      selected = list[0].id
+    })
+    ensureVisible(selected)
+    return { added: idsOf(list) }
+  })
+
+  studio.tools.register('updateNodes', function (args) {
+    needDoc()
+    var list = Array.isArray(args.updates) ? args.updates : [args]
+    var targets = list.map(function (u) {
+      return { u: u, e: nodeArg(u.id, 'id') }
+    })
+    commit(function () {
+      targets.forEach(function (x) {
+        var n = x.e.node
+        if (typeof x.u.text === 'string') n.text = x.u.text
+        if (x.u.collapsed === true && n.children.length) n.collapsed = true
+        if (x.u.collapsed === false) delete n.collapsed
+        if (x.u.side === 'left' || x.u.side === 'right') n.side = x.u.side
+        else if (x.u.side === 'auto') delete n.side
+      })
+    })
+    return { updated: targets.length }
+  })
+
+  studio.tools.register('moveNode', function (args) {
+    needDoc()
+    var e = nodeArg(args.id, 'id')
+    if (!e.parent) throw new Error('The root cannot be moved')
+    var to = nodeArg(args.parent, 'parent').node
+    if (isAncestor(e.node, to)) throw new Error('A node cannot be moved into itself or its own branch')
+    commit(function () {
+      var from = e.parent.children
+      var i = from.indexOf(e.node)
+      from.splice(i, 1)
+      delete to.collapsed
+      to.children.splice(clampIndex(args.index, to.children.length), 0, e.node)
+      selected = e.node.id
+    })
+    ensureVisible(selected)
+    return 'Moved'
+  })
+
+  studio.tools.register('deleteNodes', function (args) {
+    needDoc()
+    var ids = Array.isArray(args.ids) ? args.ids : [args.id]
+    var list = ids.map(function (id) {
+      var e = nodeArg(id, 'id')
+      if (!e.parent) throw new Error('The root cannot be deleted; use mindmap_setMap to replace the whole map')
+      return e
+    })
+    var removed = 0
+    commit(function () {
+      list.forEach(function (e) {
+        var i = e.parent.children.indexOf(e.node)
+        if (i >= 0) {
+          e.parent.children.splice(i, 1)
+          removed += 1 + countAll(e.node)
+        }
+      })
+    })
+    return { removed: removed }
+  })
+
+  studio.tools.register('setMap', function (args) {
+    var top = nodesFrom(args)
+    if (!top.length) throw new Error('The outline is empty')
+    var root
+    if (top.length === 1 && !args.title) root = top[0]
+    else {
+      root = newNode(String(args.title || (doc && doc.root.text) || baseName()))
+      root.children = top
+    }
+    if (!doc) doc = { format: 'infinite-mindmap', version: 1, root: newNode('') }
+    errorEl.hidden = true
+    commit(function () {
+      doc.root = root
+      selected = root.id
+    })
+    setTimeout(fit, 30)
+    return { root: idsOf([root])[0] }
+  })
+
+  studio.tools.register('screenshot', function (args) {
+    needDoc()
+    if (args.id) {
+      var e = nodeArg(args.id, 'id')
+      select(e.node.id)
+      ensureVisible(e.node.id)
+    } else fit()
+    // 窗口在后台时 requestAnimationFrame 可能不触发：用定时器等布局完成
+    return new Promise(function (r) {
+      setTimeout(function () {
+        r(countAll(doc.root) + 1 + ' nodes')
+      }, 60)
+    })
+  })
+
   /* ---------------- 和 IDE 对接 ---------------- */
 
   function showError(msg) {
@@ -986,7 +1142,20 @@
     errorEl.hidden = false
   }
 
+  var commandsDone = false
+  function registerCommands() {
+    if (commandsDone || !studio.has('agent.send')) return
+    commandsDone = true
+    studio.commands
+      .register('ask-ai', T('把选中的分支发给 AI 助手', 'Send the selected branch to the AI assistant'), function () {
+        var cur = doc && index.get(selected)
+        if (cur) studio.agent.send(toOutline(cur.node, 0), { file: true }).catch(function (e) { studio.toast(e.message) })
+      })
+      .catch(function () {})
+  }
+
   studio.onLoad(function (content, info) {
+    registerCommands()
     var first = !doc
     fileName = (info && info.fileName) || fileName
     document.title = fileName

@@ -1738,8 +1738,562 @@
     updateBar()
   }
 
+  /* ---------------- AI 工具（IDE 里的 AI 助手调用） ----------------
+   * 位置和大小用 pt（1/72 英寸），左上角为原点；幻灯片编号从 1 开始。
+   * 形状用 id（cNvPr 的 id）、名称或占位符角色（title / subtitle / body / body:2）指定。
+   */
+
+  var PT = 12700 // EMU / pt
+  function r1(v) {
+    return Math.round(v * 10) / 10
+  }
+  function needDoc() {
+    if (!S.doc) throw new Error('The presentation could not be opened')
+    if (S.editing) endEdit(true)
+  }
+  function slideArg(n) {
+    var slides = S.doc.slides()
+    var i = Math.floor(Number(n)) - 1
+    if (!(i >= 0 && i < slides.length)) throw new Error('Slide ' + n + ' does not exist (the presentation has ' + slides.length + ' slides)')
+    return i
+  }
+  function slidesArg(v) {
+    var n = S.doc.slides().length
+    if (v == null || v === '') return Array.from({ length: n }, function (_, i) { return i })
+    var out = []
+    ;(Array.isArray(v) ? v : String(v).split(',')).forEach(function (x) {
+      var m = /^\s*(\d+)\s*(?:-\s*(\d+)\s*)?$/.exec(String(x))
+      if (!m) throw new Error('Invalid slide list: ' + v)
+      var a = +m[1]
+      var b = m[2] ? +m[2] : a
+      for (var k = Math.min(a, b); k <= Math.max(a, b); k++) {
+        var i = slideArg(k)
+        if (out.indexOf(i) < 0) out.push(i)
+      }
+    })
+    return out
+  }
+  function num(v, d) {
+    var n = Number(v)
+    return v != null && v !== '' && isFinite(n) ? n : d
+  }
+  function hex(v) {
+    if (v === null || v === 'none') return null
+    if (typeof v !== 'string') return undefined
+    var s = v.trim().replace(/^#/, '')
+    if (/^[0-9a-f]{3}$/i.test(s)) s = s[0] + s[0] + s[1] + s[1] + s[2] + s[2]
+    if (!/^[0-9a-f]{6}$/i.test(s)) throw new Error('Invalid color "' + v + '" (use #rrggbb)')
+    return s.toUpperCase()
+  }
+  function toolPath(p) {
+    if (typeof p !== 'string' || !p.trim()) throw new Error('`path` is required')
+    return '/' + p.trim().replace(/\\/g, '/').replace(/^\/+/, '')
+  }
+
+  /** 渲染一张幻灯片拿到它的元素（含继承来的位置） */
+  function itemsOf(i) {
+    return Render.renderSlide(S.doc.pres, S.doc.slides()[i].path, { slideNum: i + 1 }).items
+  }
+  function cNvPr(el) {
+    return OX.desc(el, 'cNvPr')[0] || null
+  }
+  function paraText(p) {
+    return OX.kids(p)
+      .map(function (c) {
+        return c.localName === 'br' ? '\n' : c.localName === 'r' || c.localName === 'fld' ? (OX.kid(c, 't') || {}).textContent || '' : ''
+      })
+      .join('')
+  }
+  function bodyText(tb) {
+    return tb ? OX.kids(tb, 'p').map(paraText).join('\n') : ''
+  }
+  function tableOf(el) {
+    return el.localName === 'graphicFrame' ? OX.desc(el, 'tbl')[0] || null : null
+  }
+  function kindOf(el) {
+    switch (el.localName) {
+      case 'sp':
+        return OX.desc(el, 'cNvSpPr').some(function (c) { return OX.attr(c, 'txBox') === '1' }) ? 'textbox' : 'shape'
+      case 'pic':
+        return 'picture'
+      case 'cxnSp':
+        return 'line'
+      case 'grpSp':
+        return 'group'
+      case 'graphicFrame':
+        return tableOf(el) ? 'table' : 'chart/diagram'
+    }
+    return el.localName
+  }
+  function role(ph) {
+    if (!ph) return null
+    return ph.type === 'ctrTitle' || ph.type === 'title' ? 'title' : ph.type === 'subTitle' ? 'subtitle' : ph.type === 'body' || ph.type === 'obj' ? 'body' : ph.type
+  }
+  function describe(it) {
+    var el = it.target
+    var nv = cNvPr(el)
+    var ph = OX.phOf(el)
+    var b = it.box || { x: 0, y: 0, w: 0, h: 0 }
+    var d = { id: nv ? OX.attr(nv, 'id', '') : '', name: nv ? OX.attr(nv, 'name', '') : '', kind: kindOf(el), x: r1(b.x * 0.75), y: r1(b.y * 0.75), w: r1(b.w * 0.75), h: r1(b.h * 0.75) }
+    if (b.rot) d.rotation = b.rot
+    if (ph) d.placeholder = role(ph)
+    var tbl = tableOf(el)
+    if (tbl)
+      d.cells = OX.kids(tbl, 'tr').map(function (tr) {
+        return OX.kids(tr, 'tc').map(function (tc) {
+          return bodyText(OX.kid(tc, 'txBody'))
+        })
+      })
+    else {
+      var txt = bodyText(OX.kid(el, 'txBody'))
+      if (txt) d.text = txt
+    }
+    return d
+  }
+  /** 找形状：id、名称，或占位符角色（title / subtitle / body / body:2） */
+  function findShape(i, ref, items) {
+    items = items || itemsOf(i)
+    var s = String(ref == null ? '' : ref).trim()
+    if (!s) throw new Error('`shape` is required (an id, a name, or title / subtitle / body)')
+    var hit = items.filter(function (it) {
+      var nv = cNvPr(it.target)
+      return nv && OX.attr(nv, 'id', '') === s
+    })[0]
+    if (!hit)
+      hit = items.filter(function (it) {
+        var nv = cNvPr(it.target)
+        return nv && OX.attr(nv, 'name', '').toLowerCase() === s.toLowerCase()
+      })[0]
+    if (!hit) {
+      var m = /^(title|subtitle|body)(?::(\d+))?$/i.exec(s)
+      if (m) {
+        var want = m[1].toLowerCase()
+        var list = items.filter(function (it) {
+          var r = role(OX.phOf(it.target))
+          return r === want || (want === 'subtitle' && r === 'body' && !items.some(function (x) { return role(OX.phOf(x.target)) === 'subtitle' }))
+        })
+        hit = list[(m[2] ? +m[2] : 1) - 1]
+      }
+    }
+    // 最后按文字内容找（只有一个形状的文字和它完全相同时）
+    if (!hit) {
+      var same = items.filter(function (it) {
+        return bodyText(OX.kid(it.target, 'txBody')).trim().toLowerCase() === s.toLowerCase()
+      })
+      if (same.length === 1) hit = same[0]
+    }
+    if (!hit) throw new Error('No shape "' + s + '" on slide ' + (i + 1) + '. Call pptx_getSlides to see the shapes.')
+    return hit
+  }
+
+  /** 把文字写进文本体：保留第一段的段落格式和第一个文字块的字体格式；开头每两个空格算一级缩进 */
+  function writeBody(tb, text) {
+    var doc = tb.ownerDocument
+    var ps = OX.kids(tb, 'p')
+    var pPr = null
+    var rPr = null
+    ps.forEach(function (p) {
+      if (!pPr && OX.kid(p, 'pPr')) pPr = OX.kid(p, 'pPr')
+      OX.kids(p).forEach(function (c) {
+        if (!rPr && (c.localName === 'r' || c.localName === 'fld') && OX.kid(c, 'rPr')) rPr = OX.kid(c, 'rPr')
+        if (!rPr && c.localName === 'endParaRPr') rPr = c
+      })
+    })
+    var tplP = pPr ? pPr.cloneNode(true) : null
+    var tplR = rPr ? rPr.cloneNode(true) : null
+    ps.forEach(function (p) {
+      tb.removeChild(p)
+    })
+    var ext = OX.kid(tb, 'extLst')
+    String(text)
+      .replace(/\r\n?/g, '\n')
+      .split('\n')
+      .forEach(function (line) {
+        var p = OX.mk(doc, 'a:p')
+        var lead = /^[ \t]*/.exec(line)[0].replace(/\t/g, '  ').length
+        var lvl = Math.min(8, Math.floor(lead / 2))
+        var body = line.replace(/^[ \t]+/, '')
+        if (tplP || lvl) {
+          var pp = tplP ? tplP.cloneNode(true) : OX.mk(doc, 'a:pPr')
+          if (lvl) pp.setAttribute('lvl', String(lvl))
+          else pp.removeAttribute('lvl')
+          p.appendChild(pp)
+        }
+        var rp = function (q) {
+          var r = OX.mk(doc, q)
+          if (tplR) {
+            for (var k = 0; k < tplR.attributes.length; k++) r.setAttribute(tplR.attributes[k].name, tplR.attributes[k].value)
+            OX.kids(tplR).forEach(function (c) {
+              r.appendChild(c.cloneNode(true))
+            })
+          } else {
+            r.setAttribute('lang', 'zh-CN')
+            r.setAttribute('altLang', 'en-US')
+          }
+          r.removeAttribute('dirty')
+          r.removeAttribute('err')
+          return r
+        }
+        if (body) {
+          var run = OX.mk(doc, 'a:r')
+          run.appendChild(rp('a:rPr'))
+          var tt = OX.mk(doc, 'a:t')
+          tt.textContent = body
+          run.appendChild(tt)
+          p.appendChild(run)
+        } else p.appendChild(rp('a:endParaRPr'))
+        tb.insertBefore(p, ext)
+      })
+  }
+  function fmtArgs(a) {
+    var f = {}
+    var any = false
+    if (a.size != null) {
+      f.sz = Math.max(1, Math.min(400, num(a.size, 18)))
+      any = true
+    }
+    if (a.bold != null) {
+      f.b = !!a.bold
+      any = true
+    }
+    if (a.italic != null) {
+      f.i = !!a.italic
+      any = true
+    }
+    if (a.underline != null) {
+      f.u = !!a.underline
+      any = true
+    }
+    if (a.color !== undefined) {
+      f.color = hex(a.color)
+      any = true
+    }
+    if (a.align) {
+      var al = { left: 'l', center: 'ctr', right: 'r', justify: 'just' }[a.align]
+      if (!al) throw new Error('align must be left, center, right or justify')
+      f.algn = al
+      any = true
+    }
+    if (a.verticalAlign) {
+      var va = { top: 't', middle: 'ctr', bottom: 'b' }[a.verticalAlign]
+      if (!va) throw new Error('verticalAlign must be top, middle or bottom')
+      f.anchor = va
+      any = true
+    }
+    return any ? f : null
+  }
+  function setText(part, el, a) {
+    var tbl = tableOf(el)
+    if (tbl && Array.isArray(a.cells)) {
+      var rows = a.cells
+      while (OX.kids(tbl, 'tr').length < rows.length) S.doc.tableOp(part, el, 'rowBelow', OX.kids(tbl, 'tr').length - 1, 0)
+      var width = rows.reduce(function (m, r) { return Math.max(m, Array.isArray(r) ? r.length : 0) }, 0)
+      while (OX.kids(OX.kids(tbl, 'tr')[0], 'tc').length < width) S.doc.tableOp(part, el, 'colRight', 0, OX.kids(OX.kids(tbl, 'tr')[0], 'tc').length - 1)
+      var trs = OX.kids(tbl, 'tr')
+      rows.forEach(function (row, r) {
+        if (!Array.isArray(row)) return
+        var tcs = OX.kids(trs[r], 'tc')
+        row.forEach(function (v, c) {
+          if (v == null || !tcs[c]) return
+          var tb = OX.kid(tcs[c], 'txBody')
+          if (tb) writeBody(tb, String(v))
+        })
+      })
+    } else if (typeof a.text === 'string') {
+      if (tbl) throw new Error('This shape is a table; pass `cells` (rows of cell texts) instead of `text`')
+      if (el.localName !== 'sp') throw new Error('This ' + kindOf(el) + ' cannot hold text')
+      var tb2 = OX.kid(el, 'txBody') || S.doc.ensureTxBody(part, el)
+      writeBody(tb2, a.text)
+    }
+    var f = fmtArgs(a)
+    if (f) S.doc.formatShape(part, el, f)
+    S.pkg.touch(part)
+  }
+  function layoutArg(name, index) {
+    var layouts = S.doc.pres.layouts()
+    if (!layouts.length) throw new Error('This presentation has no slide layouts')
+    if (name == null || name === '') {
+      var slides = S.doc.slides()
+      var want = slides.length && index > 0 ? 'obj' : 'title'
+      return (layouts.filter(function (l) { return l.type === want })[0] || layouts.filter(function (l) { return l.type === 'obj' })[0] || layouts[0]).path
+    }
+    var s = String(name).toLowerCase()
+    var hit = layouts.filter(function (l) {
+      return l.name.toLowerCase() === s || l.type.toLowerCase() === s
+    })[0]
+    if (!hit && /^\d+$/.test(s)) hit = layouts[+s - 1]
+    if (!hit)
+      throw new Error(
+        'Unknown layout "' + name + '". Layouts: ' +
+          layouts
+            .map(function (l, k) {
+              return k + 1 + '. ' + l.name + (l.type ? ' (' + l.type + ')' : '')
+            })
+            .join('; ')
+      )
+    return hit.path
+  }
+  function finish(i) {
+    if (i != null) S.cur = Math.max(0, Math.min(S.doc.slides().length - 1, i))
+    S.sel = null
+    commit({ structure: true })
+  }
+
+  studio.tools.register('getSlides', function (a) {
+    needDoc()
+    var list = slidesArg(a.slides)
+    var layouts = S.doc.pres.layouts()
+    return {
+      slideSize: { w: r1((S.doc.pres.cx / PT)), h: r1(S.doc.pres.cy / PT), unit: 'pt' },
+      slideCount: S.doc.slides().length,
+      currentSlide: S.cur + 1,
+      layouts: layouts.map(function (l) {
+        return l.name + (l.type ? ' (' + l.type + ')' : '')
+      }),
+      slides: list.map(function (i) {
+        var s = S.doc.slides()[i]
+        var lr = S.pkg.relOfType(s.path, OX.REL.layout)
+        var lay = lr && layouts.filter(function (l) { return l.path === lr.target })[0]
+        var n = Render.notesText(S.pkg, s.path)
+        var o = { slide: i + 1, layout: lay ? lay.name : '', shapes: itemsOf(i).map(describe) }
+        if (S.doc.isHidden(i)) o.hidden = true
+        if (n && n.text) o.notes = n.text
+        return o
+      })
+    }
+  })
+
+  /** 只有没填内容的占位符（新建演示文稿自带的那张空白标题页） */
+  function isBlankSlide(i) {
+    return itemsOf(i).every(function (it) {
+      var el = it.target
+      return el.localName === 'sp' && OX.phOf(el) && !Render.hasText(OX.kid(el, 'txBody'))
+    })
+  }
+
+  studio.tools.register('addSlide', function (a) {
+    needDoc()
+    var n = S.doc.slides().length
+    // 新建的演示文稿只有一张空白页：用新幻灯片替换它，而不是排在它后面
+    var replaceBlank = a.position == null && n === 1 && isBlankSlide(0)
+    var index = a.position == null ? n : Math.max(0, Math.min(n, Math.floor(num(a.position, n + 1)) - 1))
+    var lp = layoutArg(a.layout, replaceBlank ? 0 : index)
+    var slides = S.doc.slides()
+    var ref = slides[index - 1] || slides[index]
+    var part = S.doc.addSlide(lp, index, ref ? ref.id : null)
+    var items = Render.renderSlide(S.doc.pres, part, { slideNum: index + 1 }).items
+    var filled = []
+    var put = function (refName, text) {
+      if (text == null) return
+      var it = findShape(index, refName, items)
+      setText(part, it.target, { text: Array.isArray(text) ? text.join('\n') : String(text) })
+      filled.push(refName)
+    }
+    put('title', a.title)
+    if (a.subtitle != null) put('subtitle', a.subtitle)
+    if (a.body != null) put('body', a.body)
+    if (a.texts && typeof a.texts === 'object')
+      Object.keys(a.texts).forEach(function (k) {
+        put(k, a.texts[k])
+      })
+    if (typeof a.notes === 'string' && a.notes) S.doc.setNotes(part, a.notes)
+    if (replaceBlank) {
+      S.doc.deleteSlide(0)
+      index = 0
+    }
+    finish(index)
+    return { slide: index + 1, slideCount: S.doc.slides().length, shapes: itemsOf(index).map(describe) }
+  })
+
+  studio.tools.register('editSlides', function (a) {
+    needDoc()
+    var action = String(a.action || '')
+    var list = slidesArg(a.slides)
+    if (!list.length) throw new Error('`slides` is required')
+    if (action === 'delete') {
+      list
+        .slice()
+        .sort(function (x, y) { return y - x })
+        .forEach(function (i) {
+          S.doc.deleteSlide(i)
+        })
+      finish(Math.min(list[0], S.doc.slides().length - 1))
+    } else if (action === 'duplicate') {
+      // 每张的副本紧跟在它后面；从后往前复制，前面的编号不变
+      list
+        .slice()
+        .sort(function (x, y) { return y - x })
+        .forEach(function (i) {
+          S.doc.duplicateSlide(i)
+        })
+      finish(Math.min.apply(null, list) + 1)
+    } else if (action === 'move') {
+      if (list.length !== 1) throw new Error('Move one slide at a time')
+      var to = slideArg(a.to)
+      if (!S.doc.moveSlide(list[0], to) && list[0] !== to) throw new Error('Could not move the slide')
+      finish(to)
+    } else if (action === 'hide' || action === 'show') {
+      list.forEach(function (i) {
+        S.doc.setHidden(i, action === 'hide')
+      })
+      finish(null)
+    } else throw new Error('Unknown action "' + action + '" (delete, duplicate, move, hide, show)')
+    return { slideCount: S.doc.slides().length }
+  })
+
+  studio.tools.register('setText', function (a) {
+    needDoc()
+    var i = slideArg(a.slide)
+    var it = findShape(i, a.shape)
+    if (a.text == null && a.cells == null && !fmtArgs(a)) throw new Error('Pass `text` (or `cells` for a table) and / or formatting')
+    setText(S.doc.slides()[i].path, it.target, a)
+    finish(i)
+    return describe(findShape(i, OX.attr(cNvPr(it.target), 'id', '')))
+  })
+
+  studio.tools.register('addShape', async function (a) {
+    needDoc()
+    var i = slideArg(a.slide)
+    var part = S.doc.slides()[i].path
+    var kind = String(a.kind || 'textbox')
+    var W = S.doc.pres.cx
+    var H = S.doc.pres.cy
+    var box = function (dw, dh) {
+      var w = a.w != null ? num(a.w, 0) * PT : dw
+      var h = a.h != null ? num(a.h, 0) * PT : dh
+      return { x: a.x != null ? num(a.x, 0) * PT : (W - w) / 2, y: a.y != null ? num(a.y, 0) * PT : (H - h) / 2, w: w, h: h }
+    }
+    var el
+    if (kind === 'textbox') {
+      el = S.doc.addTextBox(part, box(W * 0.5, 40 * PT), t('文本框', 'TextBox'), typeof a.text === 'string' ? a.text : '')
+    } else if (kind === 'shape') {
+      var prst = String(a.geometry || 'rect')
+      if (!/^[A-Za-z0-9]+$/.test(prst)) throw new Error('Invalid geometry')
+      el = S.doc.addShape(part, prst, box(144 * PT, 96 * PT), String(a.name || prst))
+      if (typeof a.text === 'string') setText(part, el, { text: a.text })
+    } else if (kind === 'line' || kind === 'arrow') {
+      var x1 = num(a.x1, 72) * PT
+      var y1 = num(a.y1, 72) * PT
+      var x2 = num(a.x2, 288) * PT
+      var y2 = num(a.y2, 72) * PT
+      el = S.doc.addShape(part, kind === 'arrow' ? 'straightConnector1' : 'line', { x: Math.min(x1, x2), y: Math.min(y1, y2), w: Math.abs(x2 - x1), h: Math.abs(y2 - y1) }, kind === 'arrow' ? 'Arrow' : 'Line')
+      var xf = S.doc.xfrmOf(el, true)
+      if (x2 < x1) xf.setAttribute('flipH', '1')
+      if (y2 < y1) xf.setAttribute('flipV', '1')
+    } else if (kind === 'image') {
+      var bytes = new Uint8Array(await studio.fs.read(toolPath(a.path)))
+      var ext = (OX.extOf(String(a.path)) || 'png').toLowerCase()
+      if (ext === 'jpg') ext = 'jpeg'
+      if (ext === 'webp' || !OX.MIME[ext]) {
+        bytes = await toPng(new Blob([bytes]))
+        ext = 'png'
+      }
+      var bmp = await createImageBitmap(new Blob([bytes], { type: OX.MIME[ext] }))
+      var iw = bmp.width * 9525
+      var ih = bmp.height * 9525
+      bmp.close()
+      var w = iw
+      var h = ih
+      if (a.w != null && a.h != null) {
+        w = num(a.w, 0) * PT
+        h = num(a.h, 0) * PT
+      } else if (a.w != null) {
+        w = num(a.w, 0) * PT
+        h = (ih * w) / iw
+      } else if (a.h != null) {
+        h = num(a.h, 0) * PT
+        w = (iw * h) / ih
+      } else {
+        var k = Math.min(1, (W * 0.8) / iw, (H * 0.8) / ih)
+        w *= k
+        h *= k
+      }
+      el = S.doc.addPicture(part, bytes, ext, { x: a.x != null ? num(a.x, 0) * PT : (W - w) / 2, y: a.y != null ? num(a.y, 0) * PT : (H - h) / 2, w: w, h: h }, t('图片', 'Picture'))
+    } else if (kind === 'table') {
+      var cells = Array.isArray(a.cells) ? a.cells : null
+      var rows = Math.max(1, Math.min(50, Math.floor(num(a.rows, cells ? cells.length : 3))))
+      var cols = Math.max(1, Math.min(30, Math.floor(num(a.cols, cells ? cells.reduce(function (m, r) { return Math.max(m, Array.isArray(r) ? r.length : 0) }, 0) || 3 : 3))))
+      var tw = a.w != null ? num(a.w, 0) * PT : Math.min(W * 0.8, cols * 1828800)
+      el = S.doc.addTable(part, rows, cols, { x: a.x != null ? num(a.x, 0) * PT : (W - tw) / 2, y: a.y != null ? num(a.y, 0) * PT : (H - rows * 370840) / 2, w: tw, h: rows * 370840 }, t('表格', 'Table'))
+      if (cells) setText(part, el, { cells: cells })
+    } else throw new Error('Unknown kind "' + kind + '" (textbox, shape, line, arrow, image, table)')
+    if (a.fill !== undefined && el.localName === 'sp') S.doc.setFill(part, el, hex(a.fill))
+    if (a.line !== undefined && el.localName !== 'graphicFrame') S.doc.setLine(part, el, hex(a.line))
+    if (a.lineWidth != null && el.localName !== 'graphicFrame') S.doc.setLineWidth(part, el, num(a.lineWidth, 1))
+    var f = fmtArgs(a)
+    if (f && el.localName !== 'pic') S.doc.formatShape(part, el, f)
+    finish(i)
+    return describe(findShape(i, OX.attr(cNvPr(el), 'id', '')))
+  })
+
+  studio.tools.register('editShape', function (a) {
+    needDoc()
+    var i = slideArg(a.slide)
+    var part = S.doc.slides()[i].path
+    var it = findShape(i, a.shape)
+    var el = it.xml
+    if (a.delete) {
+      S.doc.remove(part, el)
+      finish(i)
+      return 'Deleted'
+    }
+    if (a.x != null || a.y != null || a.w != null || a.h != null || a.rotation != null) {
+      var b = it.box
+      var cur = { x: b.x * 9525, y: b.y * 9525, w: b.w * 9525, h: b.h * 9525, rot: b.rot || 0 }
+      S.doc.setBox(part, el, { x: a.x != null ? num(a.x, 0) * PT : cur.x, y: a.y != null ? num(a.y, 0) * PT : cur.y, w: a.w != null ? num(a.w, 0) * PT : cur.w, h: a.h != null ? num(a.h, 0) * PT : cur.h, rot: a.rotation != null ? num(a.rotation, 0) : cur.rot }, cur)
+    }
+    var target = it.target
+    if (a.fill !== undefined && !S.doc.setFill(part, target, hex(a.fill))) throw new Error('This ' + kindOf(target) + ' has no fill')
+    if (a.line !== undefined && !S.doc.setLine(part, target, hex(a.line))) throw new Error('This ' + kindOf(target) + ' has no outline')
+    if (a.lineWidth != null) S.doc.setLineWidth(part, target, num(a.lineWidth, 1))
+    if (a.order) {
+      if (['front', 'back', 'forward', 'backward'].indexOf(a.order) < 0) throw new Error('order must be front, back, forward or backward')
+      S.doc.order(part, el, a.order)
+    }
+    finish(i)
+    return describe(findShape(i, OX.attr(cNvPr(target), 'id', '')))
+  })
+
+  studio.tools.register('setNotes', function (a) {
+    needDoc()
+    var i = slideArg(a.slide)
+    S.doc.setNotes(S.doc.slides()[i].path, String(a.text == null ? '' : a.text))
+    finish(i)
+    return 'Notes of slide ' + (i + 1) + ' updated'
+  })
+
+  studio.tools.register('screenshot', function (a) {
+    needDoc()
+    var i = a.slide == null ? S.cur : slideArg(a.slide)
+    go(i)
+    S.sel = null
+    drawSel()
+    return 'Slide ' + (i + 1) + ' of ' + S.doc.slides().length
+  })
+
+  var askDone = false
+  function registerAsk() {
+    if (askDone || !studio.has('agent.send')) return
+    askDone = true
+    studio.commands
+      .register('ask-ai', t('把当前幻灯片的文字发给 AI 助手', 'Send the current slide text to the AI assistant'), function () {
+        if (!S.doc || !slidePath()) return
+        var text = itemsOf(S.cur)
+          .map(function (it) {
+            return describe(it).text || ''
+          })
+          .filter(Boolean)
+          .join('\n')
+        studio.agent.send(t('（第 {0} 张幻灯片）', '(slide {0})').replace('{0}', S.cur + 1) + (text ? '\n' + text : ''), { file: true }).catch(function (e) {
+          studio.toast(e.message)
+        })
+      })
+      .catch(function () {})
+  }
+
   studio.onLoad(function (content, info) {
-    load(content, info)
+    registerAsk()
+    return load(content, info)
   })
   studio.onSave(async function () {
     if (S.editing) endEdit(true)

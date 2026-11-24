@@ -1,9 +1,9 @@
 {
   "id": "html-preview",
   "name": "HTML 预览器",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "publisher": "Infinite Studio",
-  "description": "打开 .html 文件时直接显示成网页：本地的 CSS、JS、图片、字体自动加载，脚本照常运行。可切换预览 / 分栏 / 源码，分栏时边写边刷新；桌面、平板、手机尺寸预览，内置控制台显示 console 输出和报错；引用的文件改动后自动刷新，可导出单文件 HTML。",
+  "description": "打开 .html 文件时直接显示成网页：本地的 CSS、JS、图片、字体自动加载，脚本照常运行。可切换预览 / 分栏 / 源码，分栏时边写边刷新；桌面、平板、手机尺寸预览，内置控制台显示 console 输出和报错；引用的文件改动后自动刷新，可导出单文件 HTML。IDE 里的 AI 助手可以查看页面效果、读取控制台报错、在页面里运行脚本检查 DOM。",
   "category": "productivity",
   "homepage": "https://github.com/JunjiDuan/infinite-studio/tree/main/marketplace/plugins/html-preview",
   "minStudio": "0.1.0",
@@ -25,5 +25,55 @@
     "label": "HTML 网页",
     "extension": ".html",
     "template": "<!doctype html>\n<html lang=\"zh-CN\">\n<head>\n  <meta charset=\"UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n  <title>新网页</title>\n  <style>\n    body { font-family: system-ui, sans-serif; margin: 40px; }\n  </style>\n</head>\n<body>\n  <h1>Hello</h1>\n\n  <script>\n    console.log('页面已加载')\n  </script>\n</body>\n</html>\n"
-  }
+  },
+  "agentTools": [
+    {
+      "name": "getConsole",
+      "description": "Messages the previewed page wrote to its console, uncaught script errors, and files that failed to load (with source locations). Edit the HTML / CSS / JS with your normal file tools — the preview refreshes by itself when files change.",
+      "readOnly": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer", "description": "Most recent messages to return, default 100." },
+          "clear": { "type": "boolean", "description": "Clear the console after reading." }
+        }
+      }
+    },
+    {
+      "name": "reload",
+      "description": "Rebuild and reload the preview (re-reading every referenced file), wait until the page has loaded, and return the console output of the fresh load.",
+      "readOnly": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "wait": { "type": "integer", "description": "Extra milliseconds to wait after the load event for late logs, default 500." },
+          "timeout": { "type": "integer", "description": "Max milliseconds to wait for the load event, default 8000." }
+        }
+      }
+    },
+    {
+      "name": "evaluate",
+      "description": "Run a JavaScript expression inside the previewed page (global scope) and return its result as text — e.g. document.querySelector('h1').textContent, getComputedStyle(el).color, or simulate a click to test interaction. Promises are awaited; elements are returned as outerHTML. Changes made this way only affect the preview, not the files.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "expression": { "type": "string" }
+        },
+        "required": ["expression"]
+      }
+    },
+    {
+      "name": "screenshot",
+      "description": "Optional device size to preview at (fill = fit the editor, desktop 1440×900, laptop 1280×800, tablet 820×1180, mobile 390×844; the choice is kept), landscape, mode (preview, split, source), and scrollY to scroll the page first.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "device": { "type": "string", "enum": ["fill", "desktop", "laptop", "tablet", "mobile"] },
+          "landscape": { "type": "boolean" },
+          "mode": { "type": "string", "enum": ["preview", "split", "source"] },
+          "scrollY": { "type": "number" }
+        }
+      }
+    }
+  ]
 }

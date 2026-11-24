@@ -6,14 +6,14 @@ Infinite Studio（无界工作室）的官方插件。IDE 的插件面板里，�
 
 | 插件 | 说明 |
 | --- | --- |
-| [HTML 预览器](plugins/html-preview) | 打开 `.html` 文件时直接显示成网页：本地 CSS / JS / 图片 / 字体自动加载，脚本照常运行。预览 / 分栏 / 源码，边写边刷新；桌面 / 平板 / 手机尺寸；控制台；引用文件改动后自动刷新；导出单文件 HTML |
-| [LaTeX 编辑器](plugins/latex) | 打开 `.tex` 文件。语法高亮，命令 / 环境 / 标签 / 文献 / 文件名补全，查找替换，大纲。即时预览不用安装 TeX（KaTeX 公式、自动编号、交叉引用、表格、定理、参考文献、图片），双击跳回源码；PDF 模式用本机 TeX 编译（XeLaTeX、pdfLaTeX、LuaLaTeX、latexmk、Tectonic），日志错误定位到行，SyncTeX 双向跳转。需要 `terminal` 权限 |
-| [PDF 编辑器](plugins/pdf) | 打开和编辑 `.pdf`：添加文字、修改原有文字（自动遮盖原文、取色）、高亮（吸附到文字行）、白色遮盖、矩形 / 椭圆 / 直线 / 箭头、手绘签名、图片（可拖入或粘贴），填写表单；页面旋转 / 删除 / 复制 / 拖动排序，插入空白页、合并其他 PDF，导出选中页或 PNG，文档属性。添加的内容保存后再打开仍可编辑；中文需要在菜单里选一次字体文件（如 `msyh.ttc`），保存时子集嵌入。加密的 PDF 只能查看 |
-| [Markdown 美化](plugins/markdown) | 打开 `.md` 文件。阅读 / 分栏 / 源码三种模式：标题编号、提示块、代码高亮与复制、任务进度、大纲与阅读进度，分栏滚动同步；四套主题，导出 HTML |
-| [思维导图](plugins/mindmap) | 打开 `.mind` 文件。用键盘快速建主题，拖拽调整结构，可折叠分支，导出 PNG / SVG / Markdown |
+| [HTML 预览器](plugins/html-preview) | 打开 `.html` 文件时直接显示成网页：本地 CSS / JS / 图片 / 字体自动加载，脚本照常运行。预览 / 分栏 / 源码，边写边刷新；桌面 / 平板 / 手机尺寸；控制台；引用文件改动后自动刷新；导出单文件 HTML。AI 工具：控制台、重新加载、在页面里运行脚本、截图 |
+| [LaTeX 编辑器](plugins/latex) | 打开 `.tex` 文件。语法高亮，命令 / 环境 / 标签 / 文献 / 文件名补全，查找替换，大纲。即时预览不用安装 TeX（KaTeX 公式、自动编号、交叉引用、表格、定理、参考文献、图片），双击跳回源码；PDF 模式用本机 TeX 编译（XeLaTeX、pdfLaTeX、LuaLaTeX、latexmk、Tectonic），日志错误定位到行，SyncTeX 双向跳转。需要 `terminal` 权限。AI 工具：编译并返回带行号的错误、大纲、截图 |
+| [PDF 编辑器](plugins/pdf) | 打开和编辑 `.pdf`：添加文字、修改原有文字（自动遮盖原文、取色）、高亮（吸附到文字行）、白色遮盖、矩形 / 椭圆 / 直线 / 箭头、手绘签名、图片（可拖入或粘贴），填写表单；页面旋转 / 删除 / 复制 / 拖动排序，插入空白页、合并其他 PDF，导出选中页或 PNG，文档属性。添加的内容保存后再打开仍可编辑；中文需要在菜单里选一次字体文件（如 `msyh.ttc`），保存时子集嵌入。加密的 PDF 只能查看。AI 工具：读文字（带位置）、渲染页面、添加批注 / 文字 / 图片、改原有文字、填表单、整理和拆分页面、文档属性。需要 `workspace-write` 权限（拆分出的新 PDF 写进工作区） |
+| [Markdown 美化](plugins/markdown) | 打开 `.md` 文件。阅读 / 分栏 / 源码三种模式：标题编号、提示块、代码高亮与复制、任务进度、大纲与阅读进度，分栏滚动同步；四套主题，导出 HTML。AI 工具：大纲、导出 HTML 到工作区、截图。需要 `workspace-write` 权限 |
+| [思维导图](plugins/mindmap) | 打开 `.mind` 文件。用键盘快速建主题，拖拽调整结构，可折叠分支，导出 PNG / SVG / Markdown。AI 工具：读取、增删改移节点、整张替换、截图 |
 | [网页大模型助手](plugins/web-ai) | 在编辑器右侧分栏里使用网页版 Claude、ChatGPT、Gemini、DeepSeek（插件面板的“大模型”分类）。右上角的地球按钮选择网站，各网站的登录状态分开保存在本机；Alt K 把选中的代码或当前文件粘贴进网页的输入框 |
 | [Word 文档](plugins/docx) | 打开和编辑 `.docx`：按原样式显示（样式继承、主题字体、编号列表、表格、图片、页眉页脚），直接打字修改；字体、字号、颜色、突出显示、上下标、对齐、行距、标题样式、项目符号和编号；插入表格（增删行列、Tab 跳格）、图片（拖动缩放）、超链接、分页符；查找替换、导航窗格；粘贴保留格式（网页内容转成标题 / 列表 / 表格）。保存时只重写改动过的部分，批注、修订、域、脚注、内容控件原样保留。AI 工具：读取文档（按块编号）、用 Markdown 插入内容、查找替换、改段落文字和格式、编辑表格、插入图片、删除块 |
-| [演示文稿](plugins/pptx) | 打开和编辑 `.pptx`：按原样式显示（主题、母版、表格、图表、SmartArt），改文字和格式，移动 / 缩放 / 旋转形状，插入文本框、形状、图片、表格，增删 / 复制 / 排序幻灯片，备注，放映 |
+| [演示文稿](plugins/pptx) | 打开和编辑 `.pptx`：按原样式显示（主题、母版、表格、图表、SmartArt），改文字和格式，移动 / 缩放 / 旋转形状，插入文本框、形状、图片、表格，增删 / 复制 / 排序幻灯片，备注，放映。AI 工具：读取幻灯片、按版式新建、改文字和格式、插入形状 / 图片 / 表格、备注、截图 |
 
 语言包（插件面板的“多语言支持”分类）：安装后在 设置 → 多语言设置 里切换界面语言。
 
@@ -98,6 +98,7 @@ IDE 给插件的能力是一套通用接口（文件、对话框、网络、剪�
 | 2 | `studio.call` 通用调用：`fs.*`、`dialog.*`、`clipboard.*`、`net.fetch`、`editor.*`、`ui.*`、`terminal.run`、`commands.*`；权限；文件监视 |
 | 3 | 语言包（`category: "locale"` + `locale` 字段） |
 | 4 | 网页面板（`webPanel` 字段 + `webPanel` 权限）；市场插件可以放进“大模型”分类（`category: "llm"`） |
+| 5 | AI 联动：`agentTools` 字段 + `studio.tools.register`（IDE 里的 AI 助手调用插件的功能）；`studio.agent.send`（把内容放进 AI 对话） |
 
 插件用到哪个版本的接口，就在 manifest 里写 `"minApi"`。旧 IDE 不会装上用不了的插件（卡片会提示更新 IDE）；新 IDE 永远兼容旧插件。
 
@@ -267,6 +268,58 @@ IDE 新加的文本在语言包里还没有译文时显示英文，所以语言�
 - 麦克风 / 摄像头每次 IDE 运行期间第一次使用时询问用户；通知、定位等其他权限一律拒绝
 - 网页获得焦点时，IDE 的全局快捷键（Ctrl K 命令面板、Ctrl W 关闭标签、Ctrl Tab、Ctrl \` 终端、F5 运行调试、Ctrl Esc 回到编辑器等）仍然归 IDE；复制粘贴、Ctrl F 等留给网页。Ctrl = / - / 0 缩放网页，Ctrl R 刷新，Alt ← / → 后退前进
 - 面板隐藏超过 30 分钟会释放内存，再显示时重新打开原来的网址
+
+### AI 联动（接口版本 5）
+
+IDE 内置的 AI 对话（Claude Code、Codex、Gemini、Kimi Code、DeepSeek Harness）可以调用插件提供的功能。插件在 manifest 里用 `agentTools` 声明工具，在页面里实现：
+
+```json
+"agentTools": [
+  {
+    "name": "addNodes",
+    "description": "Add nodes under a parent node …（给 AI 看的说明，英文效果最好）",
+    "inputSchema": { "type": "object", "properties": { "parent": { "type": "string" } } },
+    "readOnly": false,
+    "timeout": 60
+  }
+]
+```
+
+```js
+studio.tools.register('addNodes', async (args) => {
+  // 修改文档（像用户操作一样进撤销历史、调用 setDirty）
+  return { added: [] } // 字符串 / 可 JSON 化的对象 / { content: [...] }（MCP 格式）；抛错表示失败
+})
+studio.tools.register('render', () => studio.tools.image(canvas, 'Page 1')) // 返回图片
+```
+
+| 字段 | 说明 |
+| --- | --- |
+| `name` | 字母、数字、下划线。AI 看到的工具名是 `<插件 id>_<name>`（id 里的连字符换成下划线），例如 `pdf_getText` |
+| `description` | 工具做什么、参数怎么用、坐标单位等。AI 只能靠它理解工具 |
+| `inputSchema` | 参数的 JSON Schema（`type: "object"`）。**不要声明 `file`**：IDE 自动给每个工具加上 `file` 参数 |
+| `readOnly` | `true`：只读取、不修改文档。AI 调用时不用征求用户同意，调用后也不保存 |
+| `timeout` | 最长等多少秒（默认 60，最多 900），编译之类的慢操作要调大 |
+
+IDE 怎么执行一次调用：
+
+1. 按 `file` 参数找到文件（相对工作区根目录或绝对路径；不给时用用户正在看的那个）。没打开就在编辑器里打开它，等页面的 `onLoad` 处理完（`onLoad` 返回 Promise 时等它）。文件不存在、工具会修改文档、插件有 `newFile` 时，先按模板新建
+2. 把参数交给页面里 `studio.tools.register` 注册的函数。同一个文件的调用排队执行
+3. 不是 `readOnly` 的工具执行完后，如果文档有未保存的修改（`setDirty(true)`），IDE 自动保存，并在结果里告诉 AI（保存失败也会告诉它）
+
+每个插件还自动有一个 `<id>_screenshot` 工具：IDE 把插件标签切到前台，截取它的画面给 AI 看。manifest 里也声明了 `screenshot` 的话，IDE 先调用页面里同名的函数（例如翻到某一页、切换视图），它的说明和参数会合并进去，返回的文字附在截图后面。
+
+文本格式的文件（`.md`、`.tex`、`.html` 等）AI 用它自己的工具直接改就行。插件工具适合做 AI 自己做不到的事：读写二进制格式（PDF、PPTX）、看渲染效果、编译、读预览里的控制台。
+
+页面里也可以把内容交给 AI：
+
+```js
+await studio.agent.send('请解释这一段：\n> …', { file: true }) // 放进最近使用的 AI 对话的输入框（不会自动发送）；file: true 时一起 @ 当前文件
+```
+
+两个功能都只在新 IDE 上有。不想因此提高 `minApi` 时，用 `studio.has('agent.send')` 判断；`agentTools` 在旧 IDE 上会被忽略。
+
+工作原理：IDE 把这些工具注册成 MCP 服务 `infinite-studio` 的工具。Claude Code 的对话通过它的 SDK MCP 通道直接调用；Codex 和 ACP 系的对话（Gemini、Kimi Code、DeepSeek Harness）启动时会带上一个本地的 MCP 桥接（Electron 自带的 Node 运行的小脚本，通过命名管道连回 IDE）。
 
 ### 安全限制
 

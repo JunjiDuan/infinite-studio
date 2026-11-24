@@ -99,6 +99,21 @@ function fail(msg) {
   process.exit(1)
 }
 
+/** AI 工具：要有编辑器页面；名称唯一、只用字母数字下划线；要有说明；参数是 object 类型的 JSON Schema */
+function checkAgentTools(id, m) {
+  if (!m.editor) fail(`${id}: agentTools 只能用在有编辑器页面（editor）的插件里`)
+  if (!Array.isArray(m.agentTools)) fail(`${id}: agentTools 必须是数组`)
+  const seen = new Set()
+  for (const tool of m.agentTools) {
+    if (!/^[A-Za-z][A-Za-z0-9_]{0,47}$/.test(tool?.name ?? '')) fail(`${id}: agentTools 的 name 只能用字母、数字、下划线（以字母开头，最多 48 个字符）：${tool?.name}`)
+    if (seen.has(tool.name)) fail(`${id}: agentTools 里有重名的工具 ${tool.name}`)
+    seen.add(tool.name)
+    if (typeof tool.description !== 'string' || !tool.description.trim()) fail(`${id}: 工具 ${tool.name} 缺少 description`)
+    if (tool.inputSchema != null && (typeof tool.inputSchema !== 'object' || tool.inputSchema.type !== 'object')) fail(`${id}: 工具 ${tool.name} 的 inputSchema 必须是 type 为 object 的 JSON Schema`)
+    if (tool.inputSchema?.properties?.file) fail(`${id}: 工具 ${tool.name} 不要声明 file 参数，IDE 会自动加上`)
+  }
+}
+
 function pack(id) {
   const dir = path.join(ROOT, 'plugins', id)
   const manifestFile = path.join(dir, 'manifest.json')
@@ -109,6 +124,7 @@ function pack(id) {
   if (m.editor && !existsSync(path.join(dir, m.editor.entry))) fail(`${id}: 找不到编辑器入口 ${m.editor.entry}`)
   if (m.category === 'locale') checkLocale(id, dir, m)
   if (m.webPanel) checkWebPanel(id, dir, m)
+  if (m.agentTools) checkAgentTools(id, m)
 
   const files = walk(dir)
   // SDK 统一从 sdk/ 复制，插件目录里不用放（语言包没有页面，不需要）
