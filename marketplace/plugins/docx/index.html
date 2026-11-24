@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Word 文档</title>
+    <link rel="stylesheet" href="docx.css" />
+  </head>
+  <body>
+    <div id="bar"></div>
+    <div id="find" hidden>
+      <div class="find-row">
+        <button id="findToggle" class="tb-btn small" title="替换 / Replace">⇅</button>
+        <input id="findText" type="text" spellcheck="false" />
+        <label id="findCaseL" class="opt"><input id="findCase" type="checkbox" />Aa</label>
+        <label id="findRegexL" class="opt"><input id="findRegex" type="checkbox" />.*</label>
+        <span id="findCount"></span>
+        <button id="findPrev" class="tb-btn small" title="Shift+Enter">↑</button>
+        <button id="findNext" class="tb-btn small" title="Enter">↓</button>
+        <button id="findClose" class="tb-btn small" title="Esc">✕</button>
+      </div>
+      <div id="findRepRow" class="find-row" hidden>
+        <span class="find-pad"></span>
+        <input id="findRep" type="text" spellcheck="false" />
+        <button id="findOne" class="tb-btn small text"></button>
+        <button id="findAll" class="tb-btn small text"></button>
+      </div>
+    </div>
+    <div id="main">
+      <div id="outline" hidden></div>
+      <div id="wrap">
+        <div id="sheet">
+          <div id="hdr" class="hf" hidden></div>
+          <div id="doc" contenteditable="true" spellcheck="false"></div>
+          <div id="ftr" class="hf" hidden></div>
+        </div>
+        <div id="imgsel" hidden><div class="hd"></div></div>
+      </div>
+    </div>
+    <div id="statusbar"><span id="status"></span></div>
+    <div id="error" hidden></div>
+    <script src="studio.js"></script>
+    <script src="zip.js"></script>
+    <script src="pkg.js"></script>
+    <script src="blank.js"></script>
+    <script src="model.js"></script>
+    <script src="render.js"></script>
+    <script src="editor.js"></script>
+    <script src="ui.js"></script>
+    <script src="tools.js"></script>
+  </body>
+</html>

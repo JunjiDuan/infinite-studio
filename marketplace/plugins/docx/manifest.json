@@ -1,0 +1,152 @@
+{
+  "id": "docx",
+  "name": "Word 文档",
+  "version": "1.0.0",
+  "publisher": "Infinite Studio",
+  "description": "在 IDE 里打开和编辑 Word（.docx）：按原样式显示（样式、编号列表、表格、图片、页眉页脚），直接打字修改，设置字体、字号、颜色、突出显示、对齐、行距、标题样式、项目符号和编号，插入表格（增删行列）、图片（可拖动缩放）、超链接、分页符，查找替换，导航窗格。保存时只改动修改过的部分，批注、修订、域、脚注等原样保留，保存的文件可以直接用 Word、WPS 打开。IDE 里的 AI 助手可以读取文档、用 Markdown 插入内容、查找替换、改段落格式、编辑表格、插入图片。",
+  "category": "productivity",
+  "homepage": "https://github.com/JunjiDuan/infinite-studio/tree/main/marketplace/plugins/docx",
+  "minStudio": "0.1.0",
+  "minApi": 2,
+  "icon": "icon.svg",
+  "editor": {
+    "entry": "index.html",
+    "extensions": [".docx", ".docm", ".dotx"],
+    "binary": true
+  },
+  "newFile": {
+    "label": "Word 文档",
+    "extension": ".docx",
+    "template": ""
+  },
+  "agentTools": [
+    {
+      "name": "getDocument",
+      "description": "Read the Word document as numbered blocks (paragraphs and tables, 1-based, in order). Each paragraph: style name, list info (bullet / number, level, label), alignment, text ([image] marks pictures, \\t tabs, \\n line breaks), page / section breaks. Tables: their cell texts. Also the page size and margins (pt) and the paragraph styles available. Block numbers are used by the other tools. Long documents: pass from / to (block numbers).",
+      "readOnly": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "from": { "type": "integer", "description": "First block to return. Default 1." },
+          "to": { "type": "integer", "description": "Last block to return. Default: the last block (at most 400 per call)." }
+        }
+      }
+    },
+    {
+      "name": "insertContent",
+      "description": "Insert content written in Markdown. Every non-empty line becomes its own paragraph. Supported: # … ###### headings (Heading 1-6 styles), - / * bullets and 1. numbered lists (indent 2 spaces per level), > quotes, ``` code blocks, | pipe | tables | (a --- separator row makes the first row a header), --- horizontal rule, <!-- pagebreak --> page break; inline **bold**, *italic*, ~~strike~~, `code`, [text](https://link), <u>underline</u>. Position: after (block number, 0 = at the start) or before; default at the end. replace: block range to replace with the new content (e.g. \"4-6\"). style: paragraph style for plain lines (e.g. \"Normal\", or a style name from docx_getDocument). An empty new document is replaced.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "markdown": { "type": "string" },
+          "after": { "type": "integer" },
+          "before": { "type": "integer" },
+          "replace": { "type": "string", "description": "e.g. \"4\" or \"4-6\"" },
+          "style": { "type": "string" }
+        },
+        "required": ["markdown"]
+      }
+    },
+    {
+      "name": "replaceText",
+      "description": "Find and replace text across the document (including tables), keeping the formatting of the original text. Matches cannot span tabs, line breaks or pictures. regex: treat `find` as a JavaScript regular expression ($1 in `replace` refers to groups). all: false replaces only the first match. blocks: limit to a block range.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "find": { "type": "string" },
+          "replace": { "type": "string" },
+          "matchCase": { "type": "boolean" },
+          "wholeWord": { "type": "boolean" },
+          "regex": { "type": "boolean" },
+          "all": { "type": "boolean", "description": "Default true." },
+          "blocks": { "type": "string", "description": "e.g. \"3-10\"" }
+        },
+        "required": ["find", "replace"]
+      }
+    },
+    {
+      "name": "editParagraphs",
+      "description": "Change paragraphs (block range, e.g. \"3\" or \"3-5,8\"). text: replace the paragraph text (inline Markdown **bold** etc. allowed; keeps the paragraph style and the formatting of its first run). style: paragraph style (\"Heading 1\", \"Title\", \"Normal\", \"Quote\" or any name from docx_getDocument). align: left / center / right / justify. list: bullet / number / none, level 1-9. Text formatting applied to the whole paragraph: bold, italic, underline, strike, color (#rrggbb), highlight (#rrggbb or \"none\"), size (pt), font. Paragraph layout in pt: indentLeft, firstLineIndent (negative = hanging), spacingBefore, spacingAfter; lineSpacing as a multiple (1, 1.5, 2); pageBreakBefore. Tables in the range only take text formatting.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "blocks": { "type": "string" },
+          "text": { "type": "string" },
+          "style": { "type": "string" },
+          "align": { "type": "string", "enum": ["left", "center", "right", "justify"] },
+          "list": { "type": "string", "enum": ["bullet", "number", "none"] },
+          "level": { "type": "integer" },
+          "bold": { "type": "boolean" },
+          "italic": { "type": "boolean" },
+          "underline": { "type": "boolean" },
+          "strike": { "type": "boolean" },
+          "color": { "type": "string" },
+          "highlight": { "type": "string" },
+          "size": { "type": "number" },
+          "font": { "type": "string" },
+          "indentLeft": { "type": "number" },
+          "firstLineIndent": { "type": "number" },
+          "spacingBefore": { "type": "number" },
+          "spacingAfter": { "type": "number" },
+          "lineSpacing": { "type": "number" },
+          "pageBreakBefore": { "type": "boolean" }
+        },
+        "required": ["blocks"]
+      }
+    },
+    {
+      "name": "deleteBlocks",
+      "description": "Delete paragraphs / tables by block range, e.g. \"7\" or \"7-9,12\".",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "blocks": { "type": "string" }
+        },
+        "required": ["blocks"]
+      }
+    },
+    {
+      "name": "editTable",
+      "description": "Edit a table (its block number). action: setCells {cells: rows of cell texts written starting at row / column (1-based, default 1); rows and columns are added when needed; \\n starts a new paragraph in a cell; header: true makes the first row a bold repeating header}; insertRows {row: the new rows' position (default: at the end), count, cells: texts of the new rows}; deleteRows {row, count}; insertColumns {column (default: at the end), count}; deleteColumns {column, count}; delete. New tables: use docx_insertContent with a Markdown table.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "table": { "type": "integer" },
+          "action": { "type": "string", "enum": ["setCells", "insertRows", "deleteRows", "insertColumns", "deleteColumns", "delete"] },
+          "row": { "type": "integer" },
+          "column": { "type": "integer" },
+          "count": { "type": "integer" },
+          "cells": { "type": "array", "items": { "type": "array", "items": { "type": "string" } } },
+          "header": { "type": "boolean" }
+        },
+        "required": ["table", "action"]
+      }
+    },
+    {
+      "name": "insertImage",
+      "description": "Insert a picture (png, jpg, gif, bmp, webp, svg; path relative to the workspace root) as its own paragraph. width in pt (default: natural size, at most the text width); align left / center / right (default center); optional caption paragraph below. Position: after / before a block number (after 0 = at the start); default at the end.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string" },
+          "after": { "type": "integer" },
+          "before": { "type": "integer" },
+          "width": { "type": "number" },
+          "align": { "type": "string", "enum": ["left", "center", "right"] },
+          "caption": { "type": "string" }
+        },
+        "required": ["path"]
+      }
+    },
+    {
+      "name": "screenshot",
+      "description": "Pass `block` to scroll that block into view first.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "block": { "type": "integer" }
+        }
+      }
+    }
+  ]
+}
