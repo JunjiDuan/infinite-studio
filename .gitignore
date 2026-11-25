@@ -4,3 +4,6 @@ dist/
 release/
 *.log
 installer/
+
+# Local developer notes (project structure, build details) — not published
+DEVELOPMENT.md
