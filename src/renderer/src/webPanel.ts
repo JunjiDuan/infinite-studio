@@ -372,7 +372,7 @@ class WebPanel {
       },
       'sep',
       { label: t('开发者工具'), key: 'Ctrl Shift I', disabled: !live, run: () => this.id != null && window.api.webPanel.devtools(this.id) },
-      { label: t('退出登录并清除 {0} 的数据…', this.site.name), danger: true, disabled: !live, run: () => void this.clearData() }
+      { label: t('退出登录并清除 {0} 的数据', this.site.name), danger: true, disabled: !live, run: () => void this.clearData() }
     ]
     showMenu(Math.max(8, r.right - 240), r.bottom + 4, items, { owner: this.moreBtn })
   }

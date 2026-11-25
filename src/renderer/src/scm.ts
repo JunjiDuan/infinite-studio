@@ -824,8 +824,8 @@ function openMoreMenu(e: MouseEvent): void {
     { label: t('提交（修改上次提交）'), disabled: !s.hasCommits, run: () => void amendWithLast() },
     { label: t('撤销上次提交'), disabled: !s.hasCommits, run: () => void runOp('undoCommit') },
     'sep',
-    { label: t('切换分支…'), run: () => void branchMenu(e) },
-    { label: t('新建分支…'), run: () => askBranchName() },
+    { label: t('切换分支'), run: () => void branchMenu(e) },
+    { label: t('新建分支'), run: () => askBranchName() },
     'sep',
     { label: t('储藏所有更改'), disabled: !canCommit(), run: () => void runOp('stash') },
     { label: t('弹出最近的储藏'), run: () => void runOp('stashPop') },
@@ -845,7 +845,7 @@ async function branchMenu(e: MouseEvent): Promise<void> {
   if (!list) return
   const local = list.filter((b) => !b.remote)
   const remote = list.filter((b) => b.remote && !local.some((l) => b.name.endsWith('/' + l.name)))
-  const items: MenuItem[] = [{ label: t('新建分支…'), run: () => askBranchName() }, 'sep']
+  const items: MenuItem[] = [{ label: t('新建分支'), run: () => askBranchName() }, 'sep']
   for (const b of local.slice(0, 20))
     items.push({ label: b.name, key: b.current ? t('当前') : undefined, disabled: b.current, run: () => void checkout(b.name, {}) })
   if (remote.length) {

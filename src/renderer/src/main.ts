@@ -83,10 +83,10 @@ const MENUS: MenuDef[] = [
     items: () => [
       { label: t('新建文件'), disabled: !state.root, run: () => showFilesThen(() => void beginCreate('file')) },
       { label: t('新建文件夹'), disabled: !state.root, run: () => showFilesThen(() => void beginCreate('dir')) },
-      { label: t('新建项目…'), run: newProject },
+      { label: t('新建项目'), run: newProject },
       { label: t('打开新窗口'), key: 'Ctrl Shift N', run: () => window.api.win.newWindow() },
       'sep',
-      { label: t('打开文件夹…'), key: 'Ctrl O', run: () => void pickFolder() },
+      { label: t('打开文件夹'), key: 'Ctrl O', run: () => void pickFolder() },
       { label: t('关闭文件夹'), disabled: !state.root, run: closeFolder },
       'sep',
       { label: t('保存'), key: 'Ctrl S', disabled: !canSave(), run: () => void saveActive() },
@@ -155,7 +155,7 @@ const MENUS: MenuDef[] = [
     label: t('帮助'),
     items: () => [
       { label: t('隐私声明'), run: openPrivacy },
-      { label: t('检查更新…'), run: () => void checkForUpdates() },
+      { label: t('检查更新'), run: () => void checkForUpdates() },
       'sep',
       { label: t('关于'), run: () => void openAbout() }
     ]
@@ -335,7 +335,7 @@ function openGearMenu(): void {
     r.right + 6,
     r.bottom,
     [
-      { label: t('命令面板…'), key: 'Ctrl K', run: () => void openPalette() },
+      { label: t('命令面板'), key: 'Ctrl K', run: () => void openPalette() },
       'sep',
       { label: t('多语言设置'), icon: icons.languages, run: () => openSettings('language') },
       'sep',
@@ -789,9 +789,9 @@ window.addEventListener('beforeunload', (e) => {
 /* ---------------- 命令 ---------------- */
 
 registerCommands(() => [
-  { id: 'folder.open', title: t('打开文件夹…'), key: 'Ctrl O', run: pickFolder },
+  { id: 'folder.open', title: t('打开文件夹'), key: 'Ctrl O', run: pickFolder },
   { id: 'window.new', title: t('打开新窗口'), key: 'Ctrl Shift N', run: () => window.api.win.newWindow() },
-  { id: 'project.new', title: t('新建项目…'), run: newProject },
+  { id: 'project.new', title: t('新建项目'), run: newProject },
   ...(state.root ? [{ id: 'folder.close', title: t('关闭文件夹'), run: closeFolder }] : []),
   ...(state.root
     ? [

@@ -146,7 +146,7 @@ export async function openNewProject(openHere: OpenHere): Promise<void> {
       locInput.value = p
       onPathInput()
     }
-  }, t('浏览…'))
+  }, t('浏览'))
 
   /* ---------- 随模板变化的选项和工具检测 ---------- */
 
