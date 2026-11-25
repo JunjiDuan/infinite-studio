@@ -50,6 +50,9 @@ import { icons } from './icons'
 import { defineTheme, languageName, monaco } from './monaco'
 import { closePalette, invalidateFiles, isPaletteOpen, openPalette } from './palette'
 import { closeSettings, initSettings, isSettingsOpen, openSettings, switchLocale } from './settingsView'
+import { createAiStatusItem, initInlineCompletion } from './ai/inline'
+import { initInlineEdit, inlineEdit } from './ai/inlineEdit'
+import { aiSettings, updateAiSettings } from './ai/client'
 import { type SideView, emit, isFocus, isRailVisible, isSidebarVisible, loadSettings, on, persist, setSpace, state } from './store'
 import { THEMES, applyCssVars } from './theme'
 import { collapse, installRipples, viewTransition } from './motion'
@@ -389,7 +392,8 @@ const statusbar = h(
   h('span', { class: 'st-item' }, 'UTF-8'),
   stEol,
   stLang,
-  stLsp
+  stLsp,
+  createAiStatusItem()
 )
 
 const focusPill = h(
@@ -809,6 +813,13 @@ registerCommands(() => [
   { id: 'term.toggle', title: t('显示 / 隐藏终端'), key: 'Ctrl `', run: togglePanel },
   { id: 'term.new', title: t('新建终端'), key: 'Ctrl Shift `', run: () => newTerminal() },
   { id: 'view.settings', title: t('打开个性化与主题'), key: 'Ctrl ,', run: () => openSettings('appearance') },
+  { id: 'ai.inlineEdit', title: t('AI：内联编辑'), key: 'Ctrl I', run: () => inlineEdit() },
+  {
+    id: 'ai.toggleCompletion',
+    title: aiSettings().completion.enabled ? t('AI：关闭行内补全') : t('AI：开启行内补全'),
+    run: () => updateAiSettings((x) => (x.completion.enabled = !x.completion.enabled))
+  },
+  { id: 'ai.settings', title: t('AI：设置模型和 API Key'), run: () => openSettings('system') },
   { id: 'view.locale', title: getLocale() === 'zh' ? 'Switch Language: English' : '切换语言：简体中文', run: () => void switchLocale(getLocale() === 'zh' ? 'en' : 'zh') },
   { id: 'view.systemSettings', title: t('打开系统设置'), run: () => openSettings('system') },
   { id: 'view.languageSettings', title: t('打开多语言设置'), run: () => openSettings('language') },
@@ -994,6 +1005,8 @@ async function boot(): Promise<void> {
   initLsp()
   initDebug()
   initIde()
+  initInlineCompletion()
+  initInlineEdit()
   void initAccount()
   initChat()
   initWebPanel()

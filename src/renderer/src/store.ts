@@ -120,7 +120,8 @@ export async function loadSettings(): Promise<void> {
               .filter(([, v]) => Array.isArray(v))
               .map(([k, v]) => [k, (v as unknown[]).filter((x): x is string => typeof x === 'string').slice(0, 500)])
           )
-        : {}
+        : {},
+    ai: s.ai && typeof s.ai === 'object' ? s.ai : undefined
   }
   savedSnapshot = snapshot(state.settings)
 }

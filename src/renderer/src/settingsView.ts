@@ -9,6 +9,7 @@ import { refreshAgentContext } from './chat'
 import { getLocale, localeTag, saveLocale, t, type Locale } from './i18n'
 import { localePacks, onMarketChange, reloadInstalled, setLocaleSwitcher } from './market'
 import { anyDirty } from './editor'
+import { buildAiSettings, refreshAiSettings } from './ai/settings'
 
 /** 设置页的两大类 */
 export type SettingsPane = 'system' | 'appearance' | 'language'
@@ -25,6 +26,10 @@ const SHORTCUTS: [string, string][] = [
   [t('显示 / 隐藏侧栏'), 'Ctrl B'],
   [t('显示 / 隐藏终端'), 'Ctrl `'],
   [t('专注模式'), 'Ctrl .'],
+  [t('AI 内联编辑'), 'Ctrl I'],
+  [t('接受 AI 行内补全'), 'Tab'],
+  [t('接受 / 拒绝 AI 修改'), 'Ctrl Enter / Esc'],
+  [t('快速修复（含用 AI 修复）'), 'Alt Enter'],
   [t('保存'), 'Ctrl S'],
   [t('关闭标签'), 'Ctrl W'],
   [t('切换标签'), 'Ctrl Tab'],
@@ -128,6 +133,7 @@ export function openSettings(which: SettingsPane = pane): void {
   showPane(which)
   // 读一下已安装的语言包（插件面板还没打开过时列表是空的）
   if (which === 'language') void reloadInstalled()
+  if (which === 'system') refreshAiSettings()
   clearTimeout(closeTimer)
   page!.classList.remove('leaving')
   page!.hidden = false
@@ -317,6 +323,7 @@ function build(): void {
     h('div', { class: 'set-intro' }, h('h1', {}, t('系统设置')), h('p', {}, t('编辑器行为、AI 助手、窗口和本地数据。修改立即生效。'))),
     section(t('编辑器'), h('label', { class: 'check-row', for: 'word-wrap' }, wrapInput, h('span', {}, t('自动换行')), h('span', { class: 'muted' }, 'Alt Z'))),
     section(t('AI 助手'), h('label', { class: 'check-row', for: 'agent-context' }, ctxInput, h('span', {}, t('发送消息时附带当前文件和选中内容')))),
+    section(t('AI 能力'), buildAiSettings()),
     section(t('窗口'), h('div', { class: 'sys-row' }, h('span', {}, t('侧栏、终端和对话面板的尺寸')), sysInfo.sizes, h('span', { class: 'grow' }), h('button', { class: 'btn small', onClick: resetSizes }, t('恢复默认')))),
     section(
       t('数据'),

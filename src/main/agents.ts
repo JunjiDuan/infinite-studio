@@ -606,18 +606,24 @@ function setRef(text: string, key: string, value: string | null): string {
   return lines.join('\n')
 }
 
-async function deepseekKeyStatus(): Promise<{ configured: boolean; masked?: string; source?: 'file' | 'env' }> {
+/** DeepSeek Harness 用的 API Key：凭据文件 → 环境变量 → ~/.dsh/.env（编辑器内置 AI 也复用它） */
+export async function deepseekHarnessKey(): Promise<{ key: string; source: 'file' | 'env' } | null> {
   const text = await fs.readFile(credFile(), 'utf8').catch(() => '')
   const m = text.match(new RegExp(`^\\s+["']?${DSH_KEY}["']?\\s*:\\s*(.+)$`, 'm'))
   const v = m ? yamlScalar(m[1]) : ''
-  const mask = (k: string) => (k.length > 12 ? `${k.slice(0, 5)}…${k.slice(-4)}` : '••••')
-  if (v) return { configured: true, masked: mask(v), source: 'file' }
+  if (v) return { key: v, source: 'file' }
   const env = process.env[DSH_KEY]
-  if (env) return { configured: true, masked: mask(env), source: 'env' }
+  if (env) return { key: env, source: 'env' }
   const dotenv = await fs.readFile(path.join(dshHome(), '.env'), 'utf8').catch(() => '')
   const e = dotenv.match(new RegExp(`^\\s*${DSH_KEY}\\s*=\\s*(.+)$`, 'm'))
-  if (e) return { configured: true, masked: mask(yamlScalar(e[1])), source: 'env' }
-  return { configured: false }
+  const d = e ? yamlScalar(e[1]) : ''
+  return d ? { key: d, source: 'env' } : null
+}
+
+async function deepseekKeyStatus(): Promise<{ configured: boolean; masked?: string; source?: 'file' | 'env' }> {
+  const found = await deepseekHarnessKey()
+  const mask = (k: string) => (k.length > 12 ? `${k.slice(0, 5)}…${k.slice(-4)}` : '••••')
+  return found ? { configured: true, masked: mask(found.key), source: found.source } : { configured: false }
 }
 
 async function setDeepseekKey(key: string | null): Promise<void> {

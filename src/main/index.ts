@@ -19,6 +19,7 @@ import { registerMcpBridgeIpc } from './mcpBridge'
 import { registerSysmonIpc } from './sysmon'
 import { registerIdeIpc } from './ide'
 import { registerWebPanelIpc } from './webPanel'
+import { registerAiIpc } from './ai'
 import { getLocalePack, getSavedLocale, setMainLocale } from './i18n'
 
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json')
@@ -181,6 +182,7 @@ function registerIpc(): void {
   registerSysmonIpc()
   registerIdeIpc()
   registerWebPanelIpc()
+  registerAiIpc()
 }
 
 Menu.setApplicationMenu(null)

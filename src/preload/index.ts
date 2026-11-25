@@ -186,6 +186,16 @@ const api: Api = {
     selection: (sel) => ipcRenderer.send('ide:selection', sel),
     atMention: (params) => ipcRenderer.invoke('ide:atMention', params)
   },
+  ai: {
+    status: () => ipcRenderer.invoke('ai:status'),
+    setKey: (provider, key) => ipcRenderer.invoke('ai:setKey', provider, key),
+    setEndpoint: (provider, baseUrl, fim) => ipcRenderer.invoke('ai:setEndpoint', provider, baseUrl, fim),
+    complete: (reqId, req) => ipcRenderer.invoke('ai:complete', reqId, req),
+    chat: (reqId, req) => ipcRenderer.invoke('ai:chat', reqId, req),
+    cancel: (reqId) => ipcRenderer.send('ai:cancel', reqId),
+    test: (provider, model) => ipcRenderer.invoke('ai:test', provider, model),
+    onDelta: (cb) => subscribe('ai:delta', cb)
+  },
   account: {
     get: () => ipcRenderer.invoke('account:get'),
     hasDeviceFlow: () => ipcRenderer.invoke('account:hasDeviceFlow'),

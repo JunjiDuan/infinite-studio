@@ -1,5 +1,6 @@
 import type { AgentStart, ClaudeLoginMethod, LoginEvent, SessionInfo, DailyUsage } from './agents'
 import type { IdeToolResult } from './ide'
+import type { AiChatRequest, AiCompleteRequest, AiFeatureSettings, AiProviderId, AiProviderStatus, AiResult } from './ai'
 import type { LocalePack, MarketResult, PluginManifest, PluginStatus, RemotePlugin, RunPlan } from './plugins'
 
 export type ThemeId = 'dusk' | 'ink' | 'graphite' | 'paper'
@@ -37,6 +38,8 @@ export interface Settings {
   treeExpanded?: Record<string, string[]>
   /** 新建项目对话框上次用的位置和模板 */
   newProject?: { location?: string; kind?: ProjectKind }
+  /** 编辑器内置 AI：行内补全、内联编辑 / AI 修复各用哪个服务和模型（API Key 不在这里） */
+  ai?: AiFeatureSettings
 }
 
 /* ---------- 新建项目 ---------- */
@@ -573,6 +576,20 @@ export interface Api {
     selection(sel: Record<string, unknown>): void
     /** 向连着的 claude 发送“插入引用”；没有连接时返回 false */
     atMention(params: Record<string, unknown>): Promise<boolean>
+  }
+  /** 编辑器内置 AI（请求在主进程发出，Key 只在主进程） */
+  ai: {
+    status(): Promise<AiProviderStatus[]>
+    /** key 为 null 时删除 */
+    setKey(provider: AiProviderId, key: string | null): Promise<void>
+    /** baseUrl 为 null 时恢复默认；fim 只对自定义服务生效 */
+    setEndpoint(provider: AiProviderId, baseUrl: string | null, fim?: boolean): Promise<void>
+    complete(reqId: string, req: AiCompleteRequest): Promise<AiResult>
+    /** 流式：过程中通过 onDelta 推送文本片段，结束时返回全文 */
+    chat(reqId: string, req: AiChatRequest): Promise<AiResult>
+    cancel(reqId: string): void
+    test(provider: AiProviderId, model?: string): Promise<AiResult>
+    onDelta(cb: (reqId: string, text: string) => void): () => void
   }
   account: {
     get(): Promise<Account | null>
