@@ -59,6 +59,7 @@ import { askDebugAi, initDebugAi } from './ai/debugAi'
 import { reviewChanges } from './ai/gitAi'
 import { type SideView, emit, isFocus, isRailVisible, isSidebarVisible, loadSettings, on, persist, setSpace, state } from './store'
 import { THEMES, applyCssVars } from './theme'
+import { createThemePicker } from './themePicker'
 import { collapse, installRipples, viewTransition } from './motion'
 import { createSysmonView, setSysmonVisible } from './sysmon'
 import { debugRequest, initLsp, isProbe, lspStatus, refreshProbe, restartLsp, setLspRoot } from './lsp'
@@ -75,7 +76,10 @@ import { getLocale, t } from './i18n'
 
 /* ---------------- 界面骨架 ---------------- */
 
-const themeDots = h('div', { class: 'theme-dots', role: 'group', 'aria-label': t('切换主题') })
+const themePicker = createThemePicker(
+  () => state.settings.space.theme,
+  (id, e) => switchTheme(id, e)
+)
 
 /* ---------------- 菜单栏（文件 / 编辑 / 选择 / 帮助） ---------------- */
 
@@ -304,7 +308,7 @@ const titlebar = h(
   h(
     'div',
     { class: 'tb-right' },
-    themeDots,
+    themePicker.el,
     h('button', { class: 'win-btn', 'aria-label': t('最小化'), html: icons.minimize, onClick: () => window.api.win.minimize() }),
     h('button', { class: 'win-btn', 'aria-label': t('最大化'), html: icons.maximize, onClick: () => window.api.win.toggleMaximize() }),
     h('button', { class: 'win-btn close', 'aria-label': t('关闭'), html: icons.winClose, onClick: () => requestClose() })
@@ -415,25 +419,6 @@ const app = h('div', { id: 'app' }, titlebar, body, statusbar, focusPill)
 document.body.append(app)
 
 /* ---------------- 渲染函数 ---------------- */
-
-function renderThemeDots(): void {
-  const cur = state.settings.space.theme
-  themeDots.replaceChildren(
-    ...(Object.keys(THEMES) as ThemeId[]).map((id) =>
-      h(
-        'button',
-        {
-          class: 'theme-dot' + (id === cur ? ' on' : ''),
-          'aria-label': THEMES[id].label,
-          'aria-pressed': String(id === cur),
-          title: THEMES[id].label,
-          onClick: (e: MouseEvent) => switchTheme(id, e)
-        },
-        h('span', { style: { background: THEMES[id].swatch } })
-      )
-    )
-  )
-}
 
 function renderTabs(): void {
   renderEditorTabs()
@@ -583,7 +568,7 @@ function switchTheme(id: ThemeId, e?: MouseEvent): void {
 function applySpace(): void {
   const t = applyCssVars(state.settings.space)
   defineTheme(t)
-  renderThemeDots()
+  themePicker.render()
   renderStatus()
   document.fonts.load(`${state.settings.space.size}px ${t.fontCss}`).then(() => monaco.editor.remeasureFonts())
 }
