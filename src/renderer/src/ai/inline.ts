@@ -2,6 +2,7 @@ import { monaco } from '../monaco'
 import { h, toast } from '../dom'
 import { t } from '../i18n'
 import { aiSettings, modelLabel, nextRequestId, onAiChange, updateAiSettings } from './client'
+import { completionContext } from './context'
 
 /**
  * 行内补全（灰色提示文字，Tab 接受）。
@@ -10,6 +11,128 @@ import { aiSettings, modelLabel, nextRequestId, onAiChange, updateAiSettings } f
  */
 
 const DEBOUNCE_MS = 300
+
+/* ---------------- 接受率统计与自适应触发 ---------------- */
+
+/** 光标所在位置的类别：普通代码 / 注释 / 字符串 */
+type Where = 'code' | 'comment' | 'string'
+type Outcome = 'accepted' | 'rejected' | 'reverted'
+interface StatEvent {
+  where: Where
+  outcome: Outcome
+}
+
+const STATS_KEY = 'infinite.ai.completionStats'
+let events: StatEvent[] = (() => {
+  try {
+    const raw = JSON.parse(localStorage.getItem(STATS_KEY) ?? '[]') as StatEvent[]
+    return Array.isArray(raw) ? raw.filter((e) => e && typeof e.where === 'string' && typeof e.outcome === 'string').slice(-200) : []
+  } catch {
+    return []
+  }
+})()
+let saveTimer: ReturnType<typeof setTimeout> | undefined
+function saveStats(): void {
+  clearTimeout(saveTimer)
+  saveTimer = setTimeout(() => localStorage.setItem(STATS_KEY, JSON.stringify(events)), 1000)
+  statusListeners.forEach((fn) => fn())
+}
+function record(where: Where, outcome: Outcome): StatEvent {
+  const e = { where, outcome }
+  events.push(e)
+  if (events.length > 200) events = events.slice(-200)
+  saveStats()
+  return e
+}
+
+/** 某类位置最近的接受率（接受后很快被删掉的不算接受） */
+function rate(where: Where | null, n = 40): { shown: number; accepted: number; reverted: number; rate: number } {
+  const list = events.filter((e) => !where || e.where === where).slice(-n)
+  const accepted = list.filter((e) => e.outcome === 'accepted').length
+  const reverted = list.filter((e) => e.outcome === 'reverted').length
+  const shown = list.length
+  return { shown, accepted, reverted, rate: shown ? accepted / shown : 0 }
+}
+
+/** 设置页显示的统计 */
+export function completionStats(): { shown: number; accepted: number; reverted: number; rate: number; debounce: number } {
+  return { ...rate(null, 200), debounce: debounceFor('code') }
+}
+
+export function resetCompletionStats(): void {
+  events = []
+  localStorage.removeItem(STATS_KEY)
+  statusListeners.forEach((fn) => fn())
+}
+
+export function onCompletionStats(fn: () => void): () => void {
+  statusListeners.add(fn)
+  return () => statusListeners.delete(fn)
+}
+
+/** 自适应的防抖时间：接受率低时等久一点再请求（少打扰、省额度），高时更积极 */
+function debounceFor(where: Where): number {
+  if (!aiSettings().adaptive) return DEBOUNCE_MS
+  const r = rate(where)
+  let ms = DEBOUNCE_MS
+  if (r.shown >= 10) ms = r.rate < 0.1 ? 750 : r.rate < 0.2 ? 500 : r.rate > 0.45 ? 180 : DEBOUNCE_MS
+  return where === 'comment' ? ms * 2 : ms
+}
+
+/** 自动触发是否应该跳过这类位置：字符串里不自动补全；注释里接受率一直很低时也不再自动补全 */
+function skipAuto(where: Where): boolean {
+  if (where === 'string') return true
+  if (where === 'comment' && aiSettings().adaptive) {
+    const r = rate('comment')
+    return r.shown >= 12 && r.rate < 0.05
+  }
+  return false
+}
+
+/** 用 Monarch 对光标前几十行重新分词，看光标处的记号是不是注释 / 字符串 */
+function whereAt(model: monaco.editor.ITextModel, pos: monaco.Position): Where {
+  try {
+    const from = Math.max(1, pos.lineNumber - 30)
+    const text = model.getValueInRange(new monaco.Range(from, 1, pos.lineNumber, pos.column))
+    const lines = monaco.editor.tokenize(text, model.getLanguageId())
+    const last = lines[lines.length - 1]
+    if (!last?.length) return 'code'
+    const off = Math.max(0, pos.column - 2)
+    let tok = last[0]
+    for (const tk of last) if (tk.offset <= off) tok = tk
+    if (/comment/.test(tok.type)) return 'comment'
+    if (/string/.test(tok.type) && !/string\.(escape|key)/.test(tok.type)) return 'string'
+  } catch {
+    /* 没有分词规则的语言 */
+  }
+  return 'code'
+}
+
+interface Item extends monaco.languages.InlineCompletion {
+  meta: { model: monaco.editor.ITextModel; range: monaco.IRange; text: string; where: Where; shown: boolean }
+}
+
+/** 接受的建议：几秒后看看还在不在（被删掉算“没用上”） */
+function watchAccepted(item: Item, ev: StatEvent): void {
+  const { model, range, text } = item.meta
+  if (model.isDisposed()) return
+  const decos = model.deltaDecorations([], [
+    { range: new monaco.Range(range.startLineNumber, range.startColumn, range.startLineNumber, range.startColumn), options: { stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges } }
+  ])
+  setTimeout(() => {
+    if (model.isDisposed()) return
+    const at = model.getDecorationRange(decos[0])
+    model.deltaDecorations(decos, [])
+    const first = text.split('\n')[0].trim().slice(0, 40)
+    if (!at || !first) return
+    const end = Math.min(model.getLineCount(), at.startLineNumber + text.split('\n').length + 2)
+    const now = model.getValueInRange(new monaco.Range(at.startLineNumber, 1, end, model.getLineMaxColumn(end)))
+    if (!now.includes(first)) {
+      ev.outcome = 'reverted'
+      saveStats()
+    }
+  }, 8000)
+}
 const PREFIX_CHARS = 6000
 const SUFFIX_CHARS = 2000
 const MAX_LINES = 40
@@ -81,7 +204,7 @@ function clean(text: string, after: string, rest: string[]): string {
   return s.trim() ? s : ''
 }
 
-const provider: monaco.languages.InlineCompletionsProvider = {
+const provider: monaco.languages.InlineCompletionsProvider<monaco.languages.InlineCompletions<Item>> = {
   async provideInlineCompletions(model, pos, ctx, token) {
     const cfg = aiSettings().completion
     if (!cfg.enabled) return
@@ -95,6 +218,8 @@ const provider: monaco.languages.InlineCompletionsProvider = {
     // 光标后面还有正文时不自动补全（只剩右括号、引号、分号时可以）
     const closersOnly = /^[\s)\]}>"'`;,]*$/.test(after)
     if (!explicit && !closersOnly) return
+    const where = whereAt(model, pos)
+    if (!explicit && skipAuto(where)) return
 
     const offset = model.getOffsetAt(pos)
     const total = model.getValueLength()
@@ -108,7 +233,11 @@ const provider: monaco.languages.InlineCompletionsProvider = {
     const key = `${cfg.provider}|${cfg.model ?? ''}|${prefix.slice(-400)}\u0000${suffix.slice(0, 160)}`
     let text = cache.get(key)
     if (text === undefined) {
-      if (!(await sleep(explicit ? 0 : DEBOUNCE_MS, token))) return
+      // 等待防抖的同时收集上下文（其他文件的相关代码）
+      const ctxJob = completionContext(model, pos).catch(() => '')
+      if (!(await sleep(explicit ? 0 : debounceFor(where), token))) return
+      const context = await ctxJob
+      if (token.isCancellationRequested) return
       const id = nextRequestId()
       const sub = token.onCancellationRequested(() => window.api.ai.cancel(id))
       setStatus('busy')
@@ -119,7 +248,8 @@ const provider: monaco.languages.InlineCompletionsProvider = {
           prefix,
           suffix,
           language: model.getLanguageId(),
-          path: model.uri.scheme === 'file' ? model.uri.fsPath : 'notebook cell'
+          path: model.uri.scheme === 'file' ? model.uri.fsPath : 'notebook cell',
+          context: context || undefined
         })
         .catch((e) => ({ ok: false as const, error: String((e as Error)?.message ?? e) }))
       sub.dispose()
@@ -136,7 +266,19 @@ const provider: monaco.languages.InlineCompletionsProvider = {
     // 光标后面还有字符时，多行建议要求替换到行尾：只保留第一行，保证显示正确
     if (after.length && text.includes('\n')) text = text.split('\n')[0]
     if (!text.trim()) return
-    return { items: [{ insertText: text, range: new monaco.Range(pos.lineNumber, pos.column, pos.lineNumber, pos.column) }] }
+    const range = new monaco.Range(pos.lineNumber, pos.column, pos.lineNumber, pos.column)
+    return { items: [{ insertText: text, range, meta: { model, range, text, where, shown: false } }] }
+  },
+  handleItemDidShow(_list, item) {
+    item.meta.shown = true
+  },
+  handleEndOfLifetime(_list, item, reason) {
+    if (!item.meta.shown) return
+    const K = monaco.languages.InlineCompletionEndOfLifeReasonKind
+    if (reason.kind === K.Accepted) watchAccepted(item, record(item.meta.where, 'accepted'))
+    else if (reason.kind === K.Rejected) record(item.meta.where, 'rejected')
+    // 继续输入且和建议一致时（Ignored、没有 userTypingDisagreed）不计
+    else if (reason.userTypingDisagreed) record(item.meta.where, 'rejected')
   },
   disposeInlineCompletions() {
     /* 没有需要释放的资源 */
@@ -168,7 +310,9 @@ export function createAiStatusItem(): HTMLElement {
     el.replaceChildren(h('span', { class: 'st-ai-mark' }, '✦'), 'AI')
     const head = on ? t('AI 行内补全：已开启（{0}）', modelLabel('completion')) : t('AI 行内补全：已关闭')
     const tail = on && status === 'error' && lastError ? '\n' + lastError : ''
-    el.title = `${head}${tail}\n${t('点击开启 / 关闭 · Ctrl I 内联编辑')}`
+    const st = rate(null, 200)
+    const stat = st.shown >= 5 ? '\n' + t('最近接受率 {0}%（{1} 次建议）', Math.round(st.rate * 100), st.shown) : ''
+    el.title = `${head}${tail}${stat}\n${t('点击开启 / 关闭 · Ctrl I 内联编辑')}`
   }
   statusListeners.add(render)
   onAiChange(render)

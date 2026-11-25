@@ -124,7 +124,7 @@ const EN: Record<string, string> = {
   'API Key 格式不正确': 'The API key format is invalid',
   '系统密钥存储不可用，无法安全保存 API Key': 'System keychain is unavailable; cannot store the API key securely',
   '接口地址必须以 http:// 或 https:// 开头': 'The endpoint URL must start with http:// or https://',
-  '还没有配置 {0} 的 API Key（设置 → 系统设置 → AI 能力）': 'No API key configured for {0} (Settings → System → AI Features)',
+  '还没有配置 {0} 的 API Key（设置 → 智慧能力）': 'No API key configured for {0} (Settings → Intelligence)',
   '请在设置里填写 {0} 使用的模型名称': 'Enter the model name to use for {0} in Settings',
   'API Key 无效或没有权限': 'Invalid API key or insufficient permissions',
   请求太频繁或额度已用完: 'Rate limited or out of credit',

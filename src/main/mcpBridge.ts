@@ -36,7 +36,7 @@ process.stdin.on('end', () => sock.end())
 `
 
 const INSTRUCTIONS =
-  'Tools provided by the Infinite Studio IDE and its plugins. Plugin tools (named <plugin>_<action>, e.g. pdf_getText, pptx_addSlide, mindmap_addNodes) work on documents through the editors the user sees in the IDE: binary formats such as PDF and PowerPoint, mind maps, and previews of LaTeX, Markdown and HTML. Changes are saved to disk and can be undone by the user in the editor. Use <plugin>_screenshot to look at the result.'
+  'Tools provided by the Infinite Studio IDE and its plugins. IDE tools give you what the editor knows: getOpenEditors (what the user is looking at), goToDefinition / findReferences / getHover / getDocumentSymbols (language server, precise across files), searchCode (project index, find related code by meaning), getDiagnostics, getGitDiff, getTerminalOutput and runTests. Prefer them over guessing or plain text search when navigating code. Plugin tools (named <plugin>_<action>, e.g. pdf_getText, pptx_addSlide, mindmap_addNodes) work on documents through the editors the user sees in the IDE: binary formats such as PDF and PowerPoint, mind maps, and previews of LaTeX, Markdown and HTML. Changes are saved to disk and can be undone by the user in the editor. Use <plugin>_screenshot to look at the result.'
 
 let server: net.Server | null = null
 let address = ''

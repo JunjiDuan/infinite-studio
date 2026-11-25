@@ -160,7 +160,11 @@ const consoleEl = h('div', { class: 'dbg-console' }, consoleOut, h('div', { clas
 const history: string[] = []
 let historyAt = -1
 
+/** 调试控制台最近的输出（AI 调试助手用） */
+let recentLog = ''
+
 function log(text: string, kind: 'stdout' | 'stderr' | 'info' | 'input' | 'result' = 'stdout'): void {
+  recentLog = (recentLog + text).slice(-8000)
   if (!text) return
   const atBottom = consoleOut.scrollHeight - consoleOut.scrollTop - consoleOut.clientHeight < 24
   const last = consoleOut.lastElementChild as HTMLElement | null
@@ -631,6 +635,85 @@ export function debugStep(cmd: 'next' | 'stepIn' | 'stepOut' | 'pause'): boolean
   return true
 }
 
+/* ---------------- AI 调试助手用的快照 ---------------- */
+
+let debugAiHandler: (() => void) | null = null
+
+/** 调试工具栏上的“问 AI”按钮执行什么（由 ai/debugAi.ts 注册） */
+export function setDebugAiHandler(fn: () => void): void {
+  debugAiHandler = fn
+  renderToolbar()
+}
+
+export interface DebugSnapshot {
+  language: string
+  program: string
+  stopReason: string
+  frames: { name: string; path?: string; line: number }[]
+  /** 当前帧（用户在调用堆栈里选中的那一帧） */
+  frameIndex: number
+  current?: { path: string; line: number; source: string; startLine: number }
+  /** 作用域 → 变量（展开一层） */
+  scopes: { name: string; vars: { name: string; value: string; type?: string; children?: { name: string; value: string; type?: string }[] }[] }[]
+  console: string
+}
+
+/** 程序暂停时的状态：调用堆栈、当前代码、变量、控制台输出；没有暂停的会话时返回 null */
+export async function debugSnapshot(): Promise<DebugSnapshot | null> {
+  const s = session
+  if (!s || s.status !== 'stopped') return null
+  const f = s.frames[s.frameIndex]
+  let current: DebugSnapshot['current']
+  if (f?.source?.path && f.line > 0) {
+    const path = fixPath(f.source.path)
+    const r = await window.api.fs.readFile(path).catch(() => null)
+    if (r?.ok) {
+      const lines = r.content.split(/\r?\n/)
+      const start = Math.max(1, f.line - 20)
+      const end = Math.min(lines.length, f.line + 12)
+      const w = String(end).length
+      current = {
+        path,
+        line: f.line,
+        startLine: start,
+        source: lines
+          .slice(start - 1, end)
+          .map((l, i) => `${start + i === f.line ? '>' : ' '}${String(start + i).padStart(w)}| ${l}`)
+          .join('\n')
+      }
+    }
+  }
+  const scopes: DebugSnapshot['scopes'] = []
+  let budget = 160
+  for (const sc of s.scopes.slice(0, 3)) {
+    if (/global/i.test(sc.name) && s.scopes.length > 1) continue
+    if (!sc.children) await s.loadChildren(sc)
+    const vars: DebugSnapshot['scopes'][number]['vars'] = []
+    for (const v of (sc.children ?? []).slice(0, 60)) {
+      if (budget-- <= 0) break
+      const entry: (typeof vars)[number] = { name: v.name, value: v.value.slice(0, 300), type: v.type }
+      // 对象 / 列表再展开一层，最多 15 个成员
+      if (v.ref && budget > 0) {
+        if (!v.children) await s.loadChildren(v)
+        entry.children = (v.children ?? []).slice(0, 15).map((c) => ({ name: c.name, value: c.value.slice(0, 200), type: c.type }))
+        budget -= entry.children.length
+      }
+      vars.push(entry)
+    }
+    scopes.push({ name: sc.name, vars })
+  }
+  return {
+    language: s.def.name,
+    program: s.file,
+    stopReason: s.stopReason,
+    frames: s.frames.slice(0, 15).map((x) => ({ name: x.name, path: x.source?.path ? fixPath(x.source.path) : undefined, line: x.line })),
+    frameIndex: s.frameIndex,
+    current,
+    scopes,
+    console: recentLog.slice(-4000)
+  }
+}
+
 export function debugActive(): boolean {
   return !!session && session.status !== 'ended'
 }
@@ -760,6 +843,7 @@ function renderToolbar(): void {
       toolBtn(t('单步进入 (F11)'), icons.dbgStepInto, () => void s.exec('stepIn'), !stopped),
       toolBtn(t('单步跳出 (Shift F11)'), icons.dbgStepOut, () => void s.exec('stepOut'), !stopped),
       toolBtn(t('重新启动 (Ctrl Shift F5)'), icons.dbgRestart, () => void restartDebug()),
+      debugAiHandler ? toolBtn(t('问 AI：为什么停在这里'), icons.spark, () => debugAiHandler?.(), !stopped, 'dbg-ai') : null,
       toolBtn(t('停止 (Shift F5)'), icons.dbgStop, () => void stopDebug(), false, 'danger'),
       h('span', { class: 'dbg-state ' + s.status }, s.status === 'stopped' ? t('已暂停') : s.status === 'running' ? t('运行中') : t('启动中'))
     )

@@ -20,6 +20,8 @@ import { registerSysmonIpc } from './sysmon'
 import { registerIdeIpc } from './ide'
 import { registerWebPanelIpc } from './webPanel'
 import { registerAiIpc } from './ai'
+import { registerCodeIndexIpc } from './codeIndex'
+import { registerTestRunnerIpc } from './testRunner'
 import { getLocalePack, getSavedLocale, setMainLocale } from './i18n'
 
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json')
@@ -183,6 +185,8 @@ function registerIpc(): void {
   registerIdeIpc()
   registerWebPanelIpc()
   registerAiIpc()
+  registerCodeIndexIpc()
+  registerTestRunnerIpc()
 }
 
 Menu.setApplicationMenu(null)

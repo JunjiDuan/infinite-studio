@@ -82,7 +82,12 @@ export function createPanel(): HTMLElement {
   setupResize(resizer)
 
   new ResizeObserver(() => fitActive()).observe(bodyEl)
-  window.api.term.onData((id, data) => sessions.find((s) => s.id === id)?.term?.write(data))
+  window.api.term.onData((id, data) => {
+    const s = sessions.find((x) => x.id === id)
+    if (!s?.term) return
+    s.term.write(data)
+    for (const fn of dataListeners) fn({ id, title: s.title, el: s.el, term: s.term }, data)
+  })
   window.api.term.onExit((id) => {
     const s = sessions.find((x) => x.id === id)
     if (s) removeSession(s)
@@ -191,6 +196,52 @@ function keyHandler(term: Terminal) {
   }
 }
 
+/* ---------------- 给 AI 功能用：终端输出 ---------------- */
+
+export interface TermInfo {
+  id: number
+  title: string
+  el: HTMLElement
+  term: Terminal
+}
+type DataListener = (s: TermInfo, data: string) => void
+const dataListeners: DataListener[] = []
+const inputListeners: ((id: number, data: string) => void)[] = []
+
+/** 终端有新输出 */
+export function onTerminalData(fn: DataListener): void {
+  dataListeners.push(fn)
+}
+
+/** 用户在终端里输入 */
+export function onTerminalInput(fn: (id: number, data: string) => void): void {
+  inputListeners.push(fn)
+}
+
+/** 终端缓冲区里最后 maxLines 行文字 */
+export function terminalTail(term: Terminal, maxLines = 200): string {
+  const buf = term.buffer.active
+  const end = buf.length
+  const out: string[] = []
+  for (let i = Math.max(0, end - maxLines); i < end; i++) {
+    const line = buf.getLine(i)
+    if (!line) continue
+    // 自动换行的续行接到上一行后面
+    if (line.isWrapped && out.length) out[out.length - 1] += line.translateToString(true)
+    else out.push(line.translateToString(true))
+  }
+  while (out.length && !out[out.length - 1].trim()) out.pop()
+  return out.join('\n')
+}
+
+/** 所有终端（当前显示的在前）最近的输出 */
+export function terminalOutputs(maxLines = 200): { title: string; active: boolean; text: string }[] {
+  return sessions
+    .filter((s) => s.term)
+    .sort((a, b) => Number(b === active) - Number(a === active))
+    .map((s) => ({ title: s.title, active: s === active, text: terminalTail(s.term!, maxLines) }))
+}
+
 export interface TermHandle {
   /** 向终端输入文字 */
   write(data: string): void
@@ -234,7 +285,10 @@ export async function newTerminal(cwd?: string, opts: { title?: string; run?: st
     s.id = r.id
     if (!opts.title) s.title = `${r.shell} ${counter}`
     renderTabs()
-    term.onData((d) => window.api.term.write(r.id, d))
+    term.onData((d) => {
+      window.api.term.write(r.id, d)
+      for (const fn of inputListeners) fn(r.id, d)
+    })
     term.onResize(({ cols, rows }) => window.api.term.resize(r.id, cols, rows))
     window.api.term.resize(r.id, term.cols, term.rows)
     if (opts.run) window.api.term.write(r.id, opts.run + '\r')

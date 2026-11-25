@@ -50,7 +50,8 @@ export const AI_PROVIDERS: AiProviderMeta[] = [
     name: 'Claude',
     models: ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'],
     defaultModel: 'claude-opus-5-5',
-    completionModel: 'claude-opus-5-5',
+    // 行内补全要快：用最快的 Haiku，内联编辑仍用 Opus
+    completionModel: 'claude-haiku-5-5',
     fim: false,
     keyUrl: 'https://platform.claude.com/settings/keys'
   },
@@ -84,15 +85,64 @@ export interface AiProviderStatus {
   fim?: boolean
 }
 
+/** 一个功能用哪个服务 / 模型 */
+export interface AiPick {
+  provider: AiProviderId
+  model?: string
+}
+
 /** 设置里各功能用哪个服务 / 模型（存在 settings.json，不含 Key） */
 export interface AiFeatureSettings {
-  completion: { enabled: boolean; provider: AiProviderId; model?: string }
-  edit: { provider: AiProviderId; model?: string }
+  completion: AiPick & { enabled: boolean }
+  edit: AiPick
+  /** 下一处编辑预测（改了一处之后预测接下来要改的位置） */
+  nextEdit: AiPick & { enabled: boolean }
+  /** 发给模型的上下文来源 */
+  context: {
+    /** 其他打开的标签页里和光标附近相似的片段 */
+    openTabs: boolean
+    /** 通过语言服务取得的导入符号的定义 */
+    lsp: boolean
+    /** 项目索引里检索到的相关代码 */
+    index: boolean
+    /** 项目规则文件（.infinite/rules.md、AGENTS.md 等） */
+    rules: boolean
+  }
+  /** 终端里出现报错时提供“用 AI 解释 / 修复” */
+  terminalFix: boolean
+  /** 按接受率自动调整行内补全的触发时机 */
+  adaptive: boolean
 }
 
 export const DEFAULT_AI_SETTINGS: AiFeatureSettings = {
   completion: { enabled: true, provider: 'deepseek' },
-  edit: { provider: 'deepseek' }
+  edit: { provider: 'deepseek' },
+  nextEdit: { enabled: true, provider: 'deepseek' },
+  context: { openTabs: true, lsp: true, index: true, rules: true },
+  terminalFix: true,
+  adaptive: true
+}
+
+/** 项目索引里检索到的一段代码 */
+export interface AiSnippet {
+  /** 绝对路径 */
+  path: string
+  /** 1 起始，含 */
+  startLine: number
+  endLine: number
+  /** 所在的函数 / 类名（切分时识别出来的，可能为空） */
+  symbol?: string
+  text: string
+  score: number
+}
+
+export interface AiIndexStatus {
+  root: string
+  files: number
+  chunks: number
+  /** 正在建立 / 更新 */
+  building: boolean
+  updatedAt: number
 }
 
 /** 行内补全请求：光标前后的代码 */
@@ -119,6 +169,8 @@ export interface AiChatRequest {
   system: string
   messages: AiMessage[]
   maxTokens?: number
+  /** completion：用补全的推理强度（更快）；默认 edit */
+  kind?: 'completion' | 'edit'
 }
 
 export type AiResult = { ok: true; text: string } | { ok: false; error: string; cancelled?: boolean }

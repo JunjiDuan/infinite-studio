@@ -1,4 +1,4 @@
-import { AI_PROVIDERS, DEFAULT_AI_SETTINGS, aiProvider, type AiChatRequest, type AiFeatureSettings, type AiProviderId, type AiProviderStatus, type AiResult } from '../../../shared/ai'
+import { AI_PROVIDERS, DEFAULT_AI_SETTINGS, aiProvider, type AiChatRequest, type AiFeatureSettings, type AiPick, type AiProviderId, type AiProviderStatus, type AiResult } from '../../../shared/ai'
 import { persist, state } from '../store'
 import { t } from '../i18n'
 
@@ -11,19 +11,26 @@ const isProvider = (v: unknown): v is AiProviderId => typeof v === 'string' && !
 /** 当前的功能设置（补上默认值、去掉坏数据） */
 export function aiSettings(): AiFeatureSettings {
   const raw = state.settings.ai as Partial<AiFeatureSettings> | undefined
-  const c = raw?.completion
-  const e = raw?.edit
+  const D = DEFAULT_AI_SETTINGS
   const model = (m: unknown) => (typeof m === 'string' && m.trim() ? m.trim().slice(0, 200) : undefined)
+  const bool = (v: unknown, d: boolean) => (typeof v === 'boolean' ? v : d)
+  const pick = (v: Partial<AiPick> | undefined, d: AiPick): AiPick => ({ provider: isProvider(v?.provider) ? v.provider : d.provider, model: model(v?.model) })
+  const c = raw?.completion
+  const n = raw?.nextEdit
+  const x = raw?.context
   return {
-    completion: {
-      enabled: typeof c?.enabled === 'boolean' ? c.enabled : DEFAULT_AI_SETTINGS.completion.enabled,
-      provider: isProvider(c?.provider) ? c.provider : DEFAULT_AI_SETTINGS.completion.provider,
-      model: model(c?.model)
+    completion: { enabled: bool(c?.enabled, D.completion.enabled), ...pick(c, D.completion) },
+    edit: pick(raw?.edit, D.edit),
+    // 下一处编辑预测没单独设置过时跟随行内补全的服务
+    nextEdit: { enabled: bool(n?.enabled, D.nextEdit.enabled), ...pick(n, isProvider(c?.provider) ? { provider: c.provider } : D.nextEdit) },
+    context: {
+      openTabs: bool(x?.openTabs, D.context.openTabs),
+      lsp: bool(x?.lsp, D.context.lsp),
+      index: bool(x?.index, D.context.index),
+      rules: bool(x?.rules, D.context.rules)
     },
-    edit: {
-      provider: isProvider(e?.provider) ? e.provider : DEFAULT_AI_SETTINGS.edit.provider,
-      model: model(e?.model)
-    }
+    terminalFix: bool(raw?.terminalFix, D.terminalFix),
+    adaptive: bool(raw?.adaptive, D.adaptive)
   }
 }
 
@@ -44,11 +51,13 @@ export function updateAiSettings(fn: (s: AiFeatureSettings) => void): void {
   notify()
 }
 
+export type AiFeature = 'completion' | 'edit' | 'nextEdit'
+
 /** 显示用的“服务 · 模型” */
-export function modelLabel(kind: 'completion' | 'edit'): string {
+export function modelLabel(kind: AiFeature): string {
   const f = aiSettings()[kind]
   const meta = aiProvider(f.provider)!
-  const m = f.model || (kind === 'completion' ? meta.completionModel : meta.defaultModel)
+  const m = f.model || (kind === 'edit' ? meta.defaultModel : meta.completionModel)
   return m ? `${t(meta.name)} · ${m}` : t(meta.name)
 }
 
@@ -83,17 +92,26 @@ export const nextRequestId = (): string => `ai${Date.now().toString(36)}-${++seq
 const deltaHandlers = new Map<string, (text: string) => void>()
 let deltaSub: (() => void) | null = null
 
-/** 流式对话：onText 收到每段文本；返回结果和取消函数 */
-export function streamChat(req: Omit<AiChatRequest, 'provider' | 'model'>, onText: (text: string) => void): { done: Promise<AiResult>; cancel: () => void } {
+/** 流式对话：onText 收到每段文本；返回结果和取消函数。feature 决定用哪个功能设置的服务 / 模型（默认内联编辑） */
+export function streamChat(
+  req: Omit<AiChatRequest, 'provider' | 'model'>,
+  onText: (text: string) => void,
+  feature: AiFeature = 'edit'
+): { done: Promise<AiResult>; cancel: () => void } {
   deltaSub ??= window.api.ai.onDelta((id, text) => deltaHandlers.get(id)?.(text))
-  const f = aiSettings().edit
+  const f = aiSettings()[feature]
   const id = nextRequestId()
   deltaHandlers.set(id, onText)
   const done = window.api.ai
-    .chat(id, { ...req, provider: f.provider, model: f.model })
+    .chat(id, { ...req, provider: f.provider, model: f.model, kind: req.kind ?? (feature === 'edit' ? 'edit' : 'completion') })
     .catch((e): AiResult => ({ ok: false, error: String((e as Error)?.message ?? e) }))
     .finally(() => deltaHandlers.delete(id))
   return { done, cancel: () => window.api.ai.cancel(id) }
+}
+
+/** 不需要流式显示的一次性请求 */
+export function askOnce(req: Omit<AiChatRequest, 'provider' | 'model'>, feature: AiFeature = 'edit'): { done: Promise<AiResult>; cancel: () => void } {
+  return streamChat(req, () => {}, feature)
 }
 
 /** 从模型回复里取出第一个代码块；没有代码块时原样返回 */

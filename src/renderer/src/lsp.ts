@@ -822,3 +822,25 @@ export function lspStatus(languageId: string): { name: string; status: Status } 
   const info = available?.find((s) => s.languages.includes(languageId))
   return info ? { name: info.name, status: 'stopped' } : null
 }
+
+/* ---------------- AI 用的查询 ---------------- */
+
+/**
+ * 给 AI 功能用：向这个模型对应的语言服务发请求（定义、引用、悬停、符号……）。
+ * 模型必须已经交给语言服务（打开的标签页或 probeFile 的后台检查）；没有语言服务、超时或出错时返回 null。
+ */
+export async function lspRequestFor(model: Model, method: string, params: Json, timeoutMs = 4000): Promise<Json | null> {
+  const c = clientOf(model)
+  if (!c) return null
+  try {
+    await Promise.race([c.ready, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), timeoutMs))])
+  } catch {
+    return null
+  }
+  if (!c.has(model) || c.status !== 'ready') return null
+  try {
+    return await Promise.race([c.request(method, params), new Promise<null>((r) => setTimeout(() => r(null), timeoutMs))])
+  } catch {
+    return null
+  }
+}

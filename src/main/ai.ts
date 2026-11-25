@@ -148,7 +148,7 @@ async function endpoint(id: AiProviderId): Promise<{ baseUrl: string; key: strin
   const meta = aiProvider(id)!
   const store = await readStore()
   const k = await resolveKey(id)
-  if (!k && !meta.keyOptional) throw new Error(tm('还没有配置 {0} 的 API Key（设置 → 系统设置 → AI 能力）', tm(meta.name)))
+  if (!k && !meta.keyOptional) throw new Error(tm('还没有配置 {0} 的 API Key（设置 → 智慧能力）', tm(meta.name)))
   return { baseUrl: store.baseUrl?.[id] || meta.baseUrl || '', key: k?.key ?? null, fim: store.fim?.[id] ?? meta.fim }
 }
 
@@ -251,8 +251,13 @@ async function claudeChat(
       {
         model,
         max_tokens: req.maxTokens ?? 32000,
-        system: req.system,
-        messages: req.messages,
+        // 提示缓存：系统提示和第一条消息（内联编辑时是整段文件）在多轮修改、重复请求之间复用，省钱也更快出第一个字
+        system: [{ type: 'text' as const, text: req.system, cache_control: { type: 'ephemeral' as const } }],
+        messages: req.messages.map((m, i) =>
+          i === 0 && m.role === 'user' && m.content.length > 2000
+            ? { role: m.role, content: [{ type: 'text' as const, text: m.content, cache_control: { type: 'ephemeral' as const } }] }
+            : m
+        ),
         ...(CLAUDE_EFFORT_MODELS.has(model) ? { output_config: { effort } } : {}),
         // 安全分类器拒答时由服务端换模型重试
         ...(fallback ? { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' as const } : {})
@@ -271,7 +276,7 @@ async function claudeChat(
     return out
   } catch (e) {
     if (e instanceof Anthropic.APIUserAbortError) throw new Cancelled()
-    if (e instanceof Anthropic.AuthenticationError) throw new Error(k ? tm('API Key 无效或没有权限') : tm('还没有配置 {0} 的 API Key（设置 → 系统设置 → AI 能力）', 'Claude'))
+    if (e instanceof Anthropic.AuthenticationError) throw new Error(k ? tm('API Key 无效或没有权限') : tm('还没有配置 {0} 的 API Key（设置 → 智慧能力）', 'Claude'))
     if (e instanceof Anthropic.PermissionDeniedError) throw new Error(tm('API Key 无效或没有权限'))
     if (e instanceof Anthropic.NotFoundError) throw new Error(tm('模型不存在：{0}', model))
     if (e instanceof Anthropic.RateLimitError) throw new Error(tm('请求太频繁或额度已用完'))
@@ -389,13 +394,14 @@ export function registerAiIpc(): void {
       messages: raw.messages
         .filter((m) => m && (m.role === 'user' || m.role === 'assistant'))
         .map((m) => ({ role: m.role, content: str(m.content, 400_000) })),
-      maxTokens: typeof raw.maxTokens === 'number' ? Math.max(256, Math.min(64_000, raw.maxTokens)) : undefined
+      maxTokens: typeof raw.maxTokens === 'number' ? Math.max(256, Math.min(64_000, raw.maxTokens)) : undefined,
+      kind: raw.kind === 'completion' ? 'completion' : 'edit'
     }
     const id = String(reqId)
     const r = begin(e.sender, id, 180_000)
     const wc = e.sender
     try {
-      const text = await chat(req.provider, req, 'edit', r.signal, (s) => {
+      const text = await chat(req.provider, req, req.kind === 'completion' ? 'completion' : 'edit', r.signal, (s) => {
         if (!wc.isDestroyed()) wc.send('ai:delta', id, s)
       })
       return { ok: true, text }

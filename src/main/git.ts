@@ -307,6 +307,16 @@ export function registerGitIpc(): void {
     }
   })
 
+  /** 改动的统一 diff（AI 生成提交信息、代码审查用）；staged 为 true 时只看暂存区。太长时截断 */
+  ipcMain.handle('git:diff', async (_e, root: string, staged: boolean): Promise<string> => {
+    try {
+      const out = await git(root, ['diff', ...(staged ? ['--cached'] : []), '--no-color', '--no-ext-diff', '-U3', '--relative'])
+      return out.length > 200_000 ? out.slice(0, 200_000) + '\n… (diff truncated)' : out
+    } catch (e) {
+      throw gitError(e)
+    }
+  })
+
   ipcMain.handle('git:lastMessage', async (_e, root: string): Promise<string> => {
     try {
       return (await git(root, ['log', '-1', '--format=%B'])).trim()

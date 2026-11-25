@@ -4,6 +4,7 @@ import { h, toast } from '../dom'
 import { t } from '../i18n'
 import { getEditor, onEditor } from '../editor'
 import { extractCode, modelLabel, streamChat } from './client'
+import { editContext, withRules } from './context'
 
 /**
  * Ctrl I 内联编辑 + 诊断旁的“用 AI 修复”。
@@ -120,7 +121,7 @@ const START = '<<<REGION START>>>'
 const END = '<<<REGION END>>>'
 
 /** 文件内容（太长时只取区域附近），区域用标记行包起来 */
-function buildPrompt(s: Session, instruction: string): string {
+function buildPrompt(s: Session, instruction: string, related = ''): string {
   const { model } = s
   const r = regionRange(s)!
   const lines = model.getLinesContent()
@@ -145,6 +146,7 @@ function buildPrompt(s: Session, instruction: string): string {
     ...lines.slice(regionEnd, to),
     '```',
     '',
+    ...(related ? ['Related code from elsewhere in the project (for reference only; do not reproduce it):', '', related, ''] : []),
     `Instruction: ${instruction}`
   ].join('\n')
 }
@@ -353,16 +355,38 @@ async function run(s: Session, instruction: string): Promise<void> {
   if (s.phase === 'running') return
   // 继续修改：先恢复原文，再带上之前的对话重新生成
   if (s.applied) restoreOriginal(s)
-  const content = s.history.length
-    ? `Further change: ${instruction}\nReply again with the complete new code for the region (relative to the original shown before) in one fenced code block.`
-    : buildPrompt(s, instruction)
-  const messages: AiMessage[] = [...s.history, { role: 'user', content }]
   s.phase = 'running'
   s.ui.input.value = instruction
   renderActions(s)
+  setStatus(s, s.history.length ? t('正在生成…') : t('正在收集上下文…'))
+  // 收集上下文期间按 Esc / 停止：不再发请求
+  let stopped = false
+  s.cancel = () => (stopped = true)
+  const halted = (): boolean => {
+    if (sessions.get(s.editor) !== s) return true
+    if (!stopped) return false
+    s.cancel = undefined
+    s.phase = s.history.length ? 'review' : 'prompt'
+    if (s.history.length) applyLast(s)
+    renderActions(s)
+    setStatus(s, t('已停止'))
+    return true
+  }
+  let content: string
+  if (s.history.length) {
+    content = `Further change: ${instruction}\nReply again with the complete new code for the region (relative to the original shown before) in one fenced code block.`
+  } else {
+    const r = regionRange(s)
+    const related = r ? await editContext(s.model, r.startLineNumber, r.endLineNumber, instruction).catch(() => '') : ''
+    if (halted()) return
+    content = buildPrompt(s, instruction, related)
+  }
+  const system = await withRules(SYSTEM)
+  if (halted()) return
+  const messages: AiMessage[] = [...s.history, { role: 'user', content }]
   setStatus(s, t('正在生成…'))
   let reply = ''
-  const req = streamChat({ system: SYSTEM, messages }, (text) => {
+  const req = streamChat({ system, messages }, (text) => {
     reply += text
     const n = extractCode(reply).split('\n').length
     setStatus(s, t('正在生成… {0} 行', n))
@@ -480,6 +504,28 @@ export function fixMarkers(editor: Editor, markers: monaco.editor.IMarkerData[])
     if (sessions.get(editor) === s && s.phase === 'review') s.ui.input.placeholder = t('继续提要求，或 Ctrl Enter 接受修复')
   })
   s.ui.input.value = t('修复：{0}', markers[0].message.split('\n')[0])
+}
+
+/**
+ * 在指定的几行上开一个内联编辑并直接开始生成（终端报错修复、调试助手用）。
+ * label 是输入框里显示的简短说明；instruction 是发给模型的完整要求。
+ */
+export function fixRegion(editor: Editor, startLine: number, endLine: number, instruction: string, label: string): void {
+  const model = editor.getModel()
+  if (!model) return
+  const start = Math.max(1, Math.min(startLine, model.getLineCount()))
+  const end = Math.max(start, Math.min(endLine, model.getLineCount()))
+  const s = startSession(editor, 'replace', start, end)
+  if (!s) return
+  void run(s, instruction).then(() => {
+    if (sessions.get(editor) === s && s.phase === 'review') s.ui.input.placeholder = t('继续提要求，或 Ctrl Enter 接受修复')
+  })
+  s.ui.input.value = label
+}
+
+/** 编辑器里是否有正在进行的内联编辑（下一处编辑预测要让开） */
+export function hasInlineEdit(editor: Editor): boolean {
+  return sessions.has(editor)
 }
 
 const FIX_COMMAND = 'infinite.ai.fixMarkers'

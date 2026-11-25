@@ -8,13 +8,14 @@ import { viewTransition } from './motion'
 import { refreshAgentContext } from './chat'
 import { getLocale, localeTag, saveLocale, t, type Locale } from './i18n'
 import { localePacks, onMarketChange, reloadInstalled, setLocaleSwitcher } from './market'
-import { anyDirty } from './editor'
-import { buildAiSettings, refreshAiSettings } from './ai/settings'
+import { anyDirty, openFile } from './editor'
+import { buildAiPane, refreshAiSettings } from './ai/settings'
 
-/** 设置页的两大类 */
-export type SettingsPane = 'system' | 'appearance' | 'language'
+/** 设置页的分类 */
+export type SettingsPane = 'system' | 'ai' | 'appearance' | 'language'
 const PANES: [SettingsPane, string, string, string?][] = [
-  ['system', t('系统设置'), t('编辑器、AI 助手、窗口与数据')],
+  ['system', t('系统设置'), t('编辑器、窗口与数据')],
+  ['ai', t('智慧能力'), t('模型、上下文与 AI 功能')],
   ['appearance', t('个性化与主题'), t('主题与字体')],
   ['language', t('多语言设置'), t('界面显示语言')]
 ]
@@ -26,10 +27,6 @@ const SHORTCUTS: [string, string][] = [
   [t('显示 / 隐藏侧栏'), 'Ctrl B'],
   [t('显示 / 隐藏终端'), 'Ctrl `'],
   [t('专注模式'), 'Ctrl .'],
-  [t('AI 内联编辑'), 'Ctrl I'],
-  [t('接受 AI 行内补全'), 'Tab'],
-  [t('接受 / 拒绝 AI 修改'), 'Ctrl Enter / Esc'],
-  [t('快速修复（含用 AI 修复）'), 'Alt Enter'],
   [t('保存'), 'Ctrl S'],
   [t('关闭标签'), 'Ctrl W'],
   [t('切换标签'), 'Ctrl Tab'],
@@ -133,7 +130,6 @@ export function openSettings(which: SettingsPane = pane): void {
   showPane(which)
   // 读一下已安装的语言包（插件面板还没打开过时列表是空的）
   if (which === 'language') void reloadInstalled()
-  if (which === 'system') refreshAiSettings()
   clearTimeout(closeTimer)
   page!.classList.remove('leaving')
   page!.hidden = false
@@ -165,6 +161,7 @@ function showPane(which: SettingsPane): void {
     navInk.classList.add('show')
     if (which === 'appearance') preview?.layout()
   })
+  if (which === 'ai') refreshAiSettings()
 }
 
 export function closeSettings(): void {
@@ -320,10 +317,8 @@ function build(): void {
   const system = h(
     'div',
     { class: 'set-left' },
-    h('div', { class: 'set-intro' }, h('h1', {}, t('系统设置')), h('p', {}, t('编辑器行为、AI 助手、窗口和本地数据。修改立即生效。'))),
+    h('div', { class: 'set-intro' }, h('h1', {}, t('系统设置')), h('p', {}, t('编辑器行为、窗口和本地数据。修改立即生效。'))),
     section(t('编辑器'), h('label', { class: 'check-row', for: 'word-wrap' }, wrapInput, h('span', {}, t('自动换行')), h('span', { class: 'muted' }, 'Alt Z'))),
-    section(t('AI 助手'), h('label', { class: 'check-row', for: 'agent-context' }, ctxInput, h('span', {}, t('发送消息时附带当前文件和选中内容')))),
-    section(t('AI 能力'), buildAiSettings()),
     section(t('窗口'), h('div', { class: 'sys-row' }, h('span', {}, t('侧栏、终端和对话面板的尺寸')), sysInfo.sizes, h('span', { class: 'grow' }), h('button', { class: 'btn small', onClick: resetSizes }, t('恢复默认')))),
     section(
       t('数据'),
@@ -346,6 +341,21 @@ function build(): void {
       ),
     ),
     section(t('快捷键'), h('div', { class: 'sys-keys' }, ...SHORTCUTS.map(([k, v]) => h('div', {}, h('span', {}, k), h('kbd', {}, v)))))
+  )
+
+  // ---- 智慧能力 ----
+  const intelligence = h(
+    'div',
+    { class: 'set-left' },
+    h('div', { class: 'set-intro' }, h('h1', {}, t('智慧能力')), h('p', {}, t('选择模型，决定 AI 能看到哪些上下文，开关各项 AI 功能。修改立即生效。'))),
+    ...buildAiPane(
+      section,
+      h('label', { class: 'check-row', for: 'agent-context' }, ctxInput, h('span', {}, t('发送消息时附带当前文件和选中内容'))),
+      (path) => {
+        closeSettings()
+        void openFile(path)
+      }
+    )
   )
 
   // ---- 多语言设置 ----
@@ -399,6 +409,7 @@ function build(): void {
         'div',
         { class: 'set-panes' },
         h('div', { class: 'set-pane', 'data-pane': 'system', hidden: true }, h('div', { class: 'set-inner single' }, system)),
+        h('div', { class: 'set-pane', 'data-pane': 'ai', hidden: true }, h('div', { class: 'set-inner single' }, intelligence)),
         h('div', { class: 'set-pane', 'data-pane': 'appearance', hidden: true }, h('div', { class: 'set-inner' }, left, right)),
         h('div', { class: 'set-pane', 'data-pane': 'language', hidden: true }, h('div', { class: 'set-inner single' }, language))
       )

@@ -1,6 +1,6 @@
 import type { AgentStart, ClaudeLoginMethod, LoginEvent, SessionInfo, DailyUsage } from './agents'
 import type { IdeToolResult } from './ide'
-import type { AiChatRequest, AiCompleteRequest, AiFeatureSettings, AiProviderId, AiProviderStatus, AiResult } from './ai'
+import type { AiChatRequest, AiCompleteRequest, AiFeatureSettings, AiProviderId, AiProviderStatus, AiResult, AiSnippet, AiIndexStatus } from './ai'
 import type { LocalePack, MarketResult, PluginManifest, PluginStatus, RemotePlugin, RunPlan } from './plugins'
 
 export type ThemeId = 'dusk' | 'ink' | 'graphite' | 'paper'
@@ -430,6 +430,8 @@ export interface Api {
     run(root: string, op: GitOp): Promise<void>
     /** ref：'HEAD'、提交 hash、hash^，或 ':' 表示暂存区 */
     show(root: string, ref: string, path: string): Promise<string>
+    /** 统一 diff（相对打开的文件夹）；staged 为 true 时只看暂存区 */
+    diff(root: string, staged: boolean): Promise<string>
     lastMessage(root: string): Promise<string>
     branches(root: string): Promise<GitBranch[]>
     checkout(root: string, name: string, opts?: { create?: boolean; remote?: boolean }): Promise<void>
@@ -590,6 +592,12 @@ export interface Api {
     cancel(reqId: string): void
     test(provider: AiProviderId, model?: string): Promise<AiResult>
     onDelta(cb: (reqId: string, text: string) => void): () => void
+    /** 在项目索引里检索相关代码；第一次建立索引期间返回空（wait 为 true 时等建好） */
+    indexSearch(root: string, query: string, opts?: { k?: number; exclude?: { path: string; start: number; end: number }; wait?: boolean }): Promise<AiSnippet[]>
+    indexStatus(root: string): Promise<AiIndexStatus | null>
+    indexRebuild(root: string): Promise<AiIndexStatus | null>
+    /** 识别并运行项目的测试命令 */
+    runTests(root: string, filter?: string): Promise<{ ok: boolean; exitCode: number | null; command: string; output: string; timedOut?: boolean }>
   }
   account: {
     get(): Promise<Account | null>

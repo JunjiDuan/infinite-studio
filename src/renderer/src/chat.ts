@@ -5,6 +5,7 @@ import { ClaudeDriver } from './agent/claude'
 import { AcpDriver } from './agent/acp'
 import { CodexDriver } from './agent/codex'
 import { diffStat, openDiffTab, renderDiff } from './agent/diff'
+import { TurnChanges, reviewCard } from './ai/review'
 import { fileLink, renderMarkdown } from './agent/markdown'
 import type {
   ChatHost,
@@ -580,6 +581,8 @@ class ChatView implements ChatHost {
     }
     if (b.kind !== 'tool') return
     Object.assign(b.view, patch)
+    // 记下这一轮改过的文件（回放历史会话时不算）
+    if (patch.diff && this.isBusy && !this.replaying && b.view.status !== 'denied') (this.turnChanges ??= new TurnChanges()).add(patch.diff)
     this.schedule(b)
   }
 
@@ -804,9 +807,22 @@ class ChatView implements ChatHost {
     this.renderSend()
   }
 
+  /** 这一轮 AI 改过的文件（回合结束时给出“审阅改动”卡片） */
+  private turnChanges: TurnChanges | null = null
+
   turnEnded(info: TurnEnd): void {
     if (!this.isBusy) return
     this.isBusy = false
+    const changes = this.turnChanges
+    this.turnChanges = null
+    if (changes?.size) {
+      const host = this.turnEl ?? this.listEl
+      void reviewCard(changes).then((card) => {
+        const stick = this.nearBottom()
+        host.append(card)
+        if (stick) this.scrollToEnd()
+      })
+    }
     clearInterval(this.ticker)
     this.statusOverride = null
     this.finishRunning(info.ok ? 'done' : 'error')

@@ -6,6 +6,7 @@ import { icons } from './icons'
 import { showMenu, type MenuItem } from './menu'
 import { languageFor, monaco } from './monaco'
 import { state } from './store'
+import { commitAiButton, reviewChanges } from './ai/gitAi'
 
 /* ================================================================
  * 源代码管理（仿 VS Code）：
@@ -374,13 +375,32 @@ export function createScmView(): HTMLElement {
       t('更改'),
       () => changesSec,
       iconBtn(t('提交##git'), icons.check, () => void commit()),
+      iconBtn(t('AI 代码审查'), icons.spark, () => void aiReview()),
       iconBtn(t('刷新'), icons.refresh, () => void refreshScm(true)),
       iconBtn(t('更多操作'), icons.more, (e) => openMoreMenu(e))
     ),
     h(
       'div',
       { class: 'scm-sec-scroll' },
-      h('div', { class: 'scm-input-box' }, h('div', { class: 'scm-msg-wrap' }, msgInput), h('div', { class: 'scm-commit' }, commitBtn, commitMore)),
+      h(
+        'div',
+        { class: 'scm-input-box' },
+        h(
+          'div',
+          { class: 'scm-msg-wrap' },
+          msgInput,
+          commitAiButton(
+            () => state.root,
+            msgInput,
+            () => {
+              if (state.root) drafts.set(state.root, msgInput.value)
+              autoGrow()
+              renderCommitButton()
+            }
+          )
+        ),
+        h('div', { class: 'scm-commit' }, commitBtn, commitMore)
+      ),
       changesBody
     )
   )
@@ -824,6 +844,8 @@ function openMoreMenu(e: MouseEvent): void {
     { label: t('提交（修改上次提交）'), disabled: !s.hasCommits, run: () => void amendWithLast() },
     { label: t('撤销上次提交'), disabled: !s.hasCommits, run: () => void runOp('undoCommit') },
     'sep',
+    { label: t('AI 代码审查'), disabled: !canCommit(), run: () => void aiReview() },
+    'sep',
     { label: t('切换分支'), run: () => void branchMenu(e) },
     { label: t('新建分支'), run: () => askBranchName() },
     'sep',
@@ -833,6 +855,12 @@ function openMoreMenu(e: MouseEvent): void {
     { label: t('暂存所有更改'), disabled: !s.changes.length, run: () => void stage(null) },
     { label: t('取消暂存所有更改'), disabled: !s.staged.length, run: () => void unstage(null) }
   ])
+}
+
+async function aiReview(): Promise<void> {
+  if (!state.root) return
+  const ok = await reviewChanges(state.root).catch((e) => (toast(errMsg(e)), true))
+  if (!ok) toast(t('没有可审查的更改（只审查已跟踪文件的修改）'))
 }
 
 async function branchMenu(e: MouseEvent): Promise<void> {

@@ -62,6 +62,7 @@ const api: Api = {
     commit: (root, message, opts) => ipcRenderer.invoke('git:commit', root, message, opts),
     run: (root, op) => ipcRenderer.invoke('git:run', root, op),
     show: (root, ref, path) => ipcRenderer.invoke('git:show', root, ref, path),
+    diff: (root, staged) => ipcRenderer.invoke('git:diff', root, staged),
     lastMessage: (root) => ipcRenderer.invoke('git:lastMessage', root),
     branches: (root) => ipcRenderer.invoke('git:branches', root),
     checkout: (root, name, opts) => ipcRenderer.invoke('git:checkout', root, name, opts)
@@ -194,7 +195,11 @@ const api: Api = {
     chat: (reqId, req) => ipcRenderer.invoke('ai:chat', reqId, req),
     cancel: (reqId) => ipcRenderer.send('ai:cancel', reqId),
     test: (provider, model) => ipcRenderer.invoke('ai:test', provider, model),
-    onDelta: (cb) => subscribe('ai:delta', cb)
+    onDelta: (cb) => subscribe('ai:delta', cb),
+    indexSearch: (root, query, opts) => ipcRenderer.invoke('ai:indexSearch', root, query, opts),
+    indexStatus: (root) => ipcRenderer.invoke('ai:indexStatus', root),
+    indexRebuild: (root) => ipcRenderer.invoke('ai:indexRebuild', root),
+    runTests: (root, filter) => ipcRenderer.invoke('ai:runTests', root, filter)
   },
   account: {
     get: () => ipcRenderer.invoke('account:get'),

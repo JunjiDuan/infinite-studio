@@ -75,5 +75,95 @@ export const PANEL_TOOLS: McpToolDef[] = [
       minSeverity: { type: 'string', enum: [...SEVERITIES], description: 'Include only diagnostics at least this severe. From most to least severe: Error, Warning, Information, Hint. Omit to include every severity.' }
     }),
     annotations: { title: 'Get diagnostics', readOnlyHint: true }
+  },
+  {
+    name: 'getOpenEditors',
+    description:
+      'List the files open in the editor tabs, most recently used first, with their language and whether they have unsaved changes. The active editor also reports the cursor position and the selected text (if any). Use it to see what the user is looking at.',
+    inputSchema: obj({}),
+    annotations: { title: 'Get open editors', readOnlyHint: true }
+  },
+  {
+    name: 'goToDefinition',
+    description:
+      'Find where a symbol is defined, using the language server (works across files and into libraries). Give the file and line where the symbol is used, plus the symbol name (or a column). Returns the definition locations with a preview of the surrounding code.',
+    inputSchema: obj(
+      {
+        path: { type: 'string', description: 'Absolute path (or path relative to the project folder) of the file where the symbol appears.' },
+        line: { type: 'number', description: '1-based line number where the symbol appears.' },
+        symbol: { type: 'string', description: 'The symbol name as written on that line. Used to find the column.' },
+        column: { type: 'number', description: '1-based column inside the symbol; only needed when `symbol` is not given or appears several times on the line.' }
+      },
+      ['path', 'line']
+    ),
+    annotations: { title: 'Go to definition', readOnlyHint: true }
+  },
+  {
+    name: 'findReferences',
+    description:
+      'Find all references to a symbol in the project, using the language server. Give a place where the symbol appears (file, line, symbol name). Returns each reference with its line text. More precise than text search: it ignores unrelated identifiers with the same name.',
+    inputSchema: obj(
+      {
+        path: { type: 'string', description: 'Absolute path (or path relative to the project folder) of a file where the symbol appears.' },
+        line: { type: 'number', description: '1-based line number where the symbol appears.' },
+        symbol: { type: 'string', description: 'The symbol name as written on that line.' },
+        column: { type: 'number', description: '1-based column inside the symbol, if `symbol` is not given.' },
+        includeDeclaration: { type: 'boolean', description: 'Also return the declaration itself (default true).' }
+      },
+      ['path', 'line']
+    ),
+    annotations: { title: 'Find references', readOnlyHint: true }
+  },
+  {
+    name: 'getHover',
+    description: 'Get the type signature and documentation of a symbol from the language server (what the editor shows on hover).',
+    inputSchema: obj(
+      {
+        path: { type: 'string', description: 'Absolute path (or path relative to the project folder) of the file.' },
+        line: { type: 'number', description: '1-based line number.' },
+        symbol: { type: 'string', description: 'The symbol name as written on that line.' },
+        column: { type: 'number', description: '1-based column inside the symbol, if `symbol` is not given.' }
+      },
+      ['path', 'line']
+    ),
+    annotations: { title: 'Get type info', readOnlyHint: true }
+  },
+  {
+    name: 'getDocumentSymbols',
+    description: 'List the classes, functions, methods and other symbols declared in a file, with their line ranges (an outline of the file).',
+    inputSchema: obj({ path: { type: 'string', description: 'Absolute path (or path relative to the project folder) of the file.' } }, ['path']),
+    annotations: { title: 'Get file outline', readOnlyHint: true }
+  },
+  {
+    name: 'searchCode',
+    description:
+      'Semantic-ish code search over the project index: finds the functions and classes most related to a natural-language or identifier query (ranked by BM25 over identifiers, split on camelCase / snake_case). Returns code snippets with their paths and line ranges. Use it to locate relevant code when you do not know the exact names; use text search for exact strings.',
+    inputSchema: obj(
+      {
+        query: { type: 'string', description: 'What to look for, e.g. "where the user session token is refreshed" or "parseConfig yaml".' },
+        limit: { type: 'number', description: 'Maximum number of snippets (default 8, max 20).' }
+      },
+      ['query']
+    ),
+    annotations: { title: 'Search code', readOnlyHint: true }
+  },
+  {
+    name: 'getGitDiff',
+    description: 'Get the uncommitted changes in the project as a unified diff (working tree by default, or only the staged changes).',
+    inputSchema: obj({ staged: { type: 'boolean', description: 'Only the staged changes (default false: unstaged working-tree changes).' } }),
+    annotations: { title: 'Get git diff', readOnlyHint: true }
+  },
+  {
+    name: 'getTerminalOutput',
+    description: "Read the recent output of the IDE's integrated terminals (the active terminal first). Useful to see build errors, test failures or server logs the user is looking at.",
+    inputSchema: obj({ maxLines: { type: 'number', description: 'Lines per terminal, counted from the end (default 120, max 1000).' } }),
+    annotations: { title: 'Get terminal output', readOnlyHint: true }
+  },
+  {
+    name: 'runTests',
+    description:
+      "Run the project's test suite with its standard command (detected from package.json, Cargo, Go, Maven, Gradle, .NET or pytest) and return the exit code and output. Optionally pass a test name filter.",
+    inputSchema: obj({ filter: { type: 'string', description: 'Optional test name / pattern to run a subset (passed to the runner, e.g. pytest -k, go test -run).' } }),
+    annotations: { title: 'Run tests', readOnlyHint: false }
   }
 ]

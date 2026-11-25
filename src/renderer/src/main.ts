@@ -53,6 +53,10 @@ import { closeSettings, initSettings, isSettingsOpen, openSettings, switchLocale
 import { createAiStatusItem, initInlineCompletion } from './ai/inline'
 import { initInlineEdit, inlineEdit } from './ai/inlineEdit'
 import { aiSettings, updateAiSettings } from './ai/client'
+import { initNextEdit } from './ai/nextEdit'
+import { initTerminalFix } from './ai/terminalFix'
+import { askDebugAi, initDebugAi } from './ai/debugAi'
+import { reviewChanges } from './ai/gitAi'
 import { type SideView, emit, isFocus, isRailVisible, isSidebarVisible, loadSettings, on, persist, setSpace, state } from './store'
 import { THEMES, applyCssVars } from './theme'
 import { collapse, installRipples, viewTransition } from './motion'
@@ -98,6 +102,7 @@ const MENUS: MenuDef[] = [
       { label: t('关闭标签'), key: 'Ctrl W', disabled: !activeTab(), run: () => closeTab() },
       'sep',
       { label: t('系统设置'), run: () => openSettings('system') },
+      { label: t('智慧能力'), run: () => openSettings('ai') },
       { label: t('个性化与主题'), key: 'Ctrl ,', run: () => openSettings('appearance') },
       { label: t('多语言设置'), run: () => openSettings('language') },
       'sep',
@@ -343,6 +348,7 @@ function openGearMenu(): void {
       { label: t('多语言设置'), icon: icons.languages, run: () => openSettings('language') },
       'sep',
       { label: t('系统设置'), run: () => openSettings('system') },
+      { label: t('智慧能力'), run: () => openSettings('ai') },
       { label: t('个性化与主题'), key: 'Ctrl ,', run: () => openSettings('appearance') },
       'sep',
       { label: t('插件'), run: () => showSideView('plugins') }
@@ -819,7 +825,30 @@ registerCommands(() => [
     title: aiSettings().completion.enabled ? t('AI：关闭行内补全') : t('AI：开启行内补全'),
     run: () => updateAiSettings((x) => (x.completion.enabled = !x.completion.enabled))
   },
-  { id: 'ai.settings', title: t('AI：设置模型和 API Key'), run: () => openSettings('system') },
+  { id: 'ai.settings', title: t('AI：设置模型和 API Key'), run: () => openSettings('ai') },
+  { id: 'view.aiSettings', title: t('打开智慧能力设置'), run: () => openSettings('ai') },
+  {
+    id: 'ai.toggleNextEdit',
+    title: aiSettings().nextEdit.enabled ? t('AI：关闭下一处编辑预测') : t('AI：开启下一处编辑预测'),
+    run: () => updateAiSettings((x) => (x.nextEdit.enabled = !x.nextEdit.enabled))
+  },
+  {
+    id: 'ai.review',
+    title: t('AI：审查当前改动'),
+    run: () => {
+      if (!state.root) return toast(t('请先打开文件夹'))
+      void reviewChanges(state.root).then((ok) => ok || toast(t('没有可审查的更改（只审查已跟踪文件的修改）')))
+    }
+  },
+  { id: 'ai.debug', title: t('AI：问调试助手（程序暂停时）'), run: () => void askDebugAi() },
+  {
+    id: 'ai.reindex',
+    title: t('AI：重建项目索引'),
+    run: () => {
+      if (!state.root) return toast(t('请先打开文件夹'))
+      void window.api.ai.indexRebuild(state.root).then(() => toast(t('正在重新建立项目索引')))
+    }
+  },
   { id: 'view.locale', title: getLocale() === 'zh' ? 'Switch Language: English' : '切换语言：简体中文', run: () => void switchLocale(getLocale() === 'zh' ? 'en' : 'zh') },
   { id: 'view.systemSettings', title: t('打开系统设置'), run: () => openSettings('system') },
   { id: 'view.languageSettings', title: t('打开多语言设置'), run: () => openSettings('language') },
@@ -1007,6 +1036,9 @@ async function boot(): Promise<void> {
   initIde()
   initInlineCompletion()
   initInlineEdit()
+  initNextEdit()
+  initTerminalFix()
+  initDebugAi()
   void initAccount()
   initChat()
   initWebPanel()
