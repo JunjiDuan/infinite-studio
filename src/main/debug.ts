@@ -1,6 +1,6 @@
 import { app, ipcMain, type WebContents } from 'electron'
 import { spawn, type ChildProcess } from 'node:child_process'
-import { promises as fs } from 'node:fs'
+import { existsSync, promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { DebugStart } from '../shared/types'
 import { childEnv } from './plugins'
@@ -9,7 +9,7 @@ import { tm } from './i18n'
 import { GdbAdapter } from './dap/gdb'
 import { JdbAdapter } from './dap/jdb'
 import type { Adapter } from './dap/shim'
-import { buildRoot, ccArgs, cppTarget, detectLanguage, cachedToolchains, exec, javacArgs, javaTarget } from './toolchains'
+import { buildRoot, ccArgs, cppTarget, csharpTarget, detectLanguage, cachedToolchains, exec, javacArgs, javaTarget } from './toolchains'
 
 /**
  * 调试会话：页面用 DAP（Debug Adapter Protocol）和适配器对话，主进程只负责转发。
@@ -17,6 +17,7 @@ import { buildRoot, ccArgs, cppTarget, detectLanguage, cachedToolchains, exec, j
  * - C/C++：gdb（经 MI 接口，在本进程里翻译成 DAP；gdb 自带的 DAP 模式需要带 Python 的 gdb，很多发行版没有），
  *          没有 gdb 时用 lldb-dap
  * - Java：jdb（在本进程里把文本命令翻译成 DAP）
+ * - C#：netcoredbg（Samsung 开源的 .NET 调试器，自带 DAP 模式；微软的 vsdbg 许可只允许在微软自家产品里用）
  */
 
 
@@ -111,6 +112,27 @@ async function prepare(pluginId: string, file: string): Promise<{ adapter: Adapt
     const r = await compile(j.javac, javacArgs(file, t), t.srcRoot)
     if (!r.ok) return { error: tm('编译失败'), output: r.output }
     return { adapter: new JdbAdapter(j.jdb), adapterId: 'jdb', launch: { mainClass: t.mainClass, classpath: t.outDir, sourcepath: t.srcRoot, cwd: t.srcRoot } }
+  }
+  if (pluginId === 'csharp') {
+    const cs = tc.csharp
+    if (!cs) return { error: tm('没有找到 .NET SDK，请先在插件页安装 C# 插件') }
+    if (!cs.netcoredbg) return { error: tm('没有找到调试器（netcoredbg），请先在插件页安装 C# 插件') }
+    const t = await csharpTarget(file)
+    if (!t.project && cs.sdkMajor < 10) return { error: tm('没有找到 .csproj 项目文件；直接运行单个 .cs 文件需要 .NET 10 或更新的 SDK') }
+    // 先编译，再单独查询输出的程序集路径（-getProperty 只求值不编译）。
+    // 单文件程序不接受 -c，默认就是 Debug 配置
+    const target = t.project ?? file
+    const r = await compile(cs.dotnet, t.project ? ['build', target, '-c', 'Debug', '-nologo'] : ['build', target], t.cwd)
+    if (!r.ok) return { error: tm('编译失败'), output: r.output }
+    const q = await exec(cs.dotnet, t.project ? ['msbuild', target, '-getProperty:TargetPath', '-p:Configuration=Debug', '-nologo'] : ['build', target, '-getProperty:TargetPath'], { cwd: t.cwd, timeout: 60000 })
+    const dll = q.out.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).pop() ?? ''
+    // 多目标框架（TargetFrameworks）的项目没有单一的 TargetPath
+    if (!q.ok || !/\.dll$/i.test(dll) || !existsSync(dll)) return { error: tm('找不到编译生成的程序集（多目标框架的项目暂不支持调试）'), output: q.out }
+    return {
+      adapter: new ProcessAdapter(cs.netcoredbg, ['--interpreter=vscode'], t.cwd),
+      adapterId: 'coreclr',
+      launch: { name: path.basename(file), type: 'coreclr', request: 'launch', program: cs.dotnet, args: [dll], cwd: t.cwd, stopAtEntry: false, justMyCode: true }
+    }
   }
   return { error: tm('未知插件：{0}', pluginId) }
 }

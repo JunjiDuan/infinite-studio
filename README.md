@@ -15,7 +15,7 @@
 - **集成终端** `` Ctrl ` ``：多终端，配色跟随空间
 - **语言服务（LSP）**：诊断、补全、悬停、参数提示、转到定义 / 类型定义 / 实现、查找引用、跨文件重命名、格式化、大纲
   - TypeScript / JavaScript：内置 TypeScript 7 原生语言服务，开箱即用
-  - Python（pyright / pylsp）、Rust（rust-analyzer）、Go（gopls）、C/C++（clangd）：装在 PATH 里就会自动接上
+  - Python（pyright / pylsp）、Rust（rust-analyzer）、Go（gopls）、C/C++（clangd）、C#（csharp-ls）：装在 PATH 里就会自动接上
 - **专注模式** `Ctrl .`
 
 ## 运行与打包

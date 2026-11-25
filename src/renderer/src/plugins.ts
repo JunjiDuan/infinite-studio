@@ -157,7 +157,8 @@ export async function install(def: PluginDef): Promise<void> {
 const glyphs: Record<string, string> = {
   python: '<path d="M12 3c-4 0-4 1.8-4 3v2h4.5M12 21c4 0 4-1.8 4-3v-2h-4.5"/><path d="M8 8H6c-1.7 0-3 1.3-3 4s1.3 4 3 4h2v-2.5c0-1.4 1.1-2.5 2.5-2.5h3c1.4 0 2.5-1.1 2.5-2.5V8"/><path d="M16 16h2c1.7 0 3-1.3 3-4s-1.3-4-3-4h-2"/>',
   java: '<path d="M7 17c3 1.5 7 1.5 10 0M6 20c4 1.5 8 1.5 12 0M10 3c2 2-2 3.5 0 6M14 5c1.5 1.6-1.5 2.7 0 5"/><path d="M5 12h12v1.5a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4z"/><path d="M17 13h1.5a1.5 1.5 0 0 1 0 3H17"/>',
-  cpp: '<path d="M10 7a5 5 0 1 0 0 10"/><path d="M12 12h4M14 10v4M17.5 12h4M19.5 10v4"/>'
+  cpp: '<path d="M10 7a5 5 0 1 0 0 10"/><path d="M12 12h4M14 10v4M17.5 12h4M19.5 10v4"/>',
+  csharp: '<path d="M10 7a5 5 0 1 0 0 10"/><path d="M15.5 9l-1 6M19 9l-1 6M13.5 11h7M13 13h7"/>'
 }
 
 /** AI 助手的官方标志（实心填充图形） */

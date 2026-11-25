@@ -116,6 +116,16 @@ export const PLUGINS: PluginDef[] = [
     command: '',
     homepage: 'https://winlibs.com/',
     languages: ['c', 'cpp']
+  },
+  {
+    id: 'csharp',
+    category: 'language',
+    name: 'C#',
+    publisher: 'Infinite Studio',
+    description: '用 .NET SDK 编译、运行 C# 项目和单文件程序，用 netcoredbg 调试，附带 csharp-ls 语言服务。',
+    command: '',
+    homepage: 'https://dotnet.microsoft.com/',
+    languages: ['csharp']
   }
 ]
 

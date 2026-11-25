@@ -66,7 +66,17 @@ const DEFS: ServerDef[] = [
   { id: 'java', name: 'Java', languages: ['java'], resolve: () => firstOnPath([['jdtls', []]]) },
   { id: 'rust', name: 'Rust', languages: ['rust'], resolve: () => firstOnPath([['rust-analyzer', []]]) },
   { id: 'go', name: 'Go', languages: ['go'], resolve: () => firstOnPath([['gopls', []]]) },
-  { id: 'cpp', name: 'C/C++', languages: ['cpp', 'c'], resolve: () => firstOnPath([['clangd', []]]) }
+  { id: 'cpp', name: 'C/C++', languages: ['cpp', 'c'], resolve: () => firstOnPath([['clangd', []]]) },
+  {
+    id: 'csharp',
+    name: 'C#',
+    languages: ['csharp'],
+    resolve: () => {
+      // C# 插件用 dotnet tool install -g 装的 csharp-ls 在 ~/.dotnet/tools，不一定在 PATH 上
+      const p = cachedToolchains().csharp?.lsp
+      return p ? { cmd: p, args: [], shell: false } : firstOnPath([['csharp-ls', []]])
+    }
+  }
 ]
 
 let resolved: Map<string, Launch> | null = null

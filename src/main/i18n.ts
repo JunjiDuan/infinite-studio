@@ -148,6 +148,10 @@ const EN: Record<string, string> = {
   "没有找到 C/C++ 编译器，请先在插件页安装 C/C++ 插件": "C/C++ compiler not found; install the C/C++ plugin from the Plugins page",
   "没有安装 debugpy，请在插件页点击 Python 插件的“安装”": "debugpy is not installed; click Install on the Python plugin in the Plugins page",
   "没有找到调试器（gdb），请先在插件页安装 C/C++ 插件": "Debugger (gdb) not found; install the C/C++ plugin from the Plugins page",
+  "没有找到 .NET SDK，请先在插件页安装 C# 插件": ".NET SDK not found; install the C# plugin from the Plugins page",
+  "没有找到调试器（netcoredbg），请先在插件页安装 C# 插件": "Debugger (netcoredbg) not found; install the C# plugin from the Plugins page",
+  "没有找到 .csproj 项目文件；直接运行单个 .cs 文件需要 .NET 10 或更新的 SDK": "No .csproj project found; running a single .cs file requires .NET 10 SDK or later",
+  "找不到编译生成的程序集（多目标框架的项目暂不支持调试）": "Could not find the built assembly (debugging multi-target projects is not supported yet)",
   "编译失败": "Compilation failed",
   /* 网页面板 */
   允许: 'Allow',

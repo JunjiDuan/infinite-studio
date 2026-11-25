@@ -18,6 +18,7 @@ const KINDS: { id: ProjectKind; label: () => string; icon: () => string }[] = [
   { id: 'java', label: () => 'Java', icon: () => glyph('java', 18) },
   { id: 'python', label: () => 'Python', icon: () => glyph('python', 18) },
   { id: 'cpp', label: () => 'C / C++', icon: () => glyph('cpp', 18) },
+  { id: 'csharp', label: () => 'C#', icon: () => glyph('csharp', 18) },
   { id: 'node', label: () => 'Node.js', icon: () => nodeGlyph }
 ]
 
@@ -28,6 +29,7 @@ const TOOL_NAMES: Record<string, () => string> = {
   python: () => 'Python',
   cc: () => t('C/C++ 编译器'),
   cmake: () => 'CMake',
+  dotnet: () => '.NET SDK',
   node: () => 'Node.js',
   git: () => 'Git'
 }

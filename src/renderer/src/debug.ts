@@ -483,6 +483,7 @@ function langOfPath(p: string): string | null {
   if (ext === 'java') return 'java'
   if (ext === 'c' || ext === 'h') return 'c'
   if (['cpp', 'cc', 'cxx', 'hpp', 'hh', 'hxx'].includes(ext)) return 'cpp'
+  if (ext === 'cs') return 'csharp'
   return null
 }
 
@@ -743,7 +744,7 @@ function renderToolbar(): void {
         h('button', { class: 'btn small primary', disabled: !def, onClick: () => void debugOrContinue() }, h('span', { class: 'ic', html: icons.debugStart }), t('开始调试')),
         h('button', { class: 'btn small', disabled: !def, onClick: () => void runActiveFile() }, h('span', { class: 'ic', html: icons.play }), t('运行'))
       )
-      children.push(h('div', { class: 'dbg-hint muted' }, def ? t('F5 调试 · Ctrl F5 运行 · F9 切换断点') : t('打开 Python、Java 或 C/C++ 文件后可以运行和调试')))
+      children.push(h('div', { class: 'dbg-hint muted' }, def ? t('F5 调试 · Ctrl F5 运行 · F9 切换断点') : t('打开 Python、Java、C/C++ 或 C# 文件后可以运行和调试')))
     }
     toolbarEl.replaceChildren(h('div', { class: 'dbg-start' }, ...children))
     return
@@ -890,10 +891,10 @@ function exprAt(m: Model, pos: monaco.Position): { expr: string; range: monaco.R
   return null
 }
 
-const KEYWORDS = new Set(['if', 'else', 'for', 'while', 'return', 'def', 'class', 'import', 'from', 'public', 'private', 'static', 'void', 'int', 'char', 'new', 'in', 'and', 'or', 'not', 'true', 'false', 'True', 'False', 'None', 'null', 'const', 'struct', 'include'])
+const KEYWORDS = new Set(['if', 'else', 'for', 'while', 'return', 'def', 'class', 'import', 'from', 'public', 'private', 'static', 'void', 'int', 'char', 'new', 'in', 'and', 'or', 'not', 'true', 'false', 'True', 'False', 'None', 'null', 'const', 'struct', 'include', 'var', 'using', 'namespace', 'string', 'bool', 'foreach', 'async', 'await'])
 
 function registerHover(): void {
-  for (const lang of ['python', 'java', 'c', 'cpp']) {
+  for (const lang of ['python', 'java', 'c', 'cpp', 'csharp']) {
     monaco.languages.registerHoverProvider(lang, {
       async provideHover(m, pos) {
         const s = session

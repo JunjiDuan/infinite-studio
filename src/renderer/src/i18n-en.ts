@@ -931,7 +931,7 @@ export const EN: Record<string, string> = {
   "安装 {0} 插件": "Install {0} plugin",
   "开始调试": "Start Debugging",
   "F5 调试 · Ctrl F5 运行 · F9 切换断点": "F5 debug · Ctrl F5 run · F9 toggle breakpoint",
-  "打开 Python、Java 或 C/C++ 文件后可以运行和调试": "Open a Python, Java or C/C++ file to run and debug it",
+  "打开 Python、Java、C/C++ 或 C# 文件后可以运行和调试": "Open a Python, Java, C/C++ or C# file to run and debug it",
   "继续 (F5)": "Continue (F5)",
   "暂停 (F6)": "Pause (F6)",
   "单步跳过 (F10)": "Step Over (F10)",
@@ -969,6 +969,7 @@ export const EN: Record<string, string> = {
   "运行和调试 Python 脚本：断点、单步、变量与调用栈，附带 basedpyright 语言服务。": "Run and debug Python scripts: breakpoints, stepping, variables and call stack, plus the basedpyright language server.",
   "编译、运行和调试 Java 程序（基于 JDK 自带的 javac 和 jdb）。": "Compile, run and debug Java programs (using javac and jdb from the JDK).",
   "用 GCC 编译、运行 C/C++ 程序，用 GDB 调试，附带 clangd 语言服务。": "Compile and run C/C++ with GCC, debug with GDB, plus the clangd language server.",
+  "用 .NET SDK 编译、运行 C# 项目和单文件程序，用 netcoredbg 调试，附带 csharp-ls 语言服务。": "Build and run C# projects and single-file programs with the .NET SDK, debug with netcoredbg, plus the csharp-ls language server.",
   /* ---------- 系统监视器 ---------- */
   "系统监视器": "System Monitor",
   "每个逻辑处理器的占用": "Usage of each logical processor",

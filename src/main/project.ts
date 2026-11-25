@@ -16,7 +16,7 @@ import { cachedToolchains, detectLanguage, exec, refreshPath } from './toolchain
 
 const isWin = process.platform === 'win32'
 const isMac = process.platform === 'darwin'
-const KINDS: ProjectKind[] = ['empty', 'java', 'python', 'cpp', 'node']
+const KINDS: ProjectKind[] = ['empty', 'java', 'python', 'cpp', 'csharp', 'node']
 const RESERVED = /^(con|prn|aux|nul|com\d|lpt\d)(\..*)?$/i
 const PACKAGE_RE = /^[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)*$/
 
@@ -52,7 +52,7 @@ const winget = (id: string): string => `winget install -e --id ${id} --accept-so
 
 async function probe(kind: ProjectKind): Promise<ProjectProbe> {
   const tools: ProjectTool[] = []
-  if (kind === 'python' || kind === 'java' || kind === 'cpp') {
+  if (kind === 'python' || kind === 'java' || kind === 'cpp' || kind === 'csharp') {
     const st = await detectLanguage(kind)
     const tc = cachedToolchains()
     if (kind === 'python') tools.push({ id: 'python', ok: !!tc.python, detail: tc.python ? `Python ${tc.python.version}` : undefined, install: tc.python ? undefined : st.installScript })
@@ -68,6 +68,7 @@ async function probe(kind: ProjectKind): Promise<ProjectProbe> {
       const cmake = findCmd('cmake')
       tools.push({ id: 'cmake', ok: !!cmake, detail: cmake ? `CMake ${(await version(cmake, ['--version'])) ?? ''}`.trim() : undefined, install: cmake ? undefined : pick(winget('Kitware.CMake'), 'brew install cmake', 'sudo apt-get install -y cmake') })
     }
+    if (kind === 'csharp') tools.push({ id: 'dotnet', ok: !!tc.csharp, detail: tc.csharp ? `.NET SDK ${tc.csharp.sdk}` : undefined, install: tc.csharp ? undefined : st.installScript })
   } else if (kind === 'node') {
     await refreshPath()
     const node = findCmd('node')
@@ -257,6 +258,31 @@ add_executable(${target} ${main})
   return { files, open: files[main] ? main : undefined }
 }
 
+/** SDK 风格的控制台项目（和 dotnet new console 生成的一样），目标框架跟随本机最新的 SDK */
+function csharpFiles(o: NewProjectOptions): { files: Files; open?: string } {
+  const major = cachedToolchains().csharp?.sdkMajor ?? 10
+  const file = o.name.replace(/[^\p{L}\p{N}_.-]+/gu, '_').replace(/^[._]+|[._]+$/g, '') || 'App'
+  // 命名空间要是合法的 C# 标识符（可以是中文），不能以数字开头
+  const ns = file.replace(/[^\p{L}\p{N}_]+/gu, '_').replace(/^(\p{N})/u, '_$1')
+  const files: Files = {
+    '.gitignore': 'bin/\nobj/\n.vs/\n.idea/\n.vscode/\n*.user\n',
+    [`${file}.csproj`]: `<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net${major}.0</TargetFramework>
+    <RootNamespace>${xml(ns)}</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>
+`
+  }
+  if (o.sample) files['Program.cs'] = 'Console.WriteLine("Hello, World!");\n'
+  return { files, open: o.sample ? 'Program.cs' : undefined }
+}
+
 function nodeFiles(o: NewProjectOptions): { files: Files; open?: string } {
   const ts = !!o.node?.ts
   const name = slug(o.name, /[^a-z0-9._~-]+/g, 'app').slice(0, 214)
@@ -312,6 +338,7 @@ async function create(o: NewProjectOptions): Promise<ProjectCreated> {
   if (o.kind === 'java') tpl = javaFiles(o)
   else if (o.kind === 'python') tpl = pythonFiles(o)
   else if (o.kind === 'cpp') tpl = cppFiles(o)
+  else if (o.kind === 'csharp') tpl = csharpFiles(o)
   else if (o.kind === 'node') tpl = nodeFiles(o)
 
   const created = t.state === 'free'

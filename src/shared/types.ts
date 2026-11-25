@@ -41,7 +41,7 @@ export interface Settings {
 
 /* ---------- 新建项目 ---------- */
 
-export type ProjectKind = 'empty' | 'java' | 'python' | 'cpp' | 'node'
+export type ProjectKind = 'empty' | 'java' | 'python' | 'cpp' | 'csharp' | 'node'
 
 export interface NewProjectOptions {
   kind: ProjectKind

@@ -245,6 +245,79 @@ async function findCpp(): Promise<CppInfo | null> {
   return { cc, cxx, version: ver(firstLine(r.out)) ?? '', gdb: which('gdb') ?? undefined, lldbDap, clangd: which('clangd') ?? undefined }
 }
 
+/* ---------------- C# ---------------- */
+
+export interface CsharpInfo {
+  dotnet: string
+  /** 最新的 SDK 版本 */
+  sdk: string
+  sdkMajor: number
+  netcoredbg?: string
+  /** csharp-ls（dotnet tool install -g 装在 ~/.dotnet/tools，不一定在 PATH 上） */
+  lsp?: string
+}
+
+/** netcoredbg 没有包管理器的包，从 GitHub release 下载解压到这里（压缩包里自带一层 netcoredbg/ 目录） */
+const NETCOREDBG_PARENT = isWin
+  ? path.join(process.env.LOCALAPPDATA ?? path.join(os.homedir(), 'AppData', 'Local'), 'Programs')
+  : path.join(os.homedir(), '.local', 'share')
+/** netcoredbg 的发布包：Windows x64、Linux x64 / arm64、macOS arm64（没有 Intel Mac 的包） */
+const NETCOREDBG_ASSET = isWin
+  ? 'netcoredbg-win64.zip'
+  : isMac
+    ? process.arch === 'arm64'
+      ? 'netcoredbg-osx-arm64.zip'
+      : null
+    : process.arch === 'arm64'
+      ? 'netcoredbg-linux-arm64.tar.gz'
+      : process.arch === 'x64'
+        ? 'netcoredbg-linux-amd64.tar.gz'
+        : null
+/** 最后一个支持 .NET 10 SDK 的 csharp-ls；更新的版本要 .NET 11 SDK */
+const CSHARP_LS_NET10 = '0.28.0'
+
+async function findCsharp(): Promise<CsharpInfo | null> {
+  const fixed = isWin
+    ? [path.join(process.env.ProgramFiles ?? 'C:\\Program Files', 'dotnet')]
+    : isMac
+      ? ['/usr/local/share/dotnet', path.join(os.homedir(), '.dotnet')]
+      : ['/usr/lib/dotnet', '/usr/share/dotnet', path.join(os.homedir(), '.dotnet')]
+  const dotnet = which('dotnet') ?? findIn(fixed, 'dotnet')
+  if (!dotnet) return null
+  // 只装了运行时（没有 SDK）时列表是空的，不能编译
+  const r = await exec(dotnet, ['--list-sdks'])
+  const sdks = [...r.out.matchAll(/^(\d+)\.(\d+)\.(\d+)\S*\s+\[/gm)].map((m) => ({ v: m[0].split(/\s/)[0], k: [Number(m[1]), Number(m[2]), Number(m[3])] }))
+  if (!sdks.length) return null
+  sdks.sort((a, b) => a.k[0] - b.k[0] || a.k[1] - b.k[1] || a.k[2] - b.k[2])
+  const best = sdks[sdks.length - 1]
+  const tools = path.join(os.homedir(), '.dotnet', 'tools')
+  return {
+    dotnet,
+    sdk: best.v,
+    sdkMajor: best.k[0],
+    netcoredbg: which('netcoredbg') ?? findIn([path.join(NETCOREDBG_PARENT, 'netcoredbg')], 'netcoredbg') ?? undefined,
+    lsp: which('csharp-ls') ?? findIn([tools], 'csharp-ls') ?? undefined
+  }
+}
+
+/** 运行 / 调试 C# 文件的目标：所在的项目（往上找 .csproj），找不到时当作单文件程序（.NET 10 起支持） */
+export async function csharpTarget(file: string): Promise<{ project?: string; cwd: string }> {
+  let dir = path.dirname(file)
+  for (let i = 0; i < 8; i++) {
+    const names = await fs.readdir(dir).catch(() => [] as string[])
+    const projs = names.filter((n) => /\.csproj$/i.test(n)).sort()
+    if (projs.length) {
+      // 一个目录里有多个项目时，优先和目录同名的那个
+      const pick = projs.find((n) => n.slice(0, -7).toLowerCase() === path.basename(dir).toLowerCase()) ?? projs[0]
+      return { project: path.join(dir, pick), cwd: dir }
+    }
+    const up = path.dirname(dir)
+    if (up === dir) break
+    dir = up
+  }
+  return { cwd: path.dirname(file) }
+}
+
 /* ---------------- 检测结果 ---------------- */
 
 export interface Toolchains {
@@ -253,6 +326,7 @@ export interface Toolchains {
   java: JavaInfo | null
   jdtls: string | null
   cpp: CppInfo | null
+  csharp: CsharpInfo | null
 }
 
 let cache: Partial<Toolchains> = {}
@@ -295,6 +369,16 @@ export async function detectLanguage(id: string): Promise<PluginStatus> {
     c.push({ name: tm('语言服务'), ok: !!x?.clangd, optional: true, detail: x?.clangd ? 'clangd' : undefined })
     installed = !!x && !!dbg
     version = x?.version
+  } else if (id === 'csharp') {
+    const cs = await findCsharp()
+    cache.csharp = cs
+    // Intel Mac 没有 netcoredbg 的发布包：调试器装不上，只能运行
+    const dbgOptional = !NETCOREDBG_ASSET
+    c.push({ name: tm('编译器'), ok: !!cs, detail: cs ? `.NET SDK ${cs.sdk}` : undefined })
+    c.push({ name: tm('调试器'), ok: !!cs?.netcoredbg, optional: dbgOptional || undefined, detail: cs?.netcoredbg ? 'netcoredbg' : undefined })
+    c.push({ name: tm('语言服务'), ok: !!cs?.lsp, optional: true, detail: cs?.lsp ? 'csharp-ls' : undefined })
+    installed = !!cs && (!!cs.netcoredbg || dbgOptional)
+    version = cs?.sdk
   } else throw new Error(tm('未知插件：{0}', id))
   return { installed, version, components: c, installScript: installScript(id) || undefined }
 }
@@ -331,6 +415,33 @@ function installScript(id: string): string {
     if (x && hasDbg && x.clangd) return ''
     if (!x || !hasDbg) steps.push(isWin ? winget('BrechtSanders.WinLibs.POSIX.UCRT.LLVM') : isMac ? 'xcode-select --install' : 'sudo apt-get install -y build-essential gdb clangd')
     else steps.push(isWin ? winget('LLVM.LLVM') : isMac ? 'brew install llvm' : 'sudo apt-get install -y clangd')
+  } else if (id === 'csharp') {
+    const cs = cache.csharp
+    // 单文件程序（dotnet run app.cs）和 csharp-ls 都要 .NET 10 以上的 SDK；旧版 SDK 保留，新版并排安装
+    const needSdk = !cs || cs.sdkMajor < 10
+    const needDbg = !cs?.netcoredbg && !!NETCOREDBG_ASSET
+    const needLsp = !cs?.lsp
+    if (!needSdk && !needDbg && !needLsp) return ''
+    let dotnet: string
+    if (needSdk) {
+      steps.push(isWin ? winget('Microsoft.DotNet.SDK.10') : isMac ? 'brew install --cask dotnet-sdk' : 'sudo apt-get install -y dotnet-sdk-10.0')
+      if (isWin) steps.push(REFRESH_PATH)
+      // 新装的 SDK 在 PATH 上（Windows 刷新过 PATH，macOS / Linux 的安装包会建好链接）
+      dotnet = 'dotnet'
+    } else dotnet = invoke(sh, cs.dotnet)
+    if (needLsp) {
+      const major = needSdk ? 10 : cs.sdkMajor
+      steps.push(`${dotnet} tool install --global csharp-ls${major < 11 ? ` --version ${CSHARP_LS_NET10}` : ''}`)
+    }
+    if (needDbg) {
+      const url = `https://github.com/Samsung/netcoredbg/releases/latest/download/${NETCOREDBG_ASSET}`
+      if (isWin)
+        steps.push(
+          `$d = Join-Path $env:LOCALAPPDATA 'Programs'; New-Item -ItemType Directory -Force $d | Out-Null; $z = Join-Path $env:TEMP 'netcoredbg.zip'; Invoke-WebRequest -UseBasicParsing '${url}' -OutFile $z; Expand-Archive -Force $z $d; Remove-Item $z`
+        )
+      else if (isMac) steps.push(`mkdir -p ~/.local/share && curl -fsSL -o /tmp/netcoredbg.zip ${url} && unzip -oq /tmp/netcoredbg.zip -x '__MACOSX/*' -d ~/.local/share && rm /tmp/netcoredbg.zip`)
+      else steps.push(`mkdir -p ~/.local/share && curl -fsSL ${url} | tar -xz -C ~/.local/share`)
+    }
   }
   return sh === 'pwsh' ? steps.join('; ') : steps.join(' && ')
 }
@@ -368,7 +479,9 @@ export function ccArgs(file: string, exe: string, extra: string[] = []): string[
 
 /** 在终端里运行当前文件的命令 */
 export async function runPlan(id: string, file: string): Promise<RunPlan> {
-  if (!cache[id === 'cpp' ? 'cpp' : id === 'java' ? 'java' : 'python']) await detectLanguage(id)
+  const key = ({ python: 'python', java: 'java', cpp: 'cpp', csharp: 'csharp' } as const)[id]
+  if (!key) throw new Error(tm('未知插件：{0}', id))
+  if (!cache[key]) await detectLanguage(id)
   if (id === 'python') {
     const py = cache.python
     if (!py) throw new Error(tm('没有找到 Python 解释器，请先在插件页安装 Python 插件'))
@@ -387,6 +500,14 @@ export async function runPlan(id: string, file: string): Promise<RunPlan> {
     const t = cppTarget(file)
     await fs.mkdir(path.dirname(t.exe), { recursive: true })
     return { cwd: path.dirname(file), command: andThen(sh, [invoke(sh, t.isC ? x.cc : x.cxx, ccArgs(file, t.exe)), invoke(sh, t.exe)]) }
+  }
+  if (id === 'csharp') {
+    const cs = cache.csharp
+    if (!cs) throw new Error(tm('没有找到 .NET SDK，请先在插件页安装 C# 插件'))
+    const t = await csharpTarget(file)
+    if (t.project) return { cwd: t.cwd, command: invoke(sh, cs.dotnet, ['run', '--project', t.project]) }
+    if (cs.sdkMajor < 10) throw new Error(tm('没有找到 .csproj 项目文件；直接运行单个 .cs 文件需要 .NET 10 或更新的 SDK'))
+    return { cwd: t.cwd, command: invoke(sh, cs.dotnet, ['run', file]) }
   }
   throw new Error(tm('未知插件：{0}', id))
 }

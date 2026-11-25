@@ -110,7 +110,7 @@ export async function loadSettings(): Promise<void> {
       s.newProject && typeof s.newProject === 'object'
         ? {
             location: typeof s.newProject.location === 'string' ? s.newProject.location : undefined,
-            kind: ['empty', 'java', 'python', 'cpp', 'node'].includes(s.newProject.kind as string) ? s.newProject.kind : undefined
+            kind: ['empty', 'java', 'python', 'cpp', 'csharp', 'node'].includes(s.newProject.kind as string) ? s.newProject.kind : undefined
           }
         : undefined,
     treeExpanded:
