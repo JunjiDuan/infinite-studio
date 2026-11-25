@@ -18,7 +18,11 @@ export const THEMES: Record<ThemeId, Palette> = {
   dusk: { label: t('深邃'), bg: '#16151B', panel: '#201E27', line: '#2C2A35', sel: '#221F2A', text: '#ECE7F2', muted: '#9A95A6', str: '#CBBFD9', light: false, swatch: '#3A3546' },
   graphite: { label: t('石墨'), bg: '#1E1F22', panel: '#2A2B2F', line: '#37383D', sel: '#2E2F34', text: '#E3E4E6', muted: '#94969C', str: '#BEC3CA', light: false, swatch: '#55575D' },
   ink: { label: t('深色'), bg: '#0E0E10', panel: '#18181B', line: '#26262B', sel: '#1C1C20', text: '#E7E5E0', muted: '#8E8D93', str: '#C9C2B4', light: false, swatch: '#2A2A2E' },
-  paper: { label: t('浅色'), bg: '#F7F5F0', panel: '#EDEAE3', line: '#E0DCD3', sel: '#EAE6DD', text: '#1D1C1A', muted: '#6B6760', str: '#5E5546', light: true, swatch: '#E9E4D9' }
+  paper: { label: t('浅色'), bg: '#F7F5F0', panel: '#EDEAE3', line: '#E0DCD3', sel: '#EAE6DD', text: '#1D1C1A', muted: '#6B6760', str: '#5E5546', light: true, swatch: '#E9E4D9' },
+  forest: { label: t('松林'), bg: '#131A17', panel: '#1B2420', line: '#27322D', sel: '#1E2723', text: '#E2EAE5', muted: '#8E9F95', str: '#B4CCBD', light: false, swatch: '#2E3D35' },
+  tide: { label: t('深海'), bg: '#111821', panel: '#19222D', line: '#25303D', sel: '#1C2530', text: '#E2E8F0', muted: '#8A96A7', str: '#B2C3D7', light: false, swatch: '#2B3A4E' },
+  mocha: { label: t('摩卡'), bg: '#1A1613', panel: '#241F1B', line: '#332B25', sel: '#28221D', text: '#EDE4DA', muted: '#A09488', str: '#D6C1AA', light: false, swatch: '#4A3C31' },
+  mist: { label: t('雾蓝'), bg: '#F1F3F6', panel: '#E6E9EE', line: '#D7DCE3', sel: '#E1E5EB', text: '#1A1E24', muted: '#5D6571', str: '#3F5470', light: true, swatch: '#D5DDE8' }
 }
 
 export const ACCENTS: { hex: string; name: string }[] = [
@@ -101,8 +105,9 @@ export function applyCssVars(space: Space): ResolvedTheme {
   s.setProperty('--accent', t.accent)
   s.setProperty('--accent-soft', t.accent + '2E')
   s.setProperty('--font-code', t.fontCss)
-  s.setProperty('--shadow', t.light ? 'rgba(60, 50, 30, 0.14)' : 'rgba(0, 0, 0, 0.55)')
+  s.setProperty('--shadow', t.light ? (space.theme === 'mist' ? 'rgba(30, 40, 60, 0.14)' : 'rgba(60, 50, 30, 0.14)') : 'rgba(0, 0, 0, 0.55)')
   document.documentElement.dataset.theme = space.theme
+  document.documentElement.dataset.tone = t.light ? 'light' : 'dark'
   document.documentElement.style.colorScheme = t.light ? 'light' : 'dark'
   return t
 }

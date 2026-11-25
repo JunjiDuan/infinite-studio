@@ -181,7 +181,7 @@ kbd {
   text-overflow: ellipsis;
 }
 /* 窄窗口：先收起主题圆点，再收起搜索框里的快捷键提示 */
-@media (max-width: 900px) {
+@media (max-width: 1100px) {
   .theme-dots {
     display: none;
   }
@@ -208,7 +208,7 @@ kbd {
   margin-right: 10px;
 }
 .theme-dot {
-  width: 28px;
+  width: 22px;
   height: 44px;
   display: flex;
   align-items: center;
@@ -1490,7 +1490,7 @@ button.st-item:hover {
   z-index: 50;
   animation: fade 0.12s ease-out;
 }
-[data-theme='paper'] .palette-backdrop {
+[data-tone='light'] .palette-backdrop {
   background: rgba(40, 35, 25, 0.22);
 }
 @keyframes fade {
@@ -2122,7 +2122,7 @@ button.st-item:hover {
   --add-fg: #56c26c;
   --del-fg: #ef6f6c;
 }
-:root[data-theme='paper'] {
+:root[data-tone='light'] {
   --add-fg: #1f8a3a;
   --del-fg: #c4352e;
 }
@@ -5844,7 +5844,7 @@ a.tool-sum:hover {
   --ansi-bright-white: #eeeeee;
   --nb-err: #e5737a;
 }
-:root[data-theme='paper'] .notebook {
+:root[data-tone='light'] .notebook {
   --ansi-black: #3b3a37;
   --ansi-red: #b4232f;
   --ansi-green: #2f7d32;
@@ -6146,7 +6146,7 @@ a.tool-sum:hover {
   background: #fff;
   border-radius: 4px;
 }
-:root[data-theme='paper'] .nb-output > .nb-img {
+:root[data-tone='light'] .nb-output > .nb-img {
   background: none;
 }
 .nb-stream,

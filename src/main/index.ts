@@ -27,7 +27,8 @@ import { getLocalePack, getSavedLocale, setMainLocale } from './i18n'
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json')
 
 function themeBg(theme: string | undefined): string {
-  return theme === 'paper' ? '#F7F5F0' : theme === 'ink' ? '#0E0E10' : theme === 'graphite' ? '#1E1F22' : '#16151B'
+  const bg: Record<string, string> = { paper: '#F7F5F0', ink: '#0E0E10', graphite: '#1E1F22', forest: '#131A17', tide: '#111821', mocha: '#1A1613', mist: '#F1F3F6' }
+  return (theme && bg[theme]) || '#16151B'
 }
 
 async function readSettings(): Promise<Settings | null> {

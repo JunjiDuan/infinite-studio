@@ -3,7 +3,7 @@ import type { IdeToolResult } from './ide'
 import type { AiChatRequest, AiCompleteRequest, AiFeatureSettings, AiProviderId, AiProviderStatus, AiResult, AiSnippet, AiIndexStatus } from './ai'
 import type { LocalePack, MarketResult, PluginManifest, PluginStatus, RemotePlugin, RunPlan } from './plugins'
 
-export type ThemeId = 'dusk' | 'ink' | 'graphite' | 'paper'
+export type ThemeId = 'dusk' | 'ink' | 'graphite' | 'paper' | 'forest' | 'tide' | 'mocha' | 'mist'
 export type FontId = 'jet' | 'plex' | 'space'
 
 /** 外观 = 主题 + 强调色 + 字体 + 字号 */

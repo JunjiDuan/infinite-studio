@@ -4,7 +4,7 @@ import { LOCALE_CODE_RE } from '../../shared/plugins'
 
 export const DEFAULT_SPACE: Space = { theme: 'dusk', accent: '#6E9BFF', font: 'jet', size: 14 }
 
-const THEME_IDS: ThemeId[] = ['dusk', 'ink', 'graphite', 'paper']
+const THEME_IDS: ThemeId[] = ['dusk', 'ink', 'graphite', 'paper', 'forest', 'tide', 'mocha', 'mist']
 const FONT_IDS: FontId[] = ['jet', 'plex', 'space']
 export const MIN_SIZE = 11
 export const MAX_SIZE = 24
