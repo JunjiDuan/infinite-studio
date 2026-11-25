@@ -58,6 +58,7 @@ import { debugRequest, initLsp, isProbe, lspStatus, refreshProbe, restartLsp, se
 import { createPanel, newTerminal, togglePanel } from './panel'
 import { initPreview, zoomPreviewAt } from './preview'
 import { initNotebook } from './notebook'
+import { openNewProject } from './newProject'
 import { initMarket } from './market'
 import { initAgentTools } from './agentTools'
 import { createScmView, onScmCount, refreshScm, scheduleScmStatus } from './scm'
@@ -82,6 +83,7 @@ const MENUS: MenuDef[] = [
     items: () => [
       { label: t('新建文件'), disabled: !state.root, run: () => showFilesThen(() => void beginCreate('file')) },
       { label: t('新建文件夹'), disabled: !state.root, run: () => showFilesThen(() => void beginCreate('dir')) },
+      { label: t('新建项目…'), run: newProject },
       { label: t('打开新窗口'), key: 'Ctrl Shift N', run: () => window.api.win.newWindow() },
       'sep',
       { label: t('打开文件夹…'), key: 'Ctrl O', run: () => void pickFolder() },
@@ -456,6 +458,7 @@ function renderWelcome(): void {
         'div',
         { class: 'welcome-actions' },
         h('button', { class: 'btn primary', onClick: () => pickFolder() }, t('打开文件夹'), h('kbd', {}, 'Ctrl O')),
+        h('button', { class: 'btn', onClick: newProject }, t('新建项目')),
         h('button', { class: 'btn', onClick: () => openSettings('appearance') }, t('个性化与主题'))
       ),
       recents.length
@@ -633,6 +636,20 @@ window.api.fs.onChanged((paths) => {
 /** 源代码管理视图隐藏期间 .git 有变化，下次显示时再刷新 */
 let scmStale = false
 
+/** 新建项目对话框；项目在此窗口打开时由这里接手 */
+function newProject(): void {
+  void openNewProject(openCreatedProject)
+}
+
+/** 打开刚建好的项目：随后打开示例文件，需要时在终端里装依赖 */
+async function openCreatedProject(r: { path: string; open?: string; post?: string }): Promise<void> {
+  await openFolder(r.path)
+  // 有没保存的文件、用户取消了切换
+  if (state.root !== r.path) return
+  if (r.open) await openFile(r.open)
+  if (r.post) void newTerminal(r.path, { title: t('安装依赖'), run: r.post })
+}
+
 async function pickFolder(): Promise<void> {
   const p = await window.api.fs.openFolderDialog()
   if (p) await openFolder(p)
@@ -774,6 +791,7 @@ window.addEventListener('beforeunload', (e) => {
 registerCommands(() => [
   { id: 'folder.open', title: t('打开文件夹…'), key: 'Ctrl O', run: pickFolder },
   { id: 'window.new', title: t('打开新窗口'), key: 'Ctrl Shift N', run: () => window.api.win.newWindow() },
+  { id: 'project.new', title: t('新建项目…'), run: newProject },
   ...(state.root ? [{ id: 'folder.close', title: t('关闭文件夹'), run: closeFolder }] : []),
   ...(state.root
     ? [
@@ -996,7 +1014,11 @@ async function boot(): Promise<void> {
   applyLayout()
   shown.booted = true
   const last = state.settings.recentFolders[0]
-  if (last && !new URLSearchParams(location.search).has('blank')) await openFolder(last)
+  const query = new URLSearchParams(location.search)
+  const target = query.get('open')
+  // 新建项目后在新窗口打开
+  if (target) await openCreatedProject({ path: target, open: query.get('file') ?? undefined, post: query.get('run') ?? undefined })
+  else if (last && !query.has('blank')) await openFolder(last)
   document.fonts.ready.then(() => monaco.editor.remeasureFonts())
 }
 

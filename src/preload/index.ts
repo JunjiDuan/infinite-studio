@@ -19,7 +19,15 @@ const api: Api = {
     toggleMaximize: () => ipcRenderer.send('win:toggleMaximize'),
     close: () => ipcRenderer.send('win:close'),
     reload: () => ipcRenderer.send('win:reload'),
-    newWindow: () => ipcRenderer.send('win:new')
+    newWindow: (open) => ipcRenderer.send('win:new', open)
+  },
+  project: {
+    home: () => ipcRenderer.invoke('project:home'),
+    pickLocation: (start) => ipcRenderer.invoke('project:pickLocation', start),
+    probe: (kind) => ipcRenderer.invoke('project:probe', kind),
+    target: (location, name) => ipcRenderer.invoke('project:target', location, name),
+    freeName: (location, base) => ipcRenderer.invoke('project:freeName', location, base),
+    create: (opts) => ipcRenderer.invoke('project:create', opts)
   },
   app: {
     info: () => ipcRenderer.invoke('app:info'),

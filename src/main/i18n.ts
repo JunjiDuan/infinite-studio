@@ -167,7 +167,20 @@ const EN: Record<string, string> = {
   前进: 'Forward',
   重新加载: 'Reload',
   检查元素: 'Inspect element',
-  '插件没有声明这个网站：{0}': 'The plugin does not declare the site: {0}'
+  '插件没有声明这个网站：{0}': 'The plugin does not declare the site: {0}',
+  // 新建项目
+  项目名称不能为空: 'Project name cannot be empty',
+  项目名称包含非法字符: 'Project name contains invalid characters',
+  位置必须是绝对路径: 'Location must be an absolute path',
+  '目标已存在且不是文件夹：{0}': 'The target exists and is not a folder: {0}',
+  '文件夹已存在且不为空：{0}': 'The folder already exists and is not empty: {0}',
+  '包名不合法：{0}': 'Invalid package name: {0}',
+  '未知项目类型：{0}': 'Unknown project type: {0}',
+  '没有找到 Python 解释器，未创建虚拟环境': 'Python interpreter not found; the virtual environment was not created',
+  '虚拟环境创建失败：{0}': 'Failed to create the virtual environment: {0}',
+  'Git 仓库初始化失败：{0}': 'Failed to initialize the Git repository: {0}',
+  '没有找到 git': 'git not found',
+  选择项目位置: 'Choose project location'
 }
 
 /** 和渲染进程的 t() 一样：键是中文原文，{0} 是参数；语言包里没有的条目显示英文 */

@@ -35,6 +35,56 @@ export interface Settings {
   locale?: string
   /** 项目路径 → 资源管理器里展开的文件夹（相对路径） */
   treeExpanded?: Record<string, string[]>
+  /** 新建项目对话框上次用的位置和模板 */
+  newProject?: { location?: string; kind?: ProjectKind }
+}
+
+/* ---------- 新建项目 ---------- */
+
+export type ProjectKind = 'empty' | 'java' | 'python' | 'cpp' | 'node'
+
+export interface NewProjectOptions {
+  kind: ProjectKind
+  name: string
+  /** 项目所在的父目录 */
+  location: string
+  git: boolean
+  /** 生成示例代码 */
+  sample: boolean
+  java?: { build: 'none' | 'maven' | 'gradle'; package: string }
+  python?: { venv: boolean }
+  cpp?: { lang: 'c' | 'cpp'; cmake: boolean }
+  node?: { ts: boolean }
+}
+
+/** 某个模板用到的工具是否已安装；install 是缺少时的安装命令 */
+export interface ProjectTool {
+  id: string
+  ok: boolean
+  detail?: string
+  optional?: boolean
+  install?: string
+}
+
+export interface ProjectProbe {
+  tools: ProjectTool[]
+}
+
+/** 目标目录：free 不存在，empty 已存在但为空，invalid 不能用（message 是原因） */
+export interface ProjectTarget {
+  path: string
+  state: 'free' | 'empty' | 'invalid'
+  message?: string
+}
+
+export interface ProjectCreated {
+  path: string
+  /** 创建后在编辑器里打开的文件 */
+  open?: string
+  /** 打开项目后在终端里运行的命令（如安装依赖） */
+  post?: string
+  /** 项目已创建，但附加步骤（Git、虚拟环境）失败 */
+  warnings: string[]
 }
 
 export interface AppInfo {
@@ -303,8 +353,17 @@ export interface Api {
     close(): void
     /** 重新创建窗口（切换界面语言后） */
     reload(): void
-    /** 新开一个空白 IDE 窗口 */
-    newWindow(): void
+    /** 新开一个 IDE 窗口：不带参数是空白窗口；open 指定要打开的文件夹，以及随后打开的文件和在终端里运行的命令 */
+    newWindow(open?: { folder: string; file?: string; run?: string }): void
+  }
+  project: {
+    /** 默认的项目位置（用户目录下的 Projects） */
+    home(): Promise<string>
+    pickLocation(start?: string): Promise<string | null>
+    probe(kind: ProjectKind): Promise<ProjectProbe>
+    target(location: string, name: string): Promise<ProjectTarget>
+    freeName(location: string, base: string): Promise<string>
+    create(opts: NewProjectOptions): Promise<ProjectCreated>
   }
   app: {
     info(): Promise<AppInfo>
