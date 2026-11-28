@@ -202,6 +202,21 @@ export function registerFsIpc(): void {
     return to
   })
 
+  // 文件在磁盘上的身份（卷号 + 文件号），不存在时为 null。
+  // 改名 / 移动不会改变它：外部程序（资源管理器、终端、AI 助手）改了名，界面靠它认出新路径
+  ipcMain.handle('fs:fileIds', async (_e, paths: string[]): Promise<(string | null)[]> =>
+    Promise.all(
+      (Array.isArray(paths) ? paths : []).slice(0, 500).map(async (p) => {
+        try {
+          const s = await fs.stat(String(p), { bigint: true })
+          return s.isFile() ? `${s.dev}:${s.ino}` : null
+        } catch {
+          return null
+        }
+      })
+    )
+  )
+
   // 删除一律进回收站，可以找回
   ipcMain.handle('fs:trash', async (_e, p: string) => {
     await shell.trashItem(p)

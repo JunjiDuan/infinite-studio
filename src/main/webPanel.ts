@@ -74,15 +74,27 @@ export function cleanUserAgent(ua: string): string {
  * 在 accounts.google.com 上换成 Firefox 的 User-Agent（同时去掉 Firefox 不会发的 Sec-CH-UA 请求头）就能正常登录，
  * 登录完跳回网站时再换回原来的。
  */
-const GOOGLE_AUTH_HOSTS = ['accounts.google.com']
-
+/**
+ * Google 登录的整条跳转链：accounts.google.com → CheckCookie → accounts.youtube.com/accounts/SetSID
+ * （地区域名上是 www.google.com.hk/accounts/SetSID 之类）→ 回到网站。链上每一站都算“登录页”，
+ * 中途换 User-Agent 重新打开会把这条链打断：Cookie 设了一半，网站落地时还是未登录的样子。
+ */
 function isGoogleAuth(url: string): boolean {
   try {
     const u = new URL(url)
-    return u.protocol === 'https:' && GOOGLE_AUTH_HOSTS.includes(u.hostname)
+    if (u.protocol !== 'https:') return false
+    const host = u.hostname.toLowerCase()
+    if (host === 'accounts.youtube.com') return true
+    if (!/(^|\.)google\.[a-z.]+$/.test(host)) return false
+    return host.startsWith('accounts.') || /^\/accounts\//i.test(u.pathname)
   } catch {
     return false
   }
+}
+
+/** 落地页的网址像一次性的回调（OAuth code、票据等）：不能再打开一次 */
+function oneTimeUrl(url: string): boolean {
+  return /[?&#](code|state|token|id_token|access_token|ticket|SAMLResponse|oauth_token)=|\/callback\b/i.test(url)
 }
 
 /** 当前的 Firefox 版本（Firefox 128 于 2024-07-09 发布，之后每 4 周一个版本） */
@@ -93,11 +105,18 @@ function firefoxUserAgent(): string {
   return `Mozilla/5.0 (${plat}; rv:${ver}.0) Gecko/20100101 Firefox/${ver}.0`
 }
 
-/** 网页（面板或登录弹窗）跳到 / 离开 Google 登录页时切换 User-Agent，并用新的 User-Agent 重新打开这个网址 */
-function switchUaForGoogleAuth(wc: WebContents): void {
+/**
+ * 网页（面板或登录弹窗）进入 Google 登录页时换成 Firefox 的 User-Agent，并用它重新打开这个网址；
+ * 离开时等整条跳转链走完、页面真正落地（did-navigate）后再换回。
+ * reloadOnLand：落地后是否用原来的 User-Agent 重新打开一次（面板要，好让网站以登录后的状态重新加载；
+ * 弹窗不要，落地页通常是一次性的回调地址）。
+ */
+function switchUaForGoogleAuth(wc: WebContents, reloadOnLand: (url: string) => boolean = () => false): void {
   const check = (url: string, isMainFrame: boolean, isSameDocument: boolean): void => {
-    if (!isMainFrame || isSameDocument || !/^https:/i.test(url)) return
-    const want = isGoogleAuth(url) ? firefoxUserAgent() : wc.session.getUserAgent()
+    // 只在“进入”登录页时切换。离开时如果在跳转事件里就换回并重新打开，会打断还没走完的跳转链
+    // （以前的问题：登录完停在未登录的页面，要关掉面板重新打开才显示对话框）
+    if (!isMainFrame || isSameDocument || !isGoogleAuth(url)) return
+    const want = firefoxUserAgent()
     if (wc.getUserAgent() === want) return
     // 不能在跳转事件里同步发起新的跳转：在 did-redirect-navigation 里直接 loadURL 会让整个主进程崩溃
     // （例如 Gemini 的“登录”先打开 gemini.google.com/signin，再重定向到 accounts.google.com）。放到下一轮事件循环再做
@@ -115,6 +134,17 @@ function switchUaForGoogleAuth(wc: WebContents): void {
   wc.on('did-redirect-navigation', (d) => {
     const nav = d as unknown as { url: string; isMainFrame: boolean; isSameDocument: boolean }
     check(nav.url, nav.isMainFrame, nav.isSameDocument)
+  })
+  // 跳转链走完、落在登录页以外的页面上：换回原来的 User-Agent
+  wc.on('did-navigate', (_e, url) => {
+    if (isGoogleAuth(url) || !/^https:/i.test(url)) return
+    const normal = wc.session.getUserAgent()
+    if (wc.getUserAgent() === normal) return
+    wc.setUserAgent(normal)
+    if (!reloadOnLand(url) || oneTimeUrl(url)) return
+    setImmediate(() => {
+      if (!wc.isDestroyed()) void wc.loadURL(url, { userAgent: normal }).catch(() => undefined)
+    })
   })
 }
 
@@ -197,6 +227,17 @@ function allowed(site: WebSite, url: string): boolean {
   try {
     const u = new URL(url)
     return u.protocol === 'https:' && site.hosts.some((h) => hostMatches(u.hostname, h))
+  } catch {
+    return false
+  }
+}
+
+/** 网站本身的页面（和 site.url 同一个主域名，且不是登录页）；manifest 的 hosts 里还混着第三方登录的域名 */
+function siteOwn(site: WebSite, url: string): boolean {
+  try {
+    const u = new URL(url)
+    const home = new URL(site.url).hostname.split('.').slice(-2).join('.')
+    return u.protocol === 'https:' && hostMatches(u.hostname, '*.' + home) && !isGoogleAuth(url) && !/^(accounts|login|auth|account|appleid|idmsa)\./i.test(u.hostname)
   } catch {
     return false
   }
@@ -343,6 +384,9 @@ function guardPopup(p: Panel, child: BrowserWindow): void {
   const cw = child.webContents
   switchUaForGoogleAuth(cw)
   let first = true
+  /** 弹窗里到过登录页（离开网站本身） */
+  let sawLogin = false
+  let finishing = false
   cw.on('did-start-navigation', (d) => {
     const nav = d as unknown as { url: string; isMainFrame: boolean; isSameDocument: boolean }
     if (!nav.isMainFrame || nav.isSameDocument) return
@@ -352,6 +396,22 @@ function guardPopup(p: Panel, child: BrowserWindow): void {
       openOutside(nav.url)
       child.close()
     }
+  })
+  // 登录完成的兜底：弹窗从登录页回到网站自己的页面后，网站本该关掉弹窗、刷新面板。
+  // 有的网站做不到（弹窗和面板之间的 window.opener 被登录页的安全策略切断了），弹窗就停在已登录的网站上，
+  // 面板还是登录页，只能手动关掉弹窗再重新打开网站。这里等网站自己处理一会儿，还没关就替它关掉并刷新面板
+  cw.on('did-navigate', (_e, url) => {
+    if (!siteOwn(p.site, url)) {
+      if (url !== 'about:blank') sawLogin = true
+      return
+    }
+    if (!sawLogin || finishing) return
+    finishing = true
+    setTimeout(() => {
+      if (child.isDestroyed()) return
+      child.close()
+      if (!p.view.webContents.isDestroyed()) reload(p)
+    }, 2500)
   })
   cw.setWindowOpenHandler(({ url }) => {
     openOutside(url)
@@ -486,7 +546,8 @@ function watchOwner(owner: WebContents): void {
 
 function wire(p: Panel): void {
   const wc = p.view.webContents
-  switchUaForGoogleAuth(wc)
+  // 面板里登录完落回网站：用原来的 User-Agent 重新打开一次，网站按登录后的状态加载（不用关掉面板重开）
+  switchUaForGoogleAuth(wc, (url) => siteOwn(p.site, url))
   const send = (): void => sendState(p)
   wc.on('did-start-loading', send)
   wc.on('did-stop-loading', () => {

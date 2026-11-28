@@ -552,16 +552,33 @@ export class AcpDriver implements Driver {
   /** Antigravity 登录：authenticate 一直等到浏览器里登录完成（agy 自己打开浏览器），凭据存进系统钥匙串 */
   private async antigravityLogin(ui: LoginUi): Promise<void> {
     await this.ensure()
+    // 浏览器里登录完，agy 有时迟迟不回 authenticate（界面就一直停在登录卡片上）。
+    // 用户点“我已完成登录”时不再等它：凭据已经在钥匙串里，重启进程建会话能成功就算登录好了
+    let manual = false
     await new Promise<void>((resolve, reject) => {
       ui.onCancel(() => {
         this.stopProcess()
         reject(new Error(t('已取消登录')))
       })
-      this.request('authenticate', { methodId: 'oauth-personal' }, 10 * 60_000).then(() => resolve(), reject)
+      ui.waiting?.(t('已在浏览器中打开 Google 登录页，请在网页上完成登录，完成后这里会自动继续。'), () => {
+        manual = true
+        resolve()
+      })
+      this.request('authenticate', { methodId: 'oauth-personal' }, 10 * 60_000).then(
+        () => resolve(),
+        (e) => {
+          if (!manual) reject(e)
+        }
+      )
     })
     // 已建的会话还拿着旧凭据：重启进程
     this.stopProcess()
-    await this.ensureSession()
+    try {
+      await this.ensureSession()
+    } catch (e) {
+      if (manual) throw new Error(t('还没有检测到登录：请先在浏览器里完成 Google 登录，再点重试'))
+      throw e
+    }
     this.account = t('Google 账号')
     this.host.capabilities()
   }

@@ -26,6 +26,7 @@ import {
   cycleTab,
   findTab,
   focusNextGroup,
+  followRenames,
   getEditor,
   hasItems,
   initEditor,
@@ -600,9 +601,11 @@ async function openFolder(path: string): Promise<void> {
 }
 
 // 磁盘上的变化：刷新目录树、命令面板的文件列表、已打开且没改过的文件
-window.api.fs.onChanged((paths) => {
+window.api.fs.onChanged(async (paths) => {
   void invalidatePaths(paths)
   invalidateFiles()
+  // 先认出外部改名 / 移动，把打开的标签换到新路径；否则保存会在旧位置重新建出文件
+  await followRenames(paths).catch((e) => console.warn('followRenames', e))
   for (const p of paths) {
     if (findTab(p)) void reloadFromDisk(p)
     else {

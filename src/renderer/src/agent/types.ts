@@ -149,6 +149,11 @@ export interface LoginUi {
   askCode(submit: (code: string) => void): void
   /** 用户取消时调用 */
   onCancel(fn: () => void): void
+  /**
+   * 等待在浏览器里完成登录（命令行工具自己打开浏览器、不给链接时用）：显示说明，
+   * 并给一个“我已完成登录”按钮，工具迟迟不报告完成时用户可以点它让驱动直接检查
+   */
+  waiting?(text: string, check: () => Promise<string | void> | void): void
   /** 登录方式附带的输入（API Key） */
   readonly input?: string
 }

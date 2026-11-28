@@ -187,6 +187,13 @@ export class CodexDriver implements Driver {
           this.request('account/login/cancel', { loginId }).catch(() => {})
           reject(new Error(t('已取消登录')))
         })
+        // 兜底：浏览器里登录完却没收到 account/login/completed 时，用户点按钮直接读账号状态
+        ui.waiting?.(t('已在浏览器中打开登录页，请在网页上完成登录，完成后这里会自动继续。'), async () => {
+          const a = await this.request('account/read', {}, 15_000)
+          if (!a?.account) return t('还没有检测到登录：请先在浏览器里完成登录，再点一次')
+          this.loginWaiters.delete(loginId)
+          resolve({ success: true })
+        })
       })
       if (!done.success) throw new Error(done.error || t('登录失败'))
     }

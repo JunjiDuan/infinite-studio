@@ -390,6 +390,8 @@ export interface Api {
     createDir(dir: string, name: string): Promise<string>
     /** 同目录改名，返回新路径 */
     rename(from: string, newName: string): Promise<string>
+    /** 文件在磁盘上的身份（改名 / 移动后不变）；不存在或不是文件时为 null */
+    fileIds(paths: string[]): Promise<(string | null)[]>
     /** 移到回收站 */
     trash(path: string): Promise<void>
     reveal(path: string): Promise<void>

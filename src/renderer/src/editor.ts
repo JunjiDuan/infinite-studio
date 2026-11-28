@@ -647,6 +647,7 @@ export async function openFile(rawPath: string, o: OpenOptions = {}): Promise<Ta
     track(doc)
     tabs.push(doc)
     fire('opened', doc)
+    void rememberId(path)
   }
   let it = groups.map((x) => fileItem(x, doc)).find(Boolean)
   // 后台打开（例如语言服务跨文件重命名）：任意组里有就行，没有就加到活动组但不切换
@@ -681,6 +682,7 @@ export function openView(spec: ViewSpec, opts: { side?: boolean } = {}): void {
   const it: Item = { type: 'view', spec }
   insertItem(g, it)
   show(g, it)
+  if (spec.path) void rememberId(spec.path)
 }
 
 /** 找到某个视图所在的组并切换过去 */
@@ -1620,6 +1622,8 @@ export function renderEditorTabs(): void {
 
 export async function saveTab(tab: Tab, quiet = false): Promise<boolean> {
   const content = tab.model.getValue(monaco.editor.EndOfLinePreference.TextDefined)
+  // 文件在磁盘上已经不在原位置（被删除，或被改名 / 移动但没认出新路径）：直接写会在旧位置凭空建出一个文件
+  if (gone.has(pathKey(tab.path)) && !confirm(t('“{0}” 已在磁盘上被删除或移走。保存会在原位置重新创建这个文件，继续吗？', basename(tab.path)))) return false
   if (tab.lossy && !confirm(t('“{0}” 的编码无法识别，打开时无效的字节已被替换。保存会永久改变这些字节，仍然保存吗？', basename(tab.path)))) return false
   try {
     try {
@@ -1633,6 +1637,8 @@ export async function saveTab(tab: Tab, quiet = false): Promise<boolean> {
     }
     tab.lossy = false
     tab.savedVersion = tab.model.getAlternativeVersionId()
+    gone.delete(pathKey(tab.path))
+    void rememberId(tab.path)
     fire('saved', tab)
     emit('tabs')
     if (!quiet) toast(t('已保存'))
@@ -1673,7 +1679,13 @@ export function renamePath(from: string, to: string): void {
     const showing = groups.filter((g) => g.active?.type === 'file' && g.active.doc === t)
     for (const g of showing) if (g.active?.type === 'file') g.active.view = g.editor.saveViewState()
     fire('closed', t)
-    const model = monaco.editor.createModel(old.getValue(), languageFor(newPath), monaco.Uri.file(newPath))
+    moveKey(fileIds, t.path, newPath)
+    moveKey(gone, t.path, newPath)
+    const uri = monaco.Uri.file(newPath)
+    // 新路径上可能已有语言服务预先建的模型（“查看定义”等），同一个 URI 不能建两次
+    const stale = monaco.editor.getModel(uri)
+    if (stale && !tabs.some((x) => x.model === stale)) stale.dispose()
+    const model = monaco.editor.createModel(old.getValue(), languageFor(newPath), uri)
     t.path = newPath
     t.model = model
     t.savedVersion = dirty ? -1 : model.getAlternativeVersionId()
@@ -1691,7 +1703,10 @@ export function renamePath(from: string, to: string): void {
       const spec = it.type === 'view' ? it.spec : null
       if (!spec?.path || !isUnder(spec.path, from)) continue
       const oldKey = pathKey(spec.path)
+      const oldPath = spec.path
       spec.path = normPath(to + spec.path.slice(from.length))
+      moveKey(fileIds, oldPath, spec.path)
+      moveKey(gone, oldPath, spec.path)
       spec.title = basename(spec.path)
       // key 的结尾是路径（"preview:<路径>"、"market:<插件>:<路径>"），只换掉路径这一段
       if (spec.key?.endsWith(oldKey)) spec.key = spec.key.slice(0, spec.key.length - oldKey.length) + pathKey(spec.path)
@@ -1699,6 +1714,121 @@ export function renamePath(from: string, to: string): void {
     }
   updateTitle()
   emit('tabs')
+}
+
+/* ---------------- 跟随外部改名 ---------------- */
+
+/**
+ * 打开的文件（文本标签和带路径的视图）在磁盘上的身份：pathKey → 卷号:文件号。
+ * 在资源管理器、终端（mv / git mv）或 AI 助手里改名 / 移动时，文件号不变，
+ * 拿它和这次变化里新出现的路径比对，就能认出“同一个文件换了名字”，标签跟着换，保存才不会写回旧位置。
+ */
+const fileIds = new Map<string, string>()
+/** 已经从磁盘上消失、又没认出新位置的文件（pathKey）：保存前要确认 */
+const gone = new Set<string>()
+/** 最近几秒变化过的路径：删除和新建偶尔落在两批通知里 */
+let recentChanged: { path: string; at: number }[] = []
+
+function moveKey<V>(m: Map<string, V> | Set<string>, from: string, to: string): void {
+  const a = pathKey(from)
+  const b = pathKey(to)
+  if (a === b) return
+  if (m instanceof Set) {
+    if (m.delete(a)) m.add(b)
+    return
+  }
+  const v = m.get(a)
+  if (v === undefined) return
+  m.delete(a)
+  m.set(b, v)
+}
+
+async function rememberId(path: string): Promise<void> {
+  const [id] = await window.api.fs.fileIds([path]).catch(() => [null])
+  if (id) fileIds.set(pathKey(path), id)
+}
+
+/** 当前打开着的、对应磁盘文件的路径（去重） */
+function openPaths(): string[] {
+  const out = new Map<string, string>()
+  for (const t of tabs) out.set(pathKey(t.path), t.path)
+  for (const v of allViews()) if (v.path) out.set(pathKey(v.path), v.path)
+  return [...out.values()]
+}
+
+/**
+ * 磁盘变化通知（在重新加载之前调用）：打开着的文件不见了，就在这批（和前几秒）变化的路径里找它的新位置。
+ * 找到 → 标签、预览、插件编辑器都换到新路径；找不到 → 记为已删除，保存时先确认。
+ */
+export async function followRenames(changed: string[]): Promise<void> {
+  const now = Date.now()
+  recentChanged = recentChanged.filter((x) => now - x.at < 3000)
+  for (const p of changed) recentChanged.push({ path: normPath(p), at: now })
+  const pool = [...new Map(recentChanged.map((x) => [pathKey(x.path), x.path])).values()]
+  const open = openPaths()
+  const affected = open.filter((p) => gone.has(pathKey(p)) || changed.some((c) => isUnder(p, c)))
+  if (!affected.length) return
+  const ids = await window.api.fs.fileIds(affected)
+  const missing: string[] = []
+  affected.forEach((p, i) => {
+    const id = ids[i]
+    if (id) {
+      // 还在（或者又回来了）：顺便更新身份（有的编辑器保存时是“写新文件再替换”，文件号会变）
+      fileIds.set(pathKey(p), id)
+      gone.delete(pathKey(p))
+    } else missing.push(p)
+  })
+  if (!missing.length) return
+
+  // 候选：某个变化过的路径 a（文件本身或它所在的文件夹）被改成了另一个变化过的路径 c，文件现在在 c + 相对路径
+  type Cand = { from: string; to: string; target: string; want: string }
+  const cands: Cand[] = []
+  for (const p of missing) {
+    const want = fileIds.get(pathKey(p))
+    if (!want) continue
+    for (const a of pool) {
+      if (!isUnder(p, a)) continue
+      for (const c of pool) {
+        if (samePath(c, a) || isUnder(c, a)) continue
+        cands.push({ from: a, to: c, target: normPath(c + p.slice(a.length)), want })
+        if (cands.length >= 400) break
+      }
+    }
+  }
+  if (cands.length) {
+    // 被当成“旧名字”的那个路径必须确实不在了，否则会把没动过的兄弟文件也一起挪走
+    const froms = [...new Map(cands.map((c) => [pathKey(c.from), c.from])).values()]
+    const [targetIds, fromIds] = await Promise.all([
+      window.api.fs.fileIds(cands.map((c) => c.target)),
+      Promise.all(froms.map(async (f) => (await window.api.fs.fileIds([f]))[0] ?? (await dirExists(f))))
+    ])
+    const fromAlive = new Map(froms.map((f, i) => [pathKey(f), !!fromIds[i]]))
+    const done = new Set<string>()
+    cands.forEach((c, i) => {
+      if (targetIds[i] !== c.want || fromAlive.get(pathKey(c.from)) || done.has(pathKey(c.from))) return
+      // 同一个旧路径只处理一次（文件夹改名时，里面每个打开的文件都会命中同一对）
+      done.add(pathKey(c.from))
+      renamePath(c.from, c.to)
+      toast(t('“{0}” 已在磁盘上改名为 “{1}”，标签已跟着更新', basename(c.from), basename(c.to)))
+    })
+  }
+
+  // 剩下的：确实被删了（或者新位置还没出现，下一批变化再试）
+  for (const p of missing) {
+    if (!openPaths().some((x) => samePath(x, p)) || gone.has(pathKey(p))) continue
+    gone.add(pathKey(p))
+    toast(t('“{0}” 已在磁盘上被删除', basename(p)))
+  }
+}
+
+/** 文件夹是否存在（fileIds 只认文件） */
+async function dirExists(p: string): Promise<boolean> {
+  try {
+    await window.api.fs.readDir(p)
+    return true
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -1709,10 +1839,8 @@ export async function reloadFromDisk(path: string): Promise<void> {
   const tab = findTab(path)
   if (!tab) return
   const r = await window.api.fs.readFile(tab.path)
-  if (!r.ok) {
-    if (r.reason === 'missing') toast(t('“{0}” 已在磁盘上被删除', basename(tab.path)))
-    return
-  }
+  // 文件不见了由 followRenames 处理（认出改名就跟过去，否则提示已删除）
+  if (!r.ok) return
   const enc = { encoding: r.encoding, bom: r.bom }
   const current = tab.model.getValue(monaco.editor.EndOfLinePreference.TextDefined)
   if (r.content === current) return

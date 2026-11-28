@@ -46,6 +46,7 @@ const api: Api = {
     createFile: (dir, name) => ipcRenderer.invoke('fs:createFile', dir, name),
     createDir: (dir, name) => ipcRenderer.invoke('fs:createDir', dir, name),
     rename: (from, newName) => ipcRenderer.invoke('fs:rename', from, newName),
+    fileIds: (paths) => ipcRenderer.invoke('fs:fileIds', paths),
     trash: (p) => ipcRenderer.invoke('fs:trash', p),
     reveal: (p) => ipcRenderer.invoke('fs:reveal', p),
     watch: (root) => ipcRenderer.invoke('fs:watch', root),

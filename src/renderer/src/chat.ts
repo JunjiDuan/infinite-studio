@@ -732,6 +732,27 @@ class ChatView implements ChatHost {
         onCancel: (fn) => {
           cancelFn = fn
           if (cancelled) fn()
+        },
+        waiting: (text, check) => {
+          status.textContent = text
+          const btn = h(
+            'button',
+            {
+              class: 'btn small primary',
+              onClick: async () => {
+                btn.disabled = true
+                status.textContent = t('正在检查登录状态…')
+                // 返回文字表示还没登录好：显示原因，继续等
+                const notYet = await Promise.resolve(check()).catch((e) => errText(e))
+                if (notYet && !cancelled) {
+                  status.textContent = notYet
+                  btn.disabled = false
+                }
+              }
+            },
+            t('我已在浏览器中完成登录')
+          ) as HTMLButtonElement
+          extra.append(h('div', { class: 'login-row' }, btn))
         }
       }
       try {
