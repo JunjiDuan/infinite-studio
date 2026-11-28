@@ -584,8 +584,7 @@ export class AcpDriver implements Driver {
   }
 
   async logout(): Promise<void> {
-    if (this.isAntigravity) throw new Error(t('Google 账号的登录由 Gemini 命令行工具管理：在终端里运行 agy，输入 /logout 退出登录'))
-    if (!this.isKimi) {
+    if (!this.isKimi && !this.isAntigravity) {
       const st = await window.api.agent.deepseekKeyStatus().catch(() => null)
       if (st?.source === 'env') throw new Error(t('API Key 来自环境变量 DEEPSEEK_API_KEY 或 ~/.dsh/.env，请在那里删除'))
       await window.api.agent.setDeepseekKey(null)
@@ -593,8 +592,18 @@ export class AcpDriver implements Driver {
       this.host.capabilities()
       return
     }
+    // Gemini（agy）和 Kimi：ACP 的 logout 方法。agy 在 initialize 里声明了 agentCapabilities.auth.logout，
+    // 由它自己清掉系统钥匙串里的凭据（Windows 凭据管理器 gemini:antigravity）
     await this.ensure()
-    await this.request('logout', {}, 30_000)
+    const cli = this.isAntigravity ? 'agy' : 'kimi'
+    if (this.isAntigravity && !this.caps?.auth?.logout) throw new Error(t('当前版本的 Gemini 命令行工具不支持在这里退出登录：在终端里运行 {0}，输入 /logout', cli))
+    try {
+      await this.request('logout', {}, 30_000)
+    } catch (e) {
+      const msg = (e as Error).message
+      if (/method not found|-32601|not supported|unknown method/i.test(msg)) throw new Error(t('当前版本的命令行工具不支持在这里退出登录：在终端里运行 {0}，输入 /logout', cli))
+      throw e
+    }
     this.stopProcess()
     this.account = undefined
     this.models = []

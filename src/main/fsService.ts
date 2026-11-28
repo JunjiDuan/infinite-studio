@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, ipcMain, shell, type WebContents } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell, type WebContents } from 'electron'
 import { promises as fs, watch, type FSWatcher } from 'node:fs'
 import path from 'node:path'
 import type { BinaryResult, DirEntry, ReadResult, TextEncodingInfo } from '../shared/types'
@@ -216,6 +216,38 @@ export function registerFsIpc(): void {
       })
     )
   )
+
+  // 另存为 / 导出：系统保存对话框，返回选中的路径（取消为 null）
+  ipcMain.handle('fs:saveDialog', async (e, opts: { defaultPath?: string; title?: string; filters?: { name: string; extensions: string[] }[] }) => {
+    const w = senderWindow(e)
+    const o: Electron.SaveDialogOptions = {
+      title: opts?.title ? String(opts.title) : undefined,
+      defaultPath: opts?.defaultPath ? String(opts.defaultPath) : undefined,
+      filters: Array.isArray(opts?.filters) ? opts.filters : undefined
+    }
+    const r = w ? await dialog.showSaveDialog(w, o) : await dialog.showSaveDialog(o)
+    return r.canceled || !r.filePath ? null : r.filePath
+  })
+
+  // 把一份完整的 HTML 排版成 PDF（Notebook 导出用）：隐藏窗口里加载，用 Chromium 的打印引擎输出
+  ipcMain.handle('fs:htmlToPdf', async (_e, html: string, out: string, opts?: { landscape?: boolean }) => {
+    const tmp = path.join(app.getPath('temp'), `infinite-studio-export-${process.pid}-${Date.now()}.html`)
+    await fs.writeFile(tmp, String(html), 'utf8')
+    // 不执行页面脚本、不给 Node：导出的内容来自 Notebook 输出，不可信
+    const win = new BrowserWindow({ show: false, width: 1000, height: 1400, webPreferences: { sandbox: true, javascript: false, contextIsolation: true, nodeIntegration: false } })
+    win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    win.webContents.on('will-navigate', (ev) => ev.preventDefault())
+    try {
+      await win.loadFile(tmp)
+      // 等图片解码完（data: 图片很快，远程图片最多等几秒）
+      await new Promise((r) => setTimeout(r, 300))
+      const pdf = await win.webContents.printToPDF({ printBackground: true, pageSize: 'A4', landscape: !!opts?.landscape, margins: { top: 0.6, bottom: 0.6, left: 0.6, right: 0.6 },generateDocumentOutline: true })
+      await fs.writeFile(out, pdf)
+    } finally {
+      win.destroy()
+      await fs.rm(tmp, { force: true }).catch(() => undefined)
+    }
+  })
 
   // 删除一律进回收站，可以找回
   ipcMain.handle('fs:trash', async (_e, p: string) => {

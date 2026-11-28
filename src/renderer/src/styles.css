@@ -5653,6 +5653,28 @@ a.tool-sum:hover {
 .help-status.err {
   color: var(--bad, var(--accent));
 }
+/* Notebook 导出对话框（复用新建项目对话框的行、分段选择和复选框） */
+.nbx-card {
+  max-width: 560px;
+}
+.nbx-form {
+  flex: none;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  margin-top: 8px;
+  padding: 18px 24px;
+}
+.nbx-form .np-row[hidden] {
+  display: none;
+}
+.nbx-form .np-path {
+  margin-top: -2px;
+}
+.nbx-tags {
+  margin: 4px 0 0 !important;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+}
 /* 新建项目对话框 */
 .np-card {
   max-width: 720px;

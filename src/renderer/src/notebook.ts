@@ -5,6 +5,7 @@ import { openFile, openView, pathKey, registerPreviewer, revealView, samePath, t
 import { t } from './i18n'
 import { icons } from './icons'
 import { monaco } from './monaco'
+import { openNotebookExport } from './notebookExport'
 import { newTerminal } from './panel'
 import { emit, on, state } from './store'
 import { FONTS } from './theme'
@@ -85,7 +86,7 @@ let cellSeq = 0
 
 /* ---------------- 工具 ---------------- */
 
-function joinText(v: unknown): string {
+export function joinText(v: unknown): string {
   if (Array.isArray(v)) return v.join('')
   return typeof v === 'string' ? v : ''
 }
@@ -138,7 +139,7 @@ function toUtf16(s: string, cp: number): number {
 }
 
 /** 处理回车符：同一行里 \r 之后的内容覆盖之前的（进度条）。行尾的 \r 保留，等下一段输出来覆盖 */
-function applyCR(s: string): string {
+export function applyCR(s: string): string {
   if (!s.includes('\r')) return s
   return s
     .replace(/\r\n/g, '\n')
@@ -152,13 +153,13 @@ function applyCR(s: string): string {
     .join('\n')
 }
 
-function sanitizeB64(s: string): string {
+export function sanitizeB64(s: string): string {
   return s.replace(/\s+/g, '')
 }
 
-const IMG_MIME: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml', bmp: 'image/bmp' }
+export const IMG_MIME: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml', bmp: 'image/bmp' }
 
-function resolveLocal(dir: string, rel: string): string {
+export function resolveLocal(dir: string, rel: string): string {
   if (/^([a-zA-Z]:[\\/]|[\\/])/.test(rel)) return rel
   const sep = dir.includes('\\') ? '\\' : '/'
   const parts = dir.split(/[\\/]/)
@@ -185,7 +186,7 @@ function xterm256(n: number): string {
 }
 
 /** 把带 ANSI 转义的文本转成节点（只处理颜色和粗体，其他控制序列丢掉） */
-function ansi(text: string): DocumentFragment {
+export function ansi(text: string): DocumentFragment {
   const frag = document.createDocumentFragment()
   let fg: string | null = null
   let bg: string | null = null
@@ -607,6 +608,10 @@ export function openNotebook(path: string): void {
     h(
       'div',
       { class: 'dp-actions' },
+      btn(t('导出'), icons.arrowDown, t('导出为 HTML、PDF、Markdown 或脚本'), () => {
+        if (!nb.loaded) return
+        openNotebookExport({ path: nb.spec.path!, data: JSON.parse(serialize(nb)) as Json, lang: nb.lang })
+      }),
       iconBtn(icons.file, t('以文本方式打开'), () => {
         if (nb.version !== nb.savedVersion) return toast(t('请先保存 Notebook，再以文本方式打开'))
         void openFile(nb.spec.path!, { raw: true })
@@ -1485,7 +1490,7 @@ function renderOutput(nb: Nb, o: Output): Node | null {
   }
 }
 
-const MIME_ORDER = ['text/html', 'image/svg+xml', 'image/png', 'image/jpeg', 'image/gif', 'image/webp', 'text/markdown', 'text/latex', 'application/json', 'text/plain']
+export const MIME_ORDER = ['text/html', 'image/svg+xml', 'image/png', 'image/jpeg', 'image/gif', 'image/webp', 'text/markdown', 'text/latex', 'application/json', 'text/plain']
 
 function renderMime(nb: Nb, data: Json, meta: Json): Node | null {
   const mime = MIME_ORDER.find((m) => m in data)

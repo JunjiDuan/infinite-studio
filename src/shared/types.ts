@@ -392,6 +392,10 @@ export interface Api {
     rename(from: string, newName: string): Promise<string>
     /** 文件在磁盘上的身份（改名 / 移动后不变）；不存在或不是文件时为 null */
     fileIds(paths: string[]): Promise<(string | null)[]>
+    /** 系统保存对话框，返回选中的路径；取消为 null */
+    saveDialog(opts: { defaultPath?: string; title?: string; filters?: { name: string; extensions: string[] }[] }): Promise<string | null>
+    /** 把完整的 HTML 文档排版成 PDF 写到 out（不执行页面脚本） */
+    htmlToPdf(html: string, out: string, opts?: { landscape?: boolean }): Promise<void>
     /** 移到回收站 */
     trash(path: string): Promise<void>
     reveal(path: string): Promise<void>
